@@ -1,0 +1,280 @@
+[
+  {
+    "name": "save_file",
+    "description": "Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/cbot/files/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "e.g. briefing-2026-11-09.md"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "content"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_routine",
+    "description": "Create a recurring routine you will run on a schedule. `schedule` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. \"0 8 * * 1-5\" for weekdays at 8:00. `prompt` is the instruction you will follow each time it runs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string",
+          "description": "IANA timezone, e.g. America/Los_Angeles. Default: UTC"
+        }
+      },
+      "required": [
+        "name",
+        "prompt",
+        "schedule"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "stay_silent",
+    "description": "End this turn without sending the user anything. Use during check-ins, routines or bot-to-bot exchanges when there is nothing worth telling the user.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": []
+    }
+  },
+  {
+    "name": "end_call",
+    "description": "Hang up the voice call you are on. Use it only on a voice call, when the user says goodbye or asks to end the call: say a short goodbye in the same reply first, then call it, and write nothing after it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "required": []
+    }
+  },
+  {
+    "name": "set_checkins",
+    "description": "Turn proactive check-ins on or off and set when they happen (only the primary Bot does check-ins). times are local 24h 'HH:MM' strings; timezone is IANA (e.g. America/Los_Angeles). Leave timezone out to keep the current one, which starts as UTC.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "times": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_routines",
+    "description": "List your routines.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "required": []
+    }
+  },
+  {
+    "name": "update_routine",
+    "description": "Change or pause one of your routines.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "routine_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "routine_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_routine",
+    "description": "Delete one of your routines.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "routine_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "routine_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "send_to_bot",
+    "description": "Send a message to another Bot on the user's team (by name) to delegate work or ask a question. Their reply will arrive later as a new message to you.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "bot_name": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bot_name",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "create_group",
+    "description": "Create a group chat between the user and several Bots on the team (by name). It appears in the user's sidebar; when the user posts there, the relevant Bots answer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "bot_names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "bot_names"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "post_to_group",
+    "description": "Post a message into a group chat you are a member of.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "group_name": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "group_name",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "show_weather",
+    "description": "Show the current weather and the forecast for a place as a card in the chat (temperature, conditions, the next hours and the next days), from Open-Meteo. Always use this for weather questions, even if you know another way to look the weather up, then answer in one or two short sentences; the card has the details.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string",
+          "description": "City, optionally with region or country, e.g. \"Louisville, KY\" or \"Tokyo\""
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "post_to_chat",
+    "description": "Post a message in your text chat with the user. On a voice call, use it for anything better read than heard (links, addresses, lists, code, numbers to copy, a written summary), then tell the user it's in the chat instead of reading it out. In the text chat itself, write your reply instead.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The message, in markdown"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ask_user",
+    "description": "Ask the user a multiple-choice question when you need a decision before continuing. Give up to 5 short options; the user can always answer something else instead. Set multiple to true when they may pick more than one. Ends your turn; their answer arrives as their next message.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "multiple": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question",
+        "options"
+      ],
+      "additionalProperties": false
+    }
+  }
+]

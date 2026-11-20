@@ -1,0 +1,58 @@
+# cbot for development, in two containers: `cbot` (the app, a screen per bot with an X display and
+# VNC server, Chrome and Hermes, set up by scripts/provision.sh) and `speech` (Phonon text-to-speech
+# and speech recognition on the CPU). ZONOS3-Mini (zonos3/) is off; speech/README.md says how to
+# run it again.
+# Production runs on a machine of its own without the app container (scripts/deploy.sh, deploy/).
+#
+#   CBOT_PORT=8788 docker compose -p cbot-dev up -d --build --remove-orphans    # images cbot:dev and cbot-speech:dev, .env, port 8788
+#
+# `down` keeps the volumes (the database, the bots' Hermes homes, Chrome profiles and Library files);
+# only `down -v` deletes them. The speech service keeps no data.
+#
+# For web UI work, run the Vite dev server on the host against a running container:
+#   CBOT_API=http://127.0.0.1:8788 npm run dev -w web           # then open http://localhost:5173
+services:
+  cbot:
+    build: .
+    image: cbot:dev
+    # .env can set TZ, the bots' clocks (home screen, Chrome, terminals, Hermes, routines); UTC when unset.
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      # The speech service, on the internal `speech` network (speech/README.md).
+      SPEECH_URL: http://speech:8000
+    volumes:
+      - data:/data
+      # Chrome profiles and Library files (/root/cbot), and whatever else the bots keep in their home.
+      - root:/root
+    # Chrome needs more shared memory than Docker's 64 MB default.
+    shm_size: 2gb
+    # Reaps the detached processes the server starts (displays, gateways, Chrome).
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${CBOT_PORT:-8787}:8787"
+    networks: [default, speech]
+
+  # Phonon text-to-speech and Parakeet/Nemotron speech recognition, reached only from cbot as
+  # http://speech:8000. Its models are in the image, and its one network is internal: no route out.
+  speech:
+    build: speech
+    image: cbot-speech:dev
+    environment:
+      # Model threads; keep at or below `cpus`.
+      SPEECH_THREADS: 4
+    # Four of the host's CPUs at most, so a call leaves the rest to the bots' Chrome and Hermes.
+    cpus: 4
+    init: true
+    restart: unless-stopped
+    networks: [speech]
+
+networks:
+  # Only cbot and the speech services, with no route to the host's network or the internet.
+  speech:
+    internal: true
+
+volumes:
+  data:
+  root:

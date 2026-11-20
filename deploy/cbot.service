@@ -1,0 +1,26 @@
+# cbot on its production host. scripts/provision.sh installs this as /etc/systemd/system/cbot.service.
+[Unit]
+Description=cbot
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/cbot/current
+# HOST is loopback only: Tailscale Serve holds 8787 on the tailnet address and passes HTTPS on to it.
+# SPEECH_URL is the speech service's fixed address on its Docker network (deploy/speech.compose.yaml).
+Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8787 DATA_DIR=/var/lib/cbot LANG=C.UTF-8 SPEECH_URL=http://172.31.250.2:8000
+# TZ and the rest, from .env.prod on the dev machine (scripts/deploy.sh). The account is in the database.
+EnvironmentFile=/etc/cbot/env
+ExecStart=/usr/bin/node server/dist/index.js
+# The bots' screens, Chromes and Hermes gateways are this server's children but outlive it: stopping
+# or restarting the service (a deploy) stops only the server, which finds them again when it starts.
+# systemd notes each one it finds still running as a "left-over process"; that is expected.
+KillMode=process
+Restart=always
+RestartSec=2
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

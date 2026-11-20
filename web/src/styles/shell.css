@@ -1,0 +1,124 @@
+/* ---------- window: rail · chat · details ---------- */
+.app { position: relative; display: flex; height: 100%; width: 100%; background: var(--color-bg-chrome); overflow: hidden; }
+
+/* The rail: bots as icons, then new bot and the account at the bottom. No labels; hover says what each is.
+   ⌘B (or the header's button) opens it into the full sidebar: names and previews, a top row with
+   collapse, Search and New bot, hidden bots in their own section, and the user name by the avatar. */
+.sidebar {
+  --status-ring: var(--color-bg-sidebar);
+  position: relative; z-index: 30; display: flex; flex-direction: column; flex-shrink: 0;
+  width: var(--rail-w); height: 100%;
+  background: var(--color-bg-sidebar); box-shadow: inset -1px 0 0 var(--sidebar-border);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.sidebar.is-expanded { width: var(--sidebar-open-w); }
+
+/* Zero height in the rail, so the list slides down as it grows in rather than jumping. */
+.rail__top {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0; height: 0; padding: 0 12px 0 15px;
+  overflow: hidden; opacity: 0; visibility: hidden;
+  transition: height var(--dur-slow) var(--ease-out), opacity var(--dur-med) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.sidebar.is-expanded .rail__top { height: var(--header-h); opacity: 1; visibility: visible; transition-delay: 0s; }
+.rail__toggle {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; margin-right: auto; border-radius: 9px;
+  color: var(--color-text-secondary); transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+.rail__toggle:hover { color: var(--color-text-primary); background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.rail__top .icon-btn { width: 34px; height: 34px; flex-shrink: 0; }
+
+.rail__scroll { flex: 1 1 0; min-height: 0; width: var(--rail-w); overflow-y: auto; overflow-x: hidden; padding: 12px 0 8px; scrollbar-width: none; }
+.rail__scroll::-webkit-scrollbar { display: none; }
+.rail__label { display: none; }
+.rail__bots { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+.rail-bot { position: relative; display: flex; align-items: center; justify-content: center; border-radius: 13px; }
+.rail-bot__tile {
+  position: relative; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; flex-shrink: 0; border-radius: 13px;
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.rail-bot:hover .rail-bot__tile { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.rail-bot:active .rail-bot__tile { transform: scale(0.95); }
+.rail-bot.is-selected .rail-bot__tile { background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight); }
+.rail-bot .status-dot { top: 5px; right: 5px; }
+.rail-bot__text { display: none; }
+.rail-bot__name, .rail-bot__preview { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-bot__name { font-size: var(--text-sm); font-weight: 500; line-height: 18px; color: var(--color-text-primary); }
+.rail-bot__preview { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.rail-bot.has-attention .rail-bot__preview { color: var(--color-warn-text); }
+.rail-bot.has-unread .rail-bot__name { font-weight: 600; }
+
+.rail__foot { display: flex; flex-direction: column; align-items: center; gap: 2px; width: var(--rail-w); flex-shrink: 0; padding: 6px 0 14px; }
+.rail-btn {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 12px; width: 40px; height: 36px; border-radius: 10px;
+  color: var(--color-text-secondary); transition: background-color var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.rail-btn:hover { color: var(--color-text-primary); background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.rail-btn:active { transform: scale(0.94); }
+.rail-btn__icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; flex-shrink: 0; }
+
+.rail-account { position: relative; margin-top: 8px; }
+.rail-account__btn { display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: var(--radius-full); transition: transform var(--dur-fast) var(--ease-out); }
+.rail-account__btn:active { transform: scale(0.95); }
+.rail-account__initials {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: var(--radius-full);
+  background: linear-gradient(160deg, var(--surface-active), var(--surface)); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
+  color: var(--color-text-secondary); font-size: 11px; font-weight: 600; line-height: 1; letter-spacing: 0.02em;
+  transition: box-shadow var(--dur-fast), color var(--dur-fast);
+}
+.rail-account__photo { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: inset 0 0 0 1px var(--border); }
+.rail-account__btn:hover .rail-account__initials, .rail-account__btn[aria-expanded='true'] .rail-account__initials { color: var(--color-text-primary); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--input); }
+.rail-account .menu { left: 4px; min-width: 220px; }
+/* The account initials are reused in settings. */
+.account__initials {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: var(--radius-full);
+  background: linear-gradient(160deg, var(--surface-active), var(--surface-hover)); color: var(--color-text-secondary); font-size: 12px; font-weight: 600;
+}
+
+.drawer-scrim { display: none; }
+
+/* ---------- the full sidebar (wide screens on ⌘B, and always the phone drawer) ---------- */
+/* Avatars stay where they were in the rail (13px in), so opening only adds what sits beside them. */
+.sidebar.is-expanded .rail__scroll, .sidebar.is-expanded .rail__foot { width: 100%; padding-left: 8px; padding-right: 8px; }
+.sidebar.is-expanded .rail__scroll { padding-top: 2px; }
+.sidebar.is-expanded .rail__label { display: block; padding: 16px 10px 6px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); animation: fade var(--dur-med) var(--ease-out); }
+.sidebar.is-expanded .rail__bots { align-items: stretch; gap: 2px; }
+.sidebar.is-expanded .rail-bot {
+  justify-content: flex-start; gap: 10px; min-height: 54px; padding: 4px 5px; border-radius: 12px; text-align: left;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.sidebar.is-expanded .rail-bot:hover { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.sidebar.is-expanded .rail-bot.is-selected { background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight); }
+.sidebar.is-expanded .rail-bot .rail-bot__tile { background: transparent; box-shadow: none; }
+.sidebar.is-expanded .rail-bot__text { display: flex; flex-direction: column; gap: 1px; flex: 1 1 0; min-width: 0; padding-right: 8px; animation: fade var(--dur-slow) var(--ease-out); }
+.sidebar.is-expanded .rail-bot__name { font-size: 14px; line-height: 19px; }
+.sidebar.is-expanded .rail-bot__preview { font-size: 14px; line-height: 19px; }
+.sidebar.is-expanded .rail__foot { align-items: stretch; padding-bottom: 14px; }
+.sidebar.is-expanded .rail-account { margin-top: 0; }
+.sidebar.is-expanded .rail-account__btn { width: 100%; justify-content: flex-start; padding: 6px 12px; border-radius: 12px; transition: background-color var(--dur-fast); }
+.sidebar.is-expanded .rail-account__btn:hover, .sidebar.is-expanded .rail-account__btn[aria-expanded='true'] { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.sidebar.is-expanded .rail-account__btn .rail-bot__text { display: flex; animation: fade var(--dur-slow) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .rail__top { transition: none; }
+  .sidebar.is-expanded .rail-bot__text, .sidebar.is-expanded .rail__label { animation: none; }
+}
+
+/* ---------- narrow screens: the full sidebar becomes a drawer ---------- */
+@media (max-width: 560px) {
+  .sidebar, .sidebar.is-expanded {
+    position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw);
+    transform: translateX(-100%); transition: transform var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow);
+    background: var(--color-bg-sidebar); padding-top: env(safe-area-inset-top);
+  }
+  .sidebar.is-drawer-open { transform: none; box-shadow: 0 0 0 1px var(--border), 24px 0 48px -12px #00000080; }
+  .drawer-scrim {
+    display: block; position: fixed; inset: 0; z-index: 25; background: var(--color-bg-scrim);
+    opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out);
+  }
+  .app.is-drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
+  .sidebar.is-expanded .rail__foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+}
+
+/* the rail's right-click menu sits at the pointer */
+.ctx-anchor { position: fixed; z-index: 95; width: 0; height: 0; }
+.ctx-anchor .menu { top: 2px; left: 2px; min-width: 210px; transform-origin: top left; }

@@ -1,0 +1,21 @@
+# The speech service on cbot's production host (scripts/release.sh runs it). Its network is internal,
+# so it has no route out; the host reaches it at a fixed address, which deploy/cbot.service passes to
+# the server as SPEECH_URL. ZONOS3-Mini (zonos3/) is off; speech/README.md says how to run it again.
+name: cbot-speech
+services:
+  speech:
+    image: ${SPEECH_IMAGE:?set SPEECH_IMAGE}
+    environment:
+      SPEECH_THREADS: 4
+    cpus: 4
+    init: true
+    restart: unless-stopped
+    networks:
+      speech:
+        ipv4_address: 172.31.250.2
+networks:
+  speech:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.31.250.0/29

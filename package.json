@@ -1,0 +1,29 @@
+{
+  "name": "cbot",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "description": "cbot: a team of Hermes agents, each with its own screen on one computer.",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w server & npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "npm run start -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w server && npm run test -w web && npm run test:box && npm run test:speech",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "lint": "eslint .",
+    "test:box": "python3 -m unittest discover -s server/box -p 'test_*.py'",
+    "test:speech": "python3 -m unittest discover -s speech/app -p 'test_*.py'"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "typescript-eslint": "8.72.1"
+  }
+}

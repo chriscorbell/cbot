@@ -1,0 +1,59 @@
+/* The sign-in screen: one narrow column on the window background. It covers the app while it fades out. */
+.signin {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; padding: 24px 16px; overflow-y: auto;
+  background: var(--color-bg-chrome);
+}
+.signin.is-exiting { animation: signin-out 280ms var(--ease-out) forwards; pointer-events: none; }
+
+.signin__card {
+  display: flex; flex-direction: column; gap: 14px;
+  width: min(100%, 300px);
+  animation: signin-in 520ms var(--ease-out) both;
+}
+.signin.is-exiting .signin__card { animation: signin-card-out 280ms var(--ease-out) forwards; }
+.signin__card.is-shaking { animation: signin-in 520ms var(--ease-out) both, signin-shake 420ms var(--ease-out); } /* keeps signin-in listed so it doesn't replay */
+
+.signin__avatar { align-self: center; display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 4px; animation: signin-in 620ms var(--ease-out) both; }
+.signin__head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; text-align: center; animation: fade 260ms var(--ease-out) both; }
+.signin__title { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: 24px; letter-spacing: -0.01em; color: var(--color-text-primary); }
+.signin__sub { margin: 0; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-secondary); text-wrap: balance; }
+.signin__hint { padding-left: 2px; font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.signin__reveal-in { animation: rise 240ms var(--ease-out) both; }
+
+.signin__field { display: flex; flex-direction: column; gap: 6px; }
+.signin__label { padding-left: 2px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); }
+.signin .text-input { height: 38px; border-radius: var(--radius-md); }
+
+.signin__password { position: relative; }
+.signin__password .text-input { padding-right: 40px; }
+.signin__reveal {
+  position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: var(--radius-sm); color: var(--color-text-tertiary);
+  transition: color var(--dur-fast), background-color var(--dur-fast);
+}
+.signin__reveal:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
+
+.signin__error { animation: rise 200ms var(--ease-out) both; }
+.signin__submit { height: 38px; margin-top: 4px; }
+.signin__spinner { width: 13px; height: 13px; border-color: color-mix(in srgb, var(--color-on-primary) 25%, transparent); border-top-color: var(--color-on-primary); }
+
+@keyframes signin-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes signin-card-out { to { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+@keyframes signin-out { to { opacity: 0; } }
+@keyframes signin-shake {
+  0%, 100% { transform: none; }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signin__card, .signin__avatar, .signin__error, .signin__head, .signin__reveal-in, .signin__card.is-shaking, .signin.is-exiting .signin__card { animation: none; }
+  .signin.is-exiting { animation-duration: 1ms; }
+}
+
+/* Settings → Account → Change password reuses the sign-in screen's password fields. */
+.password-modal__fields { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.account__changed { display: inline-flex; align-items: center; gap: 4px; color: var(--color-success); animation: rise 200ms var(--ease-out) both; }

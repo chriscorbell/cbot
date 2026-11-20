@@ -1,0 +1,127 @@
+{
+  "phonon-31m-en": {
+    "repo": "gradium/phonon-31m-en",
+    "revision": "92741c5b07d085ff840e26fea8ce43110b87852f",
+    "license": "Apache-2.0",
+    "files": {
+      "config.json": "git:11cfeb2513febe31358a8ff942093e0b2c28710a",
+      "model.q8.gguf": "sha256:a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae",
+      "tokenizer.json": "git:70d39980cb2154bd364dbed8424b1343923a03e2",
+      "default-voice.safetensors": "sha256:dc537478eaadc1a5257fcda2e3501ab81e14c111a5d95a5838f350db2afd0f1a"
+    }
+  },
+  "phonon-voices-en": {
+    "repo": "gradium/phonon-voices",
+    "revision": "0ee17205f254b5abc43b266c8a0f215565c352f7",
+    "license": "Apache-2.0",
+    "files": {
+      "voices.jsonl": "git:0bbfdc6749bb9bab0d038627040482ce9a8e5792",
+      "voices/NbpkqMVS3CJeq2j8.safetensors": "sha256:97c7f8c253413574406ab80dd23f49c3ebb2517163b00a9bf86b9c4cf43e7e23",
+      "voices/NIWIOv5vTi5eRMj8.safetensors": "sha256:444378eb06b7c492b86e8fc7d13e4db1a3c0cf3e68891a960bf6f0a41a13ef35",
+      "voices/vjFyp2BcCyTlUmYb.safetensors": "sha256:958ea94da14f46dd48c7f64adac11ed2ad2aa45f7ccd165dfebab5272664402e",
+      "voices/4SZHfMpw-p46Ywgs.safetensors": "sha256:6b3da6e2d796a20c51af892c482bd6509fb88267a221aff83c870843dee2a123",
+      "voices/bXwrkHhURL1VFJdG.safetensors": "sha256:a879938aa9a2df0a8220bdadef88137929f71e887bd91e7db205bd5fa11661d2",
+      "voices/nGzMHMPAWGaJFHOo.safetensors": "sha256:a0c3dcb91b2247eca56536be9ae8e8becc1c807b1136c5fe101552d6a155b24a",
+      "voices/LMDIYE0Oa377Qh6Z.safetensors": "sha256:45c582673cb20edb04ddcca2b5a8865ddfb0a82599efadb269021e87d20fbdd4",
+      "voices/40QrMVgAxFiUnP9f.safetensors": "sha256:0de1098d1051686a138d068e83ff09deb5053328bc74ec9541a1fdb90bfc24da",
+      "voices/0zLApsZfVLLNaEGl.safetensors": "sha256:dc1341c8937af5534e6bbcc5c0fc5e7c10312229b59061228074f93683fe2261",
+      "voices/_6Aslh2DxfmnRLmP.safetensors": "sha256:beae9e4030efce0a935fcb0f807dc0784d598bcaa87ad4aacb047436b1eaa411",
+      "voices/qIxlZ7Ei8KvWlyQH.safetensors": "sha256:6e04b84d3ae8751b22bca0a4f63936f9cb648f4f2182b2d0788071ea1c0b68a1",
+      "voices/d9XCyhjo4JhkHF1d.safetensors": "sha256:eab20e4f159b48cfbc01b1885804e24f681f80e7a64f909182763a4e3361bee8",
+      "voices/6PWnV0Nq4wu7RVBT.safetensors": "sha256:56494ee67d533ad227ff0dfd0b1c13ff5aa91f1ad6e596e66c2986ba3005e844",
+      "voices/GgfEkEJtxZR7gnpy.safetensors": "sha256:eb3cd47418349e618408c16bea7153988b3ad04b41a6033039dd474a9a4dcd23",
+      "voices/uem82D50GRv2Dwma.safetensors": "sha256:d41a8f01d6e33450f1ce062d332914da10beee99e585dab531750706f187c48a",
+      "voices/y9bQqIDnyxwqK01t.safetensors": "sha256:21eade9d83b2e66b9364e1b6cd999a3a6704c000a71f27f34e05ace5cdfd58bb",
+      "voices/gDT1nz7Ie36ZhL-C.safetensors": "sha256:1980ab3c35fa98a25b5f3b5e643fd852e14ca8a12a4a26b06aaf1abf2a8c68b1",
+      "voices/m9MxpY6IUGXtWp76.safetensors": "sha256:a906ebf17e43fded12b3d6bd077abb2df33bc86eff51c1beeb82e5d416527db3",
+      "voices/X6NceqF285Gr04gb.safetensors": "sha256:4de75497fff3030168e8aa6dca23ffeb332b1bc8c25d0bf3507ceadac953ae9c",
+      "voices/YyKcxPG7iIgS3jsK.safetensors": "sha256:3169d74b47a54d1eb15e4c243f56393abe9fe90c7e1c308ecf96ee67618b152a",
+      "voices/zUCxzrOrugTSis03.safetensors": "sha256:ff1d0735b8b45710462b1d1f846da040f970c6eb62c7c2f36dbfb8e5bde74f1e",
+      "voices/JOW0vchyswkQUMDS.safetensors": "sha256:cc9ac1107b0ffce282374a19beb7bfa95847724e6b7afbac991b4ae4277d5e6d",
+      "voices/dME3IWyZBvmh1n1q.safetensors": "sha256:09ab315c7f4b72b4d71e66cb756184cedfb1f14d222d096e115bf95bfe7b29dc",
+      "voices/Zn7g6NxLqXlJb7Qi.safetensors": "sha256:baea0ea9506f3237a5ebfc61afb7c72dbd189c5603b199ef42fbb00dbda379e0",
+      "voices/gfP44RlHwr2kEwk7.safetensors": "sha256:bcc207a73b7885e45b49ab633d3377a10158292e3a7cef9cd6764ad107f1cb9b",
+      "voices/xPDpsV3F592srkjA.safetensors": "sha256:a09f615b0084980ebc4076d71550bf73ccd8d4df076bbbee4a9beb523a1379d9",
+      "voices/nOykTmcH9ydsGGIc.safetensors": "sha256:2ff2db91e70648623df8d42c0dcd7c336b2f14cb4362d602a20f292a4d862154",
+      "voices/lX3LavMNdlIbgEHH.safetensors": "sha256:d3f9429205e5906dcd3c78edaf7c9d5148c7e389e34c82c86f72f154adb5d923",
+      "voices/dGyGDKo2osj7h3s7.safetensors": "sha256:83900e020c14946426614c6553c5a138ba6277e1aaa69832223bd0f0f8b73893",
+      "voices/cXoIXJ2llS8S0WOW.safetensors": "sha256:a05944e4c69d61d10d66f689175ba0b081930df2d77b22f04d00ac40d3d69ecb",
+      "voices/GXaSqMEmOg12OIYb.safetensors": "sha256:bfa37bac98aefbb9de80f792c47d01a0f9e3b94e73776169040c249c8b722759",
+      "voices/xO8xQo3BrB8FuI6J.safetensors": "sha256:63ab4b15427844a804480a1603774262e8903dee33cb279e2749860dbfaedd10",
+      "voices/cYtsRSxV5q9IMehn.safetensors": "sha256:b30fa847686ec1eb6be8c5bea4b6a5c5076ea66c3ff053cf98210a155d8aad1e",
+      "voices/gSgG5Tor0GPEnqzC.safetensors": "sha256:a83430cc022b85c83753f859f9e44f406651646dab994fced8ef7a9a88005971",
+      "voices/NIWoEurJHMJjyUTe.safetensors": "sha256:bc8a8fcb95bb4f32d2d4376aa69d81b186b3ba2f8e9b6cb6a403b2b194590e85",
+      "voices/y2eiKxtQo2B67deU.safetensors": "sha256:b3cea6789aeb58822af16ba08c4e5105d7febb840dcb67b47f426c19d1a8f209",
+      "voices/QXNr0SvkukLB4wPq.safetensors": "sha256:f390c09f5e279c0f2171995a534b92f5ca5c83443906879da68fc27445f89d89"
+    }
+  },
+  "parakeet-unified-en-0.6b": {
+    "repo": "csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming",
+    "revision": "8c3a10fb13408c7a7054f6898958bf1c64a8d6c7",
+    "license": "NVIDIA Open Model License",
+    "upstream": "nvidia/parakeet-unified-en-0.6b@fe53cd885760c96b6a5f51a0bfd362cb4584a98b",
+    "files": {
+      "encoder.int8.onnx": "sha256:6716910b7a0833997fec7a410494c995d70124001a0e9b66d6370d6aced577e0",
+      "decoder.int8.onnx": "sha256:a5e223392c90e75f8144cdb5eb95af7625db389e39edef2bd1a9c872b3298fe6",
+      "joiner.int8.onnx": "sha256:869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a",
+      "tokens.txt": "git:50918f5e313e1cf846cf77dfd5b4489c9c7f0b76"
+    }
+  },
+  "parakeet-unified-en-0.6b-streaming-560ms": {
+    "repo": "csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-560ms",
+    "revision": "7551fd26fc810cc1e4e043e608db4d13b59be31e",
+    "license": "NVIDIA Open Model License",
+    "upstream": "nvidia/parakeet-unified-en-0.6b@fe53cd885760c96b6a5f51a0bfd362cb4584a98b",
+    "files": {
+      "encoder.int8.onnx": "sha256:e566c3f014598a41724f2df028779a2d4cf7943cbefa324964f6a72e8ee255fb",
+      "decoder.int8.onnx": "sha256:34fea72425d2506600772ba191a6d3f99c0710abdb68d9a3dc89fa8cb2aa473a",
+      "joiner.int8.onnx": "sha256:869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a",
+      "tokens.txt": "git:50918f5e313e1cf846cf77dfd5b4489c9c7f0b76"
+    }
+  },
+  "parakeet-unified-en-0.6b-streaming-1120ms": {
+    "repo": "csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-streaming-1120ms",
+    "revision": "615bf8c5ad39692dc96cf1105afde73ec3eb2a59",
+    "license": "NVIDIA Open Model License",
+    "upstream": "nvidia/parakeet-unified-en-0.6b@fe53cd885760c96b6a5f51a0bfd362cb4584a98b",
+    "files": {
+      "encoder.int8.onnx": "sha256:1c03f1192de41771384af22972ca10203613ba56197a024f275b86727cd35911",
+      "decoder.int8.onnx": "sha256:34fea72425d2506600772ba191a6d3f99c0710abdb68d9a3dc89fa8cb2aa473a",
+      "joiner.int8.onnx": "sha256:869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a",
+      "tokens.txt": "git:50918f5e313e1cf846cf77dfd5b4489c9c7f0b76"
+    }
+  },
+  "nemotron-speech-streaming-en-0.6b-160ms": {
+    "repo": "csukuangfj2/sherpa-onnx-nemotron-speech-streaming-en-0.6b-160ms-int8-2026-04-25",
+    "revision": "237e551abd7a411ef92d3595454d9f6ab5fe7d6c",
+    "license": "NVIDIA Open Model License",
+    "upstream": "nvidia/nemotron-speech-streaming-en-0.6b@ebe59e5a817142986528bbbee5dba8db7b38ed50",
+    "files": {
+      "encoder.int8.onnx": "sha256:71111f61b18e1e65e01e369434a5c0434868d2f44892742ae54240600c681209",
+      "decoder.int8.onnx": "sha256:0be9702c2f427a2b6bb241d298e0d3836a558de1f5b9fd3018f1cce6e2b3fa98",
+      "joiner.int8.onnx": "sha256:a35eac38a22ebceb04d230ed7afe0d68f446ba6914a036b97f14fece95967e23",
+      "tokens.txt": "git:50918f5e313e1cf846cf77dfd5b4489c9c7f0b76"
+    }
+  },
+  "nemotron-speech-streaming-en-0.6b-560ms": {
+    "repo": "csukuangfj2/sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25",
+    "revision": "52056fdc070914a48dcd68b31b44d6a6f5b85902",
+    "license": "NVIDIA Open Model License",
+    "upstream": "nvidia/nemotron-speech-streaming-en-0.6b@ebe59e5a817142986528bbbee5dba8db7b38ed50",
+    "files": {
+      "encoder.int8.onnx": "sha256:7d932213491ad355c6e5576705dc3494731a52af87d7a1b954559340147909d8",
+      "decoder.int8.onnx": "sha256:0be9702c2f427a2b6bb241d298e0d3836a558de1f5b9fd3018f1cce6e2b3fa98",
+      "joiner.int8.onnx": "sha256:a35eac38a22ebceb04d230ed7afe0d68f446ba6914a036b97f14fece95967e23",
+      "tokens.txt": "git:50918f5e313e1cf846cf77dfd5b4489c9c7f0b76"
+    }
+  },
+  "silero-vad": {
+    "url": "https://raw.githubusercontent.com/snakers4/silero-vad/5cd7945676eb32225748052e2e6a0580e4686a08/src/silero_vad/data/silero_vad.onnx",
+    "version": "v6.2.3",
+    "revision": "5cd7945676eb32225748052e2e6a0580e4686a08",
+    "license": "MIT",
+    "files": {
+      "silero_vad.onnx": "git:80c5592ef1f4c9ede3e357bbd02eb863358a6a9d"
+    }
+  }
+}

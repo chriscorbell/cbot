@@ -1,0 +1,87 @@
+/* The setup wizard after the account is created: one column on the window background, like the sign-in
+   screen it follows. It covers the app (which loads underneath) and sits below the computer viewer, which
+   opens over it for a subscription sign-in. */
+.setup {
+  position: fixed; inset: 0; z-index: 150;
+  display: grid; place-items: center; padding: 32px 16px; overflow-y: auto;
+  background: var(--color-bg-chrome);
+}
+.setup.is-exiting { animation: setup-out 360ms var(--ease-out) forwards; pointer-events: none; }
+.setup.is-exiting .setup__card { animation: setup-card-out 360ms var(--ease-out) forwards; }
+
+.setup__card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+  width: min(100%, 420px);
+  animation: signin-in 520ms var(--ease-out) both;
+}
+
+.setup__progress { display: flex; justify-content: center; gap: 6px; margin-bottom: 6px; }
+.setup__dot {
+  width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--color-border-secondary);
+  transition: width 360ms var(--ease-out), background-color 360ms var(--ease-out);
+}
+.setup__dot.is-done { background: var(--color-text-tertiary); }
+.setup__dot.is-current { width: 22px; background: var(--color-text-primary); }
+
+/* The bot's avatar stays put between steps and shrinks once it has a name. */
+.setup__stage { display: grid; place-items: center; height: 92px; transition: height 420ms var(--ease-out); }
+.setup__stage.is-small { height: 50px; }
+.setup__avatar { display: grid; place-items: center; transition: transform 420ms var(--ease-spring); }
+.setup__stage.is-small .setup__avatar { transform: scale(0.56); }
+
+.setup__step { animation: setup-next 380ms var(--ease-out) both; }
+.setup__step.is-back { animation-name: setup-back; }
+.setup__form { display: flex; flex-direction: column; gap: 14px; }
+
+.setup__head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; text-align: center; }
+.setup__title { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: 24px; letter-spacing: -0.01em; color: var(--color-text-primary); outline: none; }
+.setup__sub { margin: 0; font-size: var(--text-sm); line-height: 19px; color: var(--color-text-secondary); text-wrap: balance; }
+
+.setup .text-input { border-radius: var(--radius-md); }
+.setup__name { height: 40px; text-align: center; font-size: var(--text-lg); }
+.setup__look { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.setup__look .shape-cell { --ring-gap: var(--color-bg-chrome); }
+.setup__instructions { min-height: 96px; }
+
+.setup__actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.setup__end { display: inline-flex; align-items: center; gap: 6px; }
+.setup__next { min-width: 92px; height: 34px; }
+.setup__actions .btn--ghost { height: 34px; }
+.setup__error { animation: rise 200ms var(--ease-out) both; }
+
+.setup__link {
+  padding: 0; border-radius: var(--radius-xs); color: var(--color-text-secondary); font: inherit; text-decoration: underline;
+  text-decoration-color: var(--color-border-secondary); text-underline-offset: 2px;
+  transition: color var(--dur-fast), text-decoration-color var(--dur-fast);
+}
+.setup__link:hover:not(:disabled) { color: var(--color-text-primary); text-decoration-color: currentColor; }
+.setup__link:disabled { opacity: 0.5; }
+.setup__end > .setup__link { padding: 4px 8px; font-size: var(--text-sm); line-height: 18px; text-decoration: none; }
+
+/* The model step: the provider and model rows of a bot's settings, with what connecting takes between them. */
+.setup__engine { gap: 0; animation: rise 260ms var(--ease-out) both; }
+.setup__connect, .setup__key { display: flex; flex-direction: column; gap: 8px; }
+.setup__connect { padding: 8px 8px 10px; border-top: 1px solid var(--color-border-tertiary); animation: rise 220ms var(--ease-out) both; }
+.setup__code .code-signin { padding: 2px 0 0; }
+.setup__key-row { display: flex; gap: 6px; }
+.setup__key-row .btn { height: 34px; flex-shrink: 0; }
+.setup__wide { width: 100%; height: 34px; }
+.setup__model { border-top: 1px solid var(--color-border-tertiary); border-radius: 0; animation: rise 220ms var(--ease-out) both; }
+
+.setup__wait {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px;
+  font-size: var(--text-sm); line-height: 18px; color: var(--color-text-secondary); animation: fade 260ms var(--ease-out) both;
+}
+.setup__wait--inset { min-height: 44px; border-top: 1px solid var(--color-border-tertiary); }
+.setup__trouble { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; animation: rise 220ms var(--ease-out) both; }
+
+@keyframes setup-next { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes setup-back { from { opacity: 0; transform: translateX(-16px); } to { opacity: 1; transform: none; } }
+@keyframes setup-card-out { to { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+@keyframes setup-out { to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .setup__card, .setup__step, .setup__engine, .setup__connect, .setup__model, .setup__wait, .setup__trouble, .setup__error, .setup.is-exiting .setup__card { animation: none; }
+  .setup__stage, .setup__avatar, .setup__dot { transition: none; }
+  .setup.is-exiting { animation-duration: 1ms; }
+}

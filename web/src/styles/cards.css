@@ -1,0 +1,130 @@
+/* ---------- transcript cards ---------- */
+.card {
+  width: 480px; max-width: 100%; background: var(--surface); border-radius: 16px;
+  box-shadow: inset 0 1px 0 var(--highlight); display: flex; flex-direction: column; overflow: clip;
+  animation: msg-in 260ms var(--ease-out);
+}
+.card__head { display: flex; align-items: center; gap: 11px; padding: 12px 14px 4px; }
+.card__titles { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+.card__title { font-size: var(--text-sm); font-weight: 600; line-height: 18px; color: var(--color-text-primary); }
+.card__sub { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.card__body { padding: 6px 14px 0; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.card__code { margin: 8px 14px 0; padding: 8px 10px; max-height: 160px; overflow: auto; border-radius: 10px; background: var(--surface-active); font-family: var(--font-mono-stack); font-size: 12px; line-height: 17px; color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.card__actions { display: flex; justify-content: flex-end; gap: 6px; padding: 12px 12px 12px; }
+.card__actions .btn { padding: 0 13px; }
+.card__outcome { display: flex; align-items: center; gap: 6px; padding: 8px 14px 12px; font-size: var(--text-xs); line-height: 18px; color: var(--color-text-tertiary); }
+.card__outcome.is-allowed, .card__outcome.is-always, .card__outcome.is-sent { color: var(--color-success-text); }
+.card__outcome.is-denied { color: var(--color-danger-text); }
+.card__error { padding: 0 16px 12px; font-size: var(--text-sm); line-height: 18px; color: var(--color-danger-text); }
+.card.is-resolved .card__head { padding-bottom: 0; }
+.approval-card__tile { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 10px; background: var(--surface-active); color: var(--color-text-secondary); }
+.approval-card:not(.is-resolved) .approval-card__tile { background: var(--color-warn-bg); color: var(--color-warn-text); }
+/* The icon is keyed by status, so it eases in again when the card is answered. */
+.approval-card__tile svg { animation: rise 180ms var(--ease-out); }
+
+/* question card: lettered options, "Something else" last; answered cards stay, dimmed */
+.question-card { width: var(--bubble-max); max-width: 100%; border-radius: 15px; transition: opacity var(--dur-slow) var(--ease-out); }
+.question-card__head { display: flex; flex-direction: column; gap: 1px; padding: 12px 12px 2px; }
+.question-card__q { font-size: var(--text-sm); font-weight: 600; line-height: 18px; color: var(--color-text-primary); }
+.question-card__hint { font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); }
+.question-card__options { display: flex; flex-direction: column; gap: 0; padding: 6px 5px 6px; }
+.question-option {
+  display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 4px 10px 4px 7px; border-radius: 9px; width: 100%; text-align: left;
+  transition: background-color 90ms var(--ease-out);
+}
+.question-option:hover:not(:disabled) { background: var(--surface-active); }
+.question-option:active:not(:disabled) { background: var(--surface-hover); }
+.question-option:disabled { cursor: default; }
+.question-option__key {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex-shrink: 0; border-radius: 6px;
+  font-size: var(--text-2xs); font-weight: 500; line-height: 14px; color: var(--color-text-tertiary);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+.question-option__label { flex: 1 1 0; min-width: 0; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary); }
+.question-option.is-other .question-option__label { color: var(--color-text-tertiary); }
+.question-option__check { color: var(--bot-fill, var(--color-text-primary)); animation: pop-in var(--dur-med) var(--ease-spring); }
+.question-option.is-chosen { background: var(--surface-hover); }
+.question-option.is-chosen .question-option__key { background: var(--bot-action, var(--color-primary)); color: var(--bot-on-action, var(--color-on-primary)); }
+.question-card.is-resolved { opacity: 0.5; }
+.question-card.is-resolved .question-card__q, .question-card.is-resolved .question-option__label { color: var(--color-text-secondary); }
+.question-card.is-resolved .question-option.is-other { display: none; }
+.question-card__foot { display: flex; justify-content: flex-end; padding: 0 10px 10px; }
+
+/* draft card */
+.draft-card__head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 4px 16px; }
+.draft-card__tile { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; background: var(--surface-active); color: var(--color-text-secondary); flex-shrink: 0; }
+.draft-card__titles { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
+.draft-card__channel { font-size: var(--text-sm); font-weight: 600; line-height: 18px; color: var(--color-text-primary); }
+.draft-card__from { font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); }
+.draft-card__copy { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--radius-sm); color: var(--color-text-secondary); transition: background-color var(--dur-fast), color var(--dur-fast); }
+.draft-card__copy:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.draft-card__content { display: flex; flex-direction: column; padding: 10px 16px 14px; }
+.draft-card__to { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid var(--color-border-tertiary); border-bottom: 1px solid var(--color-border-tertiary); }
+.draft-card__to-label { font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); }
+.draft-card__to-avatar { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--color-bg-raised); box-shadow: inset 0 0 0 1px var(--color-border-secondary); color: var(--color-text-secondary); font-size: 10px; font-weight: 600; line-height: 12px; }
+.draft-card__to-name { font-size: var(--text-sm); font-weight: 600; line-height: 18px; color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.draft-card__subject { padding-top: 10px; font-size: var(--text-sm); font-weight: 600; line-height: 20px; }
+.draft-card__text { padding-top: 8px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.draft-card__actions { display: flex; gap: 8px; padding: 4px 16px 16px; }
+
+
+/* ---------- weather card ---------- */
+.wx-card { width: var(--bubble-max); max-width: 100%; padding: 14px 14px 12px; border-radius: 16px; }
+.wx-card__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wx-card__place { font-size: var(--text-sm); font-weight: 600; line-height: 18px; color: var(--color-text-primary); }
+.wx-units { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-full); }
+.wx-units button {
+  height: 20px; min-width: 26px; padding: 0 6px; border-radius: var(--radius-full); font-size: var(--text-2xs); font-weight: 500; line-height: 14px; color: var(--color-text-tertiary);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+.wx-units button:hover { color: var(--color-text-primary); }
+.wx-units button.is-on { background: var(--surface-active); color: var(--color-text-primary); }
+.wx-now { display: flex; align-items: center; gap: 10px; margin: 10px 0 14px; }
+.wx-now__temp { font-size: 34px; font-weight: 400; line-height: 40px; letter-spacing: -0.02em; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+.wx-now__text { display: flex; flex-direction: column; min-width: 0; margin-left: 4px; }
+.wx-now__cond { font-size: var(--text-sm); line-height: 17px; color: var(--color-text-primary); }
+.wx-now__sub { font-size: var(--text-2xs); line-height: 14px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-label { margin: 0 0 6px; font-size: var(--text-2xs); line-height: 14px; color: var(--color-text-tertiary); }
+.wx-hours-wrap { position: relative; margin: 0 -14px 14px; }
+.wx-hours { display: flex; overflow-x: auto; padding: 0 14px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.wx-hours::-webkit-scrollbar { display: none; }
+.wx-hours-wrap.has-more::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 36px; background: linear-gradient(to right, transparent, var(--surface)); pointer-events: none; }
+.wx-hours__more {
+  position: absolute; z-index: 1; top: 0; right: 4px; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%;
+  color: var(--color-text-tertiary); transition: color var(--dur-fast), background-color var(--dur-fast);
+}
+.wx-hours__more:hover { color: var(--color-text-primary); background: var(--surface-hover); }
+.wx-hour { display: flex; flex-direction: column; align-items: center; gap: 9px; min-width: 43px; flex-shrink: 0; scroll-snap-align: start; }
+.wx-hour__time { font-size: var(--text-2xs); line-height: 14px; color: var(--color-text-tertiary); white-space: nowrap; }
+.wx-hour__temp { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wx-hour.is-event { min-width: 52px; }
+.wx-days { display: flex; flex-direction: column; }
+.wx-day {
+  display: grid; grid-template-columns: 52px 30px 34px minmax(0, 1fr) 34px; align-items: center; gap: 6px; min-height: 35px; margin: 0 -6px; padding: 0 6px; border-radius: 8px;
+  transition: background-color var(--dur-fast);
+}
+.wx-day:hover { background: var(--surface-hover); }
+.wx-day__name { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-primary); }
+.wx-day__icon { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.wx-day__precip { margin-top: 1px; font-size: 9px; line-height: 11px; font-weight: 500; color: #5AA9F0; font-variant-numeric: tabular-nums; }
+.wx-day__lo { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); text-align: right; font-variant-numeric: tabular-nums; }
+.wx-day__hi { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-primary); text-align: right; font-variant-numeric: tabular-nums; }
+.wx-day__bar { position: relative; height: 4px; margin: 0 6px; border-radius: 2px; background: var(--surface-active); }
+.wx-day__bar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; transition: left var(--dur-slow) var(--ease-out), right var(--dur-slow) var(--ease-out); }
+.wx-more {
+  display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; height: 24px; margin: 6px 0 0; padding: 0 6px; border-radius: var(--radius-full);
+  font-size: var(--text-2xs); line-height: 14px; color: var(--color-text-secondary); transition: color var(--dur-fast), background-color var(--dur-fast);
+}
+.wx-more:hover { color: var(--color-text-primary); background: var(--surface-hover); }
+.wx-more svg { transition: transform var(--dur-med) var(--ease-out); }
+.wx-more.is-open svg { transform: rotate(180deg); }
+.wx-card__foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: var(--text-2xs); line-height: 14px; color: var(--color-text-tertiary); }
+.wx-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: #B8C2D3; }
+.wx-icon svg { fill: currentColor; fill-opacity: 0.22; }
+.wx-icon.is-sun { color: #F6C445; }
+.wx-icon.is-sun svg { fill-opacity: 0.9; }
+.wx-icon.is-moon { color: #8F8CF8; }
+.wx-icon.is-moon svg { fill-opacity: 0.85; }
+.wx-icon.is-partly { color: #E9C46A; }
+.wx-icon.is-rain, .wx-icon.is-snow { color: #8EB8EA; }
+.wx-icon.is-storm { color: #C6A8F5; }

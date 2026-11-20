@@ -1,0 +1,228 @@
+/* ---------- a bot's screen: rounded frame, hover controls, driving chin ---------- */
+.screen {
+  --chin-h: 0px;
+  --screen-surface: var(--color-bg-pane); --screen-ink: var(--color-ink); --screen-muted: var(--color-text-secondary);
+  --screen-shadow: 0 10px 28px -10px #00000040, 0 0 0 1px var(--color-border-tertiary);
+  position: relative; display: flex; align-items: center; justify-content: center; width: 100%;
+}
+.screen.is-driving { --chin-h: 52px; }
+/* On the dark stage and in full screen the frame is as large as the space allows while keeping the screen's shape. */
+.screen--stage, .screen.is-fullscreen {
+  --screen-surface: #1B1B1B; --screen-ink: #FFFFFF; --screen-muted: #FFFFFF99;
+  --screen-shadow: 0 22px 70px 4px #00000059, 0 0 0 1px #FFFFFF26;
+  height: 100%; container-type: size;
+}
+.screen.is-fullscreen { width: 100vw; height: 100vh; padding: 14px; background: #000000; }
+.screen__body {
+  position: relative; width: 100%; border-radius: var(--radius-lg); overflow: hidden;
+  background: var(--screen-surface); box-shadow: var(--screen-shadow);
+  transition: box-shadow 200ms var(--ease-out);
+}
+.screen--stage .screen__body, .screen.is-fullscreen .screen__body { border-radius: 18px; width: min(100cqw, calc((100cqh - var(--chin-h)) * var(--screen-ratio))); }
+.screen.is-driving .screen__body { box-shadow: var(--screen-shadow), 0 0 0 2px var(--bot-action); }
+
+.screen__view { position: relative; width: 100%; color: var(--screen-ink); }
+.screen.is-live .screen__view { background: #000000; }
+.screen__canvas { position: absolute; inset: 0; }
+.screen__canvas > div { background: transparent !important; }
+.screen__canvas canvas { cursor: default !important; }
+.screen:not(.is-live) .screen__canvas { visibility: hidden; }
+.screen__expand { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: var(--radius-lg); cursor: zoom-in; }
+.screen__expand:focus-visible { outline-offset: -3px; }
+
+.screen__badge {
+  position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px 0 3px;
+  border-radius: var(--radius-full); background: #000000A6; color: #FFFFFF; font-size: 11px; font-weight: 500; line-height: 16px;
+  pointer-events: none; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+.screen__live-dot { width: 6px; height: 6px; border-radius: 50%; background: #28C840; }
+
+/* states that stand in for the picture */
+.screen__state {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 16px; text-align: center; overflow: hidden; animation: fade 200ms ease-out;
+}
+.screen__state.is-waking { background: color-mix(in srgb, var(--bot-fill) 14%, var(--screen-surface)); }
+.screen__sweep {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 55%;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--bot-fill) 20%, transparent) 50%, transparent 100%);
+  animation: screen-sweep 2.2s ease-in-out infinite;
+}
+@keyframes screen-sweep { from { transform: translateX(-110%); } to { transform: translateX(290%); } }
+.screen__mascot { position: relative; display: inline-flex; }
+.screen__mascot.is-bobbing { animation: bob 2.4s ease-in-out infinite; }
+.screen__label {
+  position: relative; padding: 5px 12px; border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--screen-ink) 8%, transparent);
+  font-size: 13px; line-height: 18px; color: var(--screen-ink);
+}
+.screen__text { position: relative; font-size: 13px; line-height: 18px; color: var(--screen-ink); }
+.screen__sub { position: relative; max-width: 420px; font-size: 12px; line-height: 16px; color: var(--screen-muted); overflow-wrap: anywhere; }
+.screen__action {
+  position: relative; height: 28px; padding: 0 14px; margin-top: 2px; border-radius: var(--radius-full);
+  background: var(--bot-action); color: var(--bot-on-action); font-size: 13px; font-weight: 500; line-height: 18px;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.screen__action:hover { background: var(--bot-action-hover); }
+.screen--stage .screen__label, .screen--stage .screen__text, .screen.is-fullscreen .screen__label, .screen.is-fullscreen .screen__text { font-size: 15px; line-height: 22px; }
+.screen--stage .screen__state, .screen.is-fullscreen .screen__state { gap: 14px; }
+.screen--stage .screen__action, .screen.is-fullscreen .screen__action { height: 34px; padding: 0 18px; font-size: 14px; }
+
+/* control pill: shows when the pointer or keyboard focus is on the screen */
+.screen__pill {
+  position: absolute; left: 50%; bottom: 12px; display: flex; align-items: center; gap: 4px; padding: 4px; max-width: calc(100% - 16px);
+  border-radius: var(--radius-full); background: #171717EB; color: #FFFFFF; white-space: nowrap;
+  box-shadow: 0 8px 28px #00000059, inset 0 0 0 1px #FFFFFF24;
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  opacity: 0; transform: translate(-50%, 6px); pointer-events: none;
+  transition: opacity var(--dur-med) var(--ease-out), transform var(--dur-med) var(--ease-out);
+}
+.screen__body:hover .screen__pill, .screen__body:focus-within .screen__pill, .screen__pill.is-pinned { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+
+.screen__seg { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: var(--radius-full); background: #FFFFFF14; }
+.screen__seg-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px; border-radius: var(--radius-full);
+  font-size: 13px; font-weight: 500; line-height: 18px; color: #FFFFFFB3;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.screen__seg-btn:hover { color: #FFFFFF; background: #FFFFFF14; }
+.screen__seg-btn.is-active, .screen__seg-btn.is-active:hover { background: #FFFFFF; color: #141414; cursor: default; }
+.screen__pill-rule { width: 1px; height: 16px; margin: 0 2px; background: #FFFFFF24; }
+.screen__pill-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; color: #FFFFFFD9; transition: background-color var(--dur-fast) var(--ease-out); }
+.screen__pill-icon:hover { background: #FFFFFF1F; color: #FFFFFF; }
+.screen__pill-text { padding: 0 6px 0 10px; font-size: 13px; line-height: 30px; color: #FFFFFFD9; overflow: hidden; text-overflow: ellipsis; }
+.screen__pill-btn { height: 26px; padding: 0 12px; border-radius: var(--radius-full); background: #FFFFFF1F; font-size: 13px; font-weight: 500; color: #FFFFFF; }
+.screen__pill-btn:hover { background: #FFFFFF33; }
+.screen__pill-btn:disabled { opacity: 0.6; cursor: default; }
+.screen__pill :focus-visible, .screen__chin :focus-visible { outline: 2px solid #FFFFFF; outline-offset: 1px; }
+
+/* chin: only while the person is driving */
+.screen__chin {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; height: var(--chin-h); padding: 0 9px 0 18px;
+  background: var(--bot-action); color: var(--bot-on-action); animation: chin-in 220ms var(--ease-out);
+}
+@keyframes chin-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.screen__chin-text { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; font-weight: 500; line-height: 20px; }
+.screen__chin-text > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.screen__ping { position: relative; width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+.screen__ping::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: currentColor; animation: screen-ping 1.8s ease-out infinite; }
+@keyframes screen-ping { from { opacity: 0.6; transform: scale(1); } to { opacity: 0; transform: scale(2.8); } }
+.screen__chin-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.screen__chin-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; color: inherit; }
+.screen__chin-icon:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+.screen__handback {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 8px; border-radius: var(--radius-full);
+  background: var(--bot-on-action); color: var(--bot-action); font-size: 13px; font-weight: 600; line-height: 18px; white-space: nowrap;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.screen__handback:hover { opacity: 0.9; }
+
+@media (prefers-reduced-motion: reduce) {
+  .screen__sweep, .screen__ping::after { display: none; }
+  .screen__mascot.is-bobbing, .screen__live-dot, .screen__state, .screen__chin { animation: none; }
+  .screen__pill { transition: none; }
+}
+
+/* ---------- large computer view (dimmed stage) ---------- */
+.viewer { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; color: #FFFFFF; }
+.viewer__scrim { position: absolute; inset: 0; background: var(--color-bg-scrim-heavy); animation: fade var(--dur-med) ease-out; }
+.viewer__top { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; height: var(--header-h); padding: 0 16px; flex-shrink: 0; pointer-events: none; }
+.viewer__top > * { pointer-events: auto; }
+.viewer__title { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; line-height: 20px; }
+.viewer__status { font-weight: 400; color: #FFFFFF99; font-size: 13px; }
+.viewer__close { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--radius-sm); background: #FFFFFF14; color: #FFFFFFD9; transition: background-color var(--dur-fast), color var(--dur-fast); }
+.viewer__close:hover { background: #FFFFFF29; color: #FFFFFF; }
+.viewer__stage { position: relative; flex: 1 1 0; min-height: 0; width: 100%; padding: 4px 28px 32px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+/* No scale in this entrance: noVNC fits the picture to the frame's on-screen size when it connects, so a
+   scaled frame would leave the picture slightly too small until the next resize. */
+.viewer__stage .screen__body { pointer-events: auto; animation: rise 200ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .viewer__stage .screen__body { animation: none; } }
+.viewer__scrim { -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+/* The stage header already says the screen is live. */
+.screen--stage .screen__badge { display: none; }
+
+/* On the stage the mode controls stay in view, quieter until hovered. */
+.screen--stage .screen__pill { opacity: 0.7; transform: translate(-50%, 0); pointer-events: auto; }
+.screen--stage .screen__body:hover .screen__pill, .screen--stage .screen__pill:focus-within { opacity: 1; }
+
+.screen--panel .screen__badge { display: none; }
+.viewer.is-exiting { pointer-events: none; }
+.viewer.is-exiting .viewer__scrim { animation: fade-out 180ms ease-in forwards; }
+.viewer.is-exiting .viewer__collapse, .viewer.is-exiting .viewer__stage { animation: viewer-out 160ms var(--ease-in-out) forwards; }
+@keyframes viewer-out { to { opacity: 0; transform: translateY(6px); } }
+
+/* Touch: no hover to reveal the controls, so they sit in a row under the screen instead of over it. */
+@media (hover: none) {
+  .screen:not(.is-driving) { --chin-h: 56px; }
+  .screen__pill, .screen--stage .screen__pill {
+    position: static; transform: none; opacity: 1; pointer-events: auto; max-width: none;
+    justify-content: center; gap: 6px; padding: 6px; border-radius: 0; box-shadow: none;
+    background: var(--screen-surface); color: var(--screen-ink); -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .screen--panel .screen__pill { --screen-surface: var(--color-bg-raised); }
+  .screen__seg { background: color-mix(in srgb, var(--screen-ink) 8%, transparent); }
+  .screen__seg-btn, .screen__pill-btn { min-height: 44px; padding: 0 14px; color: color-mix(in srgb, var(--screen-ink) 70%, transparent); }
+  .screen__seg-btn.is-active, .screen__seg-btn.is-active:hover { background: var(--screen-ink); color: var(--screen-surface); }
+  .screen__pill-icon { width: 44px; height: 44px; color: var(--screen-ink); }
+  .screen__pill-text { color: var(--screen-ink); }
+  .screen__pill-rule { background: color-mix(in srgb, var(--screen-ink) 14%, transparent); }
+  .viewer__close { width: 44px; height: 44px; }
+}
+
+/* Touch: hover and focus states (which a tap can leave behind) never move the in-flow control row. */
+@media (hover: none) {
+  :root .screen .screen__body .screen__pill { transform: none; }
+}
+/* Reset is destructive: its own opaque pair, readable on every screen surface (white on this red is 6:1). */
+:root .screen__pill-btn.is-danger { background: var(--color-danger-fill); color: #FFFFFF; }
+:root .screen__pill-btn.is-danger:hover:not(:disabled) { background: var(--color-danger-fill-hover); }
+@media (hover: none) { :root .screen__pill-btn:not(.is-danger) { background: color-mix(in srgb, var(--screen-ink) 8%, transparent); } }
+
+/* ---------- the large view: the window turns into the screen ---------- */
+.viewer { color: var(--color-text-primary); }
+.viewer__scrim { background: var(--color-bg-chrome); -webkit-backdrop-filter: none; backdrop-filter: none; animation: fade 200ms var(--ease-out); }
+.viewer__collapse {
+  position: absolute; z-index: 2; top: 10px; right: 10px; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  border-radius: 50%; color: var(--color-text-secondary); transition: background-color var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.viewer__collapse:hover { background: var(--surface); color: var(--color-text-primary); }
+.viewer__collapse:active { transform: scale(0.92); }
+.viewer__stage { padding: 52px 6px 18px; }
+.screen--stage { --chin-h: 58px; --screen-surface: var(--surface); --screen-ink: var(--color-text-primary); --screen-muted: var(--color-text-secondary); }
+.screen--stage.is-driving { --chin-h: 58px; }
+.screen--stage .screen__body {
+  display: flex; flex-direction: column; align-items: center; gap: 14px; overflow: visible; border-radius: 0; background: none; box-shadow: none;
+}
+.screen--stage .screen__view { border-radius: 4px; overflow: hidden; background: var(--surface); }
+.screen--stage.is-live .screen__view { background: #000000; }
+.screen--stage.is-driving .screen__body { box-shadow: none; }
+.screen--stage .screen__label { font-size: var(--text-sm); line-height: 18px; color: var(--color-text-secondary); }
+
+/* the loader: the bot in white with three dots circling it */
+.dots-loader { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 22px; }
+.dots-loader .bot-avatar { animation: bob 1.4s var(--ease-in-out) infinite; }
+.dots-loader i {
+  position: absolute; top: 50%; left: 50%; width: 3px; height: 3px; margin: -1.5px; border-radius: 50%; background: var(--color-text-primary);
+  animation: orbit 1.6s linear infinite; --r: 14px;
+}
+.dots-loader i:nth-of-type(2) { animation-delay: -0.53s; width: 4px; height: 4px; margin: -2px; }
+.dots-loader i:nth-of-type(3) { animation-delay: -1.06s; width: 2px; height: 2px; margin: -1px; }
+@keyframes orbit { from { transform: rotate(0deg) translateX(var(--r)) scaleY(0.6); } to { transform: rotate(360deg) translateX(var(--r)) scaleY(0.6); } }
+@keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+/* Watching · Take control, or You're in control · Stop */
+.viewer-pill {
+  display: inline-flex; align-items: center; gap: 2px; height: 30px; padding: 3px; border-radius: var(--radius-full); flex-shrink: 0;
+  background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight); animation: rise var(--dur-slow) var(--ease-out);
+}
+.viewer-pill__state { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px 0 9px; font-size: var(--text-xs); line-height: 16px; color: var(--color-text-secondary); white-space: nowrap; }
+.viewer-pill__btn {
+  height: 24px; padding: 0 9px; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: 500; line-height: 16px; color: var(--color-text-primary);
+  transition: background-color var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.viewer-pill__btn:hover:not(:disabled) { background: var(--surface-hover); }
+.viewer-pill__btn.is-primary { background: var(--color-primary); color: var(--color-on-primary); }
+.viewer-pill__btn.is-primary:hover:not(:disabled) { background: var(--color-bg-primary-hover); }
+.viewer-pill__btn:active:not(:disabled) { transform: scale(0.95); }
+.viewer-pill__btn:disabled { opacity: 0.5; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .dots-loader i, .dots-loader .bot-avatar { animation: none; } }

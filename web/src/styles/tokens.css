@@ -1,0 +1,196 @@
+/*
+ * Design tokens. Dark is the reference look: one near-black window (#111) with every raised thing
+ * (bubbles, cards, the composer, header pills, menus) on a single #1F1F1F surface that carries a
+ * faint top highlight. Light mirrors the same structure.
+ */
+:root {
+  --radius: 10px;
+
+  /* light */
+  --background: #FFFFFF;
+  --foreground: #161616;
+  --surface: #F3F3F3;
+  --surface-hover: #EAEAEA;
+  --surface-active: #E2E2E2;
+  --surface-glass: rgb(246 246 246 / 84%);
+  --surface-glass-hover: rgb(236 236 236 / 86%);
+  --popover: #FFFFFF;
+  --muted-foreground: #6B6B6B;
+  --faint-foreground: #8E8E8E;
+  --ghost-foreground: #B4B4B4;
+  --border: rgb(0 0 0 / 8%);
+  --input: rgb(0 0 0 / 12%);
+  --ring: #3A78F2;
+  --highlight: rgb(255 255 255 / 0%);
+  --destructive: #D93A43;
+  --primary: #161616;
+  --primary-foreground: #FFFFFF;
+  --accent: var(--surface-hover);
+  --muted: var(--surface);
+  --secondary: var(--surface);
+  --secondary-foreground: var(--foreground);
+  --card: var(--surface);
+  /* The rail and the details panel: a touch darker than the chat, with a quiet line against it. */
+  --sidebar: #FAFAFA;
+  --sidebar-accent: var(--surface);
+  --sidebar-border: var(--border);
+  --avatar-eye: #FFFFFF;
+  --avatar-ink: #111111;
+}
+
+:root[data-theme='dark'] {
+  --background: #111111;
+  --sidebar: #0C0C0C;
+  --foreground: #EDEDED;
+  --surface: #1F1F1F;
+  --surface-hover: #272727;
+  --surface-active: #2E2E2E;
+  --surface-glass: rgb(31 31 31 / 84%);
+  --surface-glass-hover: rgb(44 44 44 / 90%);
+  --popover: #1F1F1F;
+  --muted-foreground: #A3A3A3;
+  --faint-foreground: #7C7C7C;
+  --ghost-foreground: #555555;
+  --border: rgb(255 255 255 / 7%);
+  --input: rgb(255 255 255 / 12%);
+  --ring: #3A78F2;
+  --highlight: rgb(255 255 255 / 6%);
+  --destructive: #E0474F;
+  --primary: #F2F2F2;
+  --primary-foreground: #111111;
+  --avatar-eye: #141414;
+  --avatar-ink: #F2F2F2;
+}
+
+/* App tokens, mapped onto the ones above. Defined once: each var() resolves per theme. */
+:root {
+  /* surfaces, back to front */
+  --color-bg-sidebar: var(--sidebar);
+  --color-bg-chrome: var(--background);
+  --color-bg-pane: var(--surface);
+  --color-bg-elevated: var(--popover);
+  --color-bg-raised: var(--surface);
+  --color-bg-active: var(--surface);
+  --color-bg-tertiary: var(--surface);
+  --color-bg-subtle: var(--surface);
+  --color-bg-hover: var(--surface-hover);
+  --color-bg-secondary-hover: var(--surface-hover);
+  --color-bg-secondary-active: var(--surface-active);
+  --color-bg-elevated-hover: var(--surface-hover);
+  --color-bg-active-solid: var(--surface);
+  --color-bg-scrim: rgb(0 0 0 / 62%);
+  --color-bg-scrim-heavy: rgb(0 0 0 / 92%);
+
+  /* text */
+  --color-text-primary: var(--foreground);
+  --color-text-secondary: var(--muted-foreground);
+  --color-text-tertiary: var(--faint-foreground);
+  --color-text-quaternary: var(--ghost-foreground);
+  --color-ink: var(--foreground);
+  --color-icon-secondary: var(--muted-foreground);
+
+  /* lines */
+  --color-border-primary: var(--input);
+  --color-border-secondary: var(--border);
+  --color-border-tertiary: var(--border);
+  --color-border-focus: var(--ring);
+  --focus-ring: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+
+  /* primary action: a light pill on dark, a dark pill on light */
+  --color-primary: var(--primary);
+  --color-on-primary: var(--primary-foreground);
+  --color-bg-primary-hover: color-mix(in srgb, var(--primary) 86%, var(--background));
+  --color-bg-primary-disabled: var(--surface-hover);
+
+  /* messages */
+  --color-bubble-agent: var(--surface);
+  --color-bubble-user: var(--surface-active);
+  --color-on-bubble-user: var(--foreground);
+
+  /* status */
+  --color-danger: var(--destructive);
+  --color-danger-hover: color-mix(in srgb, var(--destructive) 88%, #000);
+  --color-danger-text: var(--destructive);
+  --color-danger-bg: color-mix(in srgb, var(--destructive) 12%, transparent);
+  --color-danger-fill: var(--destructive);
+  --color-danger-fill-hover: color-mix(in srgb, var(--destructive) 88%, #000);
+  --color-success: #2FB36A;
+  --color-warn: #E8962E;
+  --color-warn-bg: rgb(232 150 46 / 12%);
+  --color-warn-text: #B86E10;
+  --color-success-bg: rgb(47 179 106 / 12%);
+  --color-success-text: #1E8A50;
+  --color-switch: #3A78F2;
+
+  /* bot palette (avatars) */
+  --color-bot-pink: #F93498;
+  --color-bot-blue: #1E86FC;
+  --color-bot-red: #FB2B3E;
+  --color-bot-orange: #FD690F;
+  --color-bot-yellow: #F59312;
+  --color-bot-green: #14C16F;
+  --color-bot-teal: #13B7A2;
+  --color-bot-purple: #8F59F9;
+  --color-bot-brown: #A06B39;
+  --color-bot-gray: #999999;
+  --bot-on-action: #FFFFFF;
+
+  /* type: the system UI face (SF Pro on a Mac), Geist elsewhere */
+  --font-stack: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Geist Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: var(--font-stack);
+  --font-mono-stack: ui-monospace, 'SF Mono', 'Geist Mono Variable', Menlo, Consolas, monospace;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 13px;
+  --text-message: 14px; /* the bot names in the expanded sidebar */
+  --text-lg: 15px;
+  --text-title: 15px;
+  --text-xl: 17px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* shape */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-bubble: 15px;
+  --radius-composer: 20px;
+  --radius-card: 16px;
+  --radius-full: 9999px;
+
+  /* layout */
+  --header-h: 52px;
+  --rail-w: 72px;
+  --sidebar-open-w: 280px;
+  --details-w: 260px;
+  --content-w: 720px;
+  --bubble-max: min(82%, 480px);
+
+  /* depth */
+  --edge: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
+  --shadow-pill: none;
+  --shadow-composer: none;
+  --shadow-card: var(--edge);
+  --shadow-modal: 0 24px 64px -12px rgb(0 0 0 / 40%), inset 0 0 0 1px var(--border);
+  --shadow-popover: 0 16px 40px -10px rgb(0 0 0 / 28%), 0 0 0 1px var(--border);
+  --bubble-ring: none;
+  --glass-blur: saturate(160%) blur(14px);
+
+  /* motion: quick and settled, nothing bounces except a bot coming to life */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur-med: 180ms;
+  --dur-slow: 240ms;
+}
+
+:root[data-theme='dark'] {
+  --color-warn-text: #F0AE52;
+  --color-success-text: #4CCB85;
+  --shadow-modal: 0 28px 80px -12px rgb(0 0 0 / 70%), inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
+  --shadow-popover: 0 18px 44px -10px rgb(0 0 0 / 65%), inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
+}
