@@ -1,6 +1,6 @@
 import type { ApprovalMode, Bot, Skill } from '@shared/types';
 import type {
-  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UrlResponse,
+  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UrlResponse,
 } from '@shared/contract';
 import { fileStart, request as req } from './http';
 
@@ -54,6 +54,8 @@ export const configApi = {
   stopOwnScreen: (botId: string) => req<EngineResponse>('POST', `/bots/${botId}/engine/screen/stop`),
 
   permissions: () => req<PermissionsResponse>('GET', '/permissions'),
+  /** Whether this page came over cbot's own HTTPS certificate (server/src/https.ts). */
+  https: () => req<HttpsResponse>('GET', '/https'),
   /** How every bot asks before risky actions, and the commands none of them runs ("Never Allow"). */
   setPermissions: (patch: { mode?: ApprovalMode; deny?: string[] }) => req<PermissionsResponse>('PUT', '/permissions', patch),
   /** Takes an "Always allow" answer back: every bot asks about that action again. */

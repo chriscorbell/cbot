@@ -159,8 +159,10 @@ systemctl enable cbot.service >/dev/null 2>&1
 systemctl enable --now docker.service >/dev/null 2>&1
 
 # Where Tailscale is installed, Tailscale Serve gives the app an HTTPS address on the tailnet, on the
-# same port at both ends.
+# same port at both ends. Serve waits for HTTPS to be turned on for the tailnet when it isn't, and
+# nobody would see its link here, so it gets half a minute.
 if command -v tailscale >/dev/null && ! tailscale serve status 2>/dev/null | grep -q '127.0.0.1:8787'; then
-  tailscale serve --bg --https=8787 http://127.0.0.1:8787 >/dev/null
+  timeout 30 tailscale serve --bg --https=8787 http://127.0.0.1:8787 >/dev/null ||
+    say "Tailscale Serve didn't start; turn on HTTPS for the tailnet, then: tailscale serve --bg --https=8787 http://127.0.0.1:8787"
 fi
 say "done"

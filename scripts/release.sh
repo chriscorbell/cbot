@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# The host side of scripts/deploy.sh, run as root from a release under /srv/cbot/releases: either
-# <commit>.new, freshly unpacked, or <commit>, built by an earlier deploy (a rollback). It
+# The host side of scripts/deploy.sh and scripts/install.sh, run as root from a release under
+# /srv/cbot/releases: either <commit>.new, freshly unpacked, or <commit>, built by an earlier deploy
+# (a rollback). It
 #
 #   1. runs scripts/provision.sh when that script or the service unit changed since its last run,
 #   2. builds a fresh release and renames it to <commit>,

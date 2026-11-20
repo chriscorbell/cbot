@@ -35,6 +35,8 @@ export const env = {
   port: Number(process.env.PORT ?? 8787),
   /** The address to listen on; every address when unset. On the host it is 127.0.0.1, because Tailscale Serve holds the port on the tailnet address. */
   host: process.env.HOST?.trim() || undefined,
+  /** HTTPS=1: serve HTTPS on the same port with cbot's own certificate (https.ts), for a machine reached on the local network. The installer sets it. */
+  https: process.env.HTTPS === '1',
   /** Database, generated secret and the bots' Hermes homes. */
   dataDir,
   dbPath: path.join(dataDir, 'cbot.db'),

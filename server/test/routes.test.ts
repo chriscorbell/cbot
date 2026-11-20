@@ -35,6 +35,27 @@ test('the health check needs no sign-in; the rest of the API does', async () => 
   expect((await app.request('/api/bots', { headers: auth() })).status).toBe(200);
 });
 
+test('the HTTPS certificate is offered only while cbot serves its own', async () => {
+  const { env } = await import('../src/env.js');
+  expect((await app.request('/api/https/certificate')).status).toBe(404);
+  expect(await (await app.request('/api/https', { headers: auth() })).json()).toEqual({ ownCertificate: false });
+  fs.mkdirSync(`${env.dataDir}/https`, { recursive: true });
+  fs.copyFileSync(new URL('fixtures/https/ca.crt', import.meta.url), `${env.dataDir}/https/ca.crt`);
+  env.https = true;
+  try {
+    // Open: a device installs it before anyone signs in on it.
+    const res = await app.request('/api/https/certificate');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/x-x509-ca-cert');
+    expect(await res.text()).toContain('BEGIN CERTIFICATE');
+    // A request that didn't come over cbot's own TLS (here none did) isn't offered it.
+    expect(await (await app.request('/api/https', { headers: auth() })).json()).toEqual({ ownCertificate: false });
+    expect((await app.request('/api/https')).status).toBe(401);
+  } finally {
+    env.https = false;
+  }
+});
+
 test('a message to a bot is saved as a row and becomes a user turn', async () => {
   const bot = seedBot(user.id, { name: 'Ada' });
   const res = await app.request(`/api/bots/${bot.id}/messages`, json({ text: '  hello  ' }));

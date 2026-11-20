@@ -83,6 +83,8 @@ function GeneralSection() {
   const setPref = useConfigUI((s) => s.setPref);
   const user = useStore((s) => s.user);
   const mics = useMics();
+  const [ownCertificate, setOwnCertificate] = useState(false);
+  useEffect(() => { configApi.https().then((r) => setOwnCertificate(r.ownCertificate)).catch(() => {}); }, []);
   const [changing, setChanging] = useState(false);
   const [changed, setChanged] = useState(false);
   useEffect(() => { if (!changed) return; const t = setTimeout(() => setChanged(false), 4000); return () => clearTimeout(t); }, [changed]);
@@ -142,6 +144,16 @@ function GeneralSection() {
               onChange={(v) => setPref({ micId: v })}
             />
           </div>
+          {ownCertificate && (
+            <div className="cfg-row">
+              <div className="cfg-row__text">
+                <div className="cfg-row__title">Certificate</div>
+                <div className="cfg-row__sub">cbot signs its own certificate for HTTPS, so browsers warn that the connection isn’t private. Install and trust it on a device to stop the warning there.</div>
+              </div>
+              {/* The server sends it as a download; iPhones and iPads offer to install it as a profile. */}
+              <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => location.assign('/api/https/certificate')}>Download</button>
+            </div>
+          )}
         </div>
       </section>
       <ResetSection />

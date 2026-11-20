@@ -27,6 +27,12 @@ export interface ComputerResponse { computer: ComputerState }
  */
 export interface PermissionsResponse { mode: ApprovalMode; allowed: string[]; deny: string[] }
 
+/**
+ * `ownCertificate`: this request came over HTTPS with cbot's own certificate (https.ts), which a
+ * browser warns about until the device trusts it. Settings > General then offers the certificate.
+ */
+export interface HttpsResponse { ownCertificate: boolean }
+
 /** The secrets Settings > Providers holds: API keys, subscription tokens, the self-hosted endpoint's key. */
 export type SecretId = 'anthropic-api' | 'openai-api' | 'gemini' | 'xai' | 'openrouter' | 'deepseek' | 'claude-token' | 'copilot-token' | 'self-hosted-key';
 /** Whether a secret is set, and its last four characters (for a long one) to tell keys apart. The secret never comes back. */

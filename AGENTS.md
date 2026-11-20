@@ -33,6 +33,7 @@ cbot is a Node server (`server/`) and a React app (`web/`) that run a small team
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |
+| `server/src/https.ts` | HTTPS=1: cbot's own certificate and the port that serves HTTPS and plain HTTP together |
 | `server/src/computer.ts`, `displays.ts`, `desk.ts`, `vnc.ts`, `server/box/` | Screens: leases, X displays, dressing, the viewer relay, the Python desk scripts |
 | `server/src/voice-relay.ts`, `speech.ts`, `speech/` | Voice calls: the realtime relay, the speech service client, the speech service |
 | `server/src/machine.ts` | Paths, ports and display numbers on the computer |

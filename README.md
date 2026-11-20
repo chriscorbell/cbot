@@ -18,16 +18,38 @@ Everything runs on one machine. The only outside services are the model provider
 - Voice calls answered by the bot's own agent, with all its tools, and dictation. They cancel the bot's echo in the page, so they work on speakers; talking over the bot stops it, and a noise or a "yeah" only pauses it. On a call the bot hears what happens in its text chat as it happens and can post links, lists and other things better read than heard there; afterwards the text chat's agent knows what was said on the call
 - Claude, ChatGPT, Grok and Copilot subscriptions; Anthropic, OpenAI, Gemini, xAI, OpenRouter and DeepSeek API keys; or a self-hosted OpenAI-compatible model
 
-## Quick start
+## Install
 
-Development runs in Docker, because the server starts real X displays, Chrome and Hermes gateways. Don't run it on your machine outside the container.
+cbot gets a machine of its own, or a VM: Ubuntu 26.04 on x86-64, with about 1 GB of RAM per bot, 2 GB more for voice, and 25 GB of disk. The bots run as root directly on it, so whatever they install stays installed. On that machine, run
 
 ```bash
-cp .env.example .env
-CBOT_PORT=8788 docker compose -p cbot-dev up -d --build
+curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
 ```
 
-Open http://127.0.0.1:8788 right away and create the account: until it exists, anyone who can reach the app can create it. A short setup follows, which makes your first bot: its name and look, its label, About and instructions, and the model it runs on, from an API key, a Claude token, a subscription sign-in or your own server. That bot is the primary one, your main point of contact.
+The installer checks the machine and asks for the bots' time zone, how many bots to allow, and whether to set up [Tailscale](https://tailscale.com) too. Then it installs Chrome, Node, Docker and Hermes Agent, builds cbot and its speech service, and starts cbot as a systemd service on your local network, at `https://<machine>:8787`. The first install takes 15 to 30 minutes. Run the same command again to update; the settings, bots and chats stay. The settings are in `/etc/cbot/env`, and the installer's log is `/var/log/cbot/install.log`. For an unattended install, set `CBOT_TZ`, `CBOT_MAX_BOTS` and `CBOT_TAILSCALE` (`1` or `0`); the script's header lists the rest.
+
+Open the address it shows right away and create the account: until it exists, anyone who can reach the app can create it. Don't install on a server with a public address without a firewall in front of port 8787. A short setup follows, which makes your first bot: its name and look, its label, About and instructions, and the model it runs on, from an API key, a Claude token, a subscription sign-in or your own server. That bot is the primary one, your main point of contact.
+
+### HTTPS
+
+Voice calls need HTTPS, because browsers allow the microphone only there. No public authority signs a certificate for an address on a local network, so cbot signs its own, for the machine's name and address, and browsers warn that the connection isn't private. Continue past the warning once on each device, or stop it by installing the certificate from Settings > General > Certificate and trusting it:
+
+- iPhone and iPad: install the downloaded profile in Settings, then turn it on under General > About > Certificate Trust Settings
+- Android: install it as a CA certificate, under Settings > Security (the path varies by phone)
+- macOS: add it in Keychain Access and set it to Always Trust
+- Windows: open it, choose Install Certificate, and place it in Trusted Root Certification Authorities
+
+The certificate vouches for this machine only. When the machine's address changes, cbot makes a new one, and devices that trusted the old one need the new one.
+
+Tailscale, which the installer offers, adds an address that browsers trust without a warning and that works from anywhere on your tailnet: `https://<machine>.<tailnet>.ts.net`. To add it later, put Tailscale on the machine and run `tailscale serve --bg --https=443 http://127.0.0.1:8787`. To keep cbot off the local network then, set `HOST=127.0.0.1` in `/etc/cbot/env` and run `systemctl restart cbot`.
+
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/uninstall.sh | bash
+```
+
+After asking once, it stops cbot and everything it started, and deletes every bot, chat and file, the account, the provider keys and settings, Hermes Agent, the speech service and its images, and cbot's Tailscale address. There's no undo. Google Chrome, Node.js, Docker, the desktop packages, Tailscale and whatever the bots installed stay on the machine. To erase cbot's data but keep it installed, use Reset cbot in Settings > General instead.
 
 ## Models
 
@@ -50,9 +72,9 @@ Signing in to ChatGPT, Grok or Copilot shows a link and a short code. Open the l
 
 Settings > Permissions decides whether the bots ask before a command or change that is flagged as risky, such as deleting files with `rm -rf` or editing `~/.ssh/config`. Off, the default, never asks. Smart asks unless the bot's model judges the action low-risk, and Ask always asks. A request shows as a card in the bot's chat, during a voice call too, and the bot waits up to five minutes for Allow, Always allow or Don't allow. Always allow counts for every bot and can be taken back under Allow without Asking. Never Allow lists command patterns, such as `git push --force*`, that the bots refuse even with approvals off.
 
-## Production
+## Deploying from a checkout
 
-Production gets a machine of its own: Ubuntu 26.04, with about 1 GB of RAM per bot and 2 GB more for speech. The server runs as a systemd service, and the bots run as root directly on the host, so whatever they install stays installed.
+To put your own commits on the machine instead, deploy them over SSH:
 
 ```bash
 cp .env.example .env.prod   # set CBOT_HOST in it; every deploy copies it to /etc/cbot/env
@@ -68,6 +90,7 @@ A commit has to pass `npm run check` before it deploys. The first deploy to a fr
 |---|---|---|
 | `MAX_BOTS` | 4 | Most bots the app will create |
 | `TZ` | UTC | The bots' time zone: their clocks, and routines and check-ins without a zone of their own |
+| `HTTPS` | unset | `1` serves HTTPS with cbot's own certificate on the same port, and plain HTTP only to the machine itself. The installer sets it |
 | `CBOT_NO_SCHEDULER` | unset | `1` turns off routines and check-ins, for a dev copy of production data |
 
 [.env.example](.env.example) lists the ports and paths. Model keys, subscription tokens, the self-hosted model and the SearXNG address (for the bots' `web_search`; without one they search in Chrome) are set in Settings > Providers. The first start of this version copies `DEEPSEEK_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `COPILOT_GITHUB_TOKEN`, `SEARXNG_URL` and the other providers' keys from the environment into the app once; after that the environment is not read for them, and they can come out of `.env`.
@@ -78,7 +101,11 @@ To start over from nothing, use Reset cbot in Settings > General. It asks twice,
 
 ## Development
 
+Development runs in Docker, because the server starts real X displays, Chrome and Hermes gateways. Don't run it on your machine outside the container.
+
 ```bash
+cp .env.example .env
+CBOT_PORT=8788 docker compose -p cbot-dev up -d --build   # then open http://127.0.0.1:8788
 npm ci
 npm run check                                       # typecheck, lint and unit tests
 CBOT_API=http://127.0.0.1:8788 npm run dev -w web   # Vite against the dev container; add ?fixtures for sample rows
@@ -91,7 +118,7 @@ server/   Node server: API, turns, Hermes gateways, screens, voice relay
 web/      React app
 speech/   speech service: recognition, and Phonon's voices
 zonos3/   ZONOS3-Mini voice server (off; speech/README.md says how to run it)
-scripts/  deploy, release and host provisioning
+scripts/  install, uninstall, deploy, release and host provisioning
 deploy/   systemd unit and the speech services' Compose file
 tests/    end-to-end scripts
 ```

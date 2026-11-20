@@ -14,10 +14,13 @@ import { engineHome, engineInfo, hasEngine, forgetEngineOptions, restartEngine, 
 import { cancelSignIn, getSignIn, startSignIn } from './signin.js';
 import { listMemories } from './engine-memory.js';
 import { inlineType, type Attachment, type LibraryFile, type Skill } from './types.js';
-import type { BotSettingsBundle, ComputerDetails, EngineResponse, LibraryListing, Ok, ProviderSignIn, SignInResponse, SkillResponse, UploadResponse, UrlResponse } from './contract.js';
+import type { BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, ProviderSignIn, SignInResponse, SkillResponse, UploadResponse, UrlResponse } from './contract.js';
 import { LIBRARY_ROOT } from './machine.js';
 import { numbered, safeName, uploadsDir } from './library.js';
 import { setRelayMode } from './vnc.js';
+import { authorityPem } from './https.js';
+import { TLSSocket } from 'node:tls';
+import type { HttpBindings } from '@hono/node-server';
 
 /**
  * Bot settings, skills, library, computer controls and memory maintenance.
@@ -30,6 +33,28 @@ for (const p of ['/bots/*', '/skills/*', '/computer/*', '/providers/*', '/signin
 const toSkill = (s: SkillRecord): Skill => ({ id: s.id, botId: s.bot_id, name: s.name, description: s.description ?? '', body: s.body, createdAt: s.created_at, updatedAt: s.updated_at ?? s.created_at });
 const skillById = db.prepare<[string], SkillRecord>('SELECT * FROM skills WHERE id=?');
 const listSkills = (botId: string) => db.prepare<[string], SkillRecord>('SELECT * FROM skills WHERE bot_id=? ORDER BY created_at ASC').all(botId).map(toSkill);
+
+// ---------- HTTPS (https.ts) ----------
+
+/**
+ * cbot's own HTTPS certificate. Mounted at /api/https in app.ts ahead of routes.ts, whose sign-in
+ * check covers everything it is mounted under, because the certificate is open.
+ */
+export const httpsApi = new Hono<AuthVars>();
+
+// Whether this page came over cbot's own certificate. Through Tailscale Serve it arrives as plain
+// HTTP from this machine, with a certificate the browser already trusts.
+httpsApi.get('/', (c) => {
+  const incoming = (c.env as Partial<HttpBindings> | undefined)?.incoming;
+  return c.json({ ownCertificate: !!authorityPem() && incoming?.socket instanceof TLSSocket } satisfies HttpsResponse);
+});
+
+// Open (app.ts): a device installs it before anyone signs in on it. It is a public certificate.
+httpsApi.get('/certificate', (c) => {
+  const pem = authorityPem();
+  if (!pem) return c.json({ error: 'not found' }, 404);
+  return c.body(new Uint8Array(pem), 200, { 'content-type': 'application/x-x509-ca-cert', 'content-disposition': 'attachment; filename="cbot.crt"' });
+});
 
 // ---------- settings bundle ----------
 

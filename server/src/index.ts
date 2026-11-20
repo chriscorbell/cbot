@@ -19,13 +19,15 @@ import { initScreens } from './computer.js';
 import { ensureOwner } from './bots.js';
 import { initAuth } from './lib/auth.js';
 import { importEnvironment } from './settings.js';
+import { serveHttps } from './https.js';
 
 /**
  * The server process: everything that starts something. Order matters:
  *  1. db.ts (imported by everything) opens the database and runs its migrations.
  *  2. Settings still in the environment are copied into the database (once), pending approvals from
  *     the last process are expired, and the owner exists (its first bot comes from the setup wizard).
- *  3. The HTTP app, the built web app and the WebSocket relays (viewer, voice) are served.
+ *  3. The HTTP app, the built web app and the WebSocket relays (viewer, voice) are served, over HTTPS
+ *     too with HTTPS=1 (https.ts), once its certificate is ready.
  *  4. Routines and check-ins are scheduled, unless CBOT_NO_SCHEDULER=1.
  *  5. Gateways, screens and the speech catalog are brought back in the background, and stale
  *     voice calls are swept every 10 minutes.
@@ -50,9 +52,17 @@ if (fs.existsSync(webDist)) {
   app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
 }
 
-const server = serve({ fetch: app.fetch, port: env.port, hostname: env.host }, (info) => console.log(`[cbot] server on http://${env.host ?? 'localhost'}:${info.port}`));
-attachVncRelay(server as unknown as Server);
-attachVoiceRelay(server as unknown as Server);
+const servePlain = () => serve({ fetch: app.fetch, port: env.port, hostname: env.host }, (info) => console.log(`[cbot] server on http://${env.host ?? 'localhost'}:${info.port}`)) as unknown as Server;
+let server: Server;
+if (env.https) {
+  // Without a certificate cbot still works, over plain HTTP and without voice calls.
+  server = await serveHttps(app.fetch).catch((e: unknown) => {
+    console.error('[https] could not make a certificate; serving plain HTTP:', e);
+    return servePlain();
+  });
+} else server = servePlain();
+attachVncRelay(server);
+attachVoiceRelay(server);
 // CBOT_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines don't fire twice.
 if (process.env.CBOT_NO_SCHEDULER !== '1') {
   initRoutines(enqueue);
