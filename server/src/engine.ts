@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
+import { z } from 'zod';
 import { cdpUrlFor, screenFor } from './computer.js';
 import { db, type BotRecord, type UserRecord } from './db.js';
 import { env } from './env.js';
@@ -83,11 +84,28 @@ function readDotenv(file: string): Record<string, string> {
 }
 
 /**
+ * A YAML mapping: a Hermes config.yaml or one of its sections. Most of its keys are Hermes' own; the
+ * code here reads and sets only the ones it owns, and writes the rest back as it found them.
+ */
+type Mapping = Record<string, unknown>;
+const MappingSchema = z.record(z.string(), z.unknown());
+
+/** cfg[key] when it is a mapping, else an empty one (a section Hermes left out, or wrote as something else). */
+function section(cfg: Mapping, key: string): Mapping {
+  return MappingSchema.safeParse(cfg[key]).data ?? {};
+}
+
+/** The strings of a list setting; anything else in it, or a setting that isn't a list, counts as none. */
+function strings(v: unknown): string[] {
+  return (z.array(z.unknown()).safeParse(v).data ?? []).filter((x): x is string => typeof x === 'string');
+}
+
+/**
  * A Hermes config.yaml as an object, {} when the file is missing or empty. One that isn't a YAML
  * mapping throws: Dispatch writes these files back from what it reads, so reading a broken or
  * half-edited config as empty would write the bot's settings away.
  */
-function readYaml(file: string): any {
+function readYaml(file: string): Mapping {
   let text: string;
   try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
@@ -98,12 +116,13 @@ function readYaml(file: string): any {
     throw new Error(`${file} isn't valid YAML, so Dispatch won't rewrite it: ${(e as Error).message}`);
   }
   if (parsed == null) return {};
-  if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${file} isn't a YAML mapping, so Dispatch won't rewrite it`);
-  return parsed;
+  const cfg = MappingSchema.safeParse(parsed);
+  if (!cfg.success) throw new Error(`${file} isn't a YAML mapping, so Dispatch won't rewrite it`);
+  return cfg.data;
 }
 
 /** readYaml for work over several bots: a config that can't be read is logged and left alone, and the others go on. */
-function readYamlOrSkip(file: string): any {
+function readYamlOrSkip(file: string): Mapping | null {
   try { return readYaml(file); } catch (e) {
     console.warn(`[engine] ${(e as Error).message}`);
     return null;
@@ -205,8 +224,8 @@ const ANTHROPIC_API = 'https://api.anthropic.com';
  *                  ANTHROPIC_API_KEY for a signed-in Claude subscription too, ahead of its sign-in
  *   self-hosted    an OpenAI-compatible server at the address set there, with its key if it has one
  */
-function applyEndpoints(cfg: any) {
-  const providers = { ...(cfg.providers ?? {}) };
+function applyEndpoints(cfg: Mapping) {
+  const providers = { ...section(cfg, 'providers') };
   if (getSetting('anthropic-api')) {
     providers['anthropic-api'] = { name: 'Anthropic API', api: ANTHROPIC_API, transport: 'anthropic_messages', key_env: envOf('anthropic-api'), catalog_provider: 'anthropic' };
   } else delete providers['anthropic-api'];
@@ -223,14 +242,15 @@ function applyEndpoints(cfg: any) {
  * and Hermes cron jobs the bot makes run on the default. A bot nobody chose a model for runs on DeepSeek
  * when its key is set; a model chosen in Hermes itself (`hermes model`) stays.
  */
-function applyModel(cfg: any, b: Pick<BotRecord, 'provider' | 'model'>) {
+function applyModel(cfg: Mapping, b: Pick<BotRecord, 'provider' | 'model'>) {
   if (b.provider) cfg.model = { provider: b.provider, ...(b.model ? { default: b.model } : {}) };
   else if (getSetting('deepseek') && !hasModel(cfg.model)) cfg.model = { provider: 'deepseek', default: DEFAULT_DEEPSEEK_MODEL };
 }
 
 function hasModel(m: unknown): boolean {
   if (typeof m === 'string') return !!m.trim();
-  return !!m && typeof m === 'object' && !!((m as any).provider || (m as any).default || (m as any).model);
+  const set = MappingSchema.safeParse(m).data;
+  return !!set && !!(set.provider || set.default || set.model);
 }
 
 /**
@@ -240,16 +260,16 @@ function hasModel(m: unknown): boolean {
  * free tier or tool gateway, no cloud browser, no telemetry, update, catalog or plugin-update checks,
  * no voice transcription, and no language servers downloaded on their own.
  */
-function applyManagedConfig(cfg: any, o: { bot: BotRecord; cwd: string; display: string | null; cdp: string }) {
+function applyManagedConfig(cfg: Mapping, o: { bot: BotRecord; cwd: string; display: string | null; cdp: string }) {
   const searxng = !!searxngUrl();
   const toolsets = [...TOOLSETS, ...(searxng ? ['search'] : [])];
-  cfg.platform_toolsets = { ...(cfg.platform_toolsets ?? {}), api_server: [...toolsets, ...(o.display ? ['computer_use'] : [])], cron: toolsets };
-  const agent = cfg.agent ?? {};
-  const off: unknown[] = Array.isArray(agent.disabled_toolsets) ? agent.disabled_toolsets : [];
+  cfg.platform_toolsets = { ...section(cfg, 'platform_toolsets'), api_server: [...toolsets, ...(o.display ? ['computer_use'] : [])], cron: toolsets };
+  const agent = section(cfg, 'agent');
+  const off: unknown[] = z.array(z.unknown()).safeParse(agent.disabled_toolsets).data ?? [];
   cfg.agent = { ...agent, disabled_toolsets: [...off, ...OFF_TOOLSETS.filter((t) => !off.includes(t))] };
 
   // web_search runs on SearXNG and nothing else: no keyless free-tier ring, not even as a one-off rescue.
-  const web = { ...(cfg.web ?? {}), keyless_fallback: false, keyless_rescue: false };
+  const web: Mapping = { ...section(cfg, 'web'), keyless_fallback: false, keyless_rescue: false };
   for (const k of ['backend', 'search_backend']) {
     if (searxng) web[k] = 'searxng';
     else if (web[k] === 'searxng') delete web[k];
@@ -261,23 +281,25 @@ function applyManagedConfig(cfg: any, o: { bot: BotRecord; cwd: string; display:
 
   // Hermes' clock (the date line in its system prompt, its cron jobs) runs on the server's time zone (TZ).
   cfg.timezone = env.timeZone;
-  cfg.terminal = { ...(cfg.terminal ?? {}), cwd: o.cwd };
-  cfg.browser = { ...(cfg.browser ?? {}), cloud_provider: 'local', ...(o.cdp ? { cdp_url: o.cdp } : {}) };
+  cfg.terminal = { ...section(cfg, 'terminal'), cwd: o.cwd };
+  cfg.browser = { ...section(cfg, 'browser'), cloud_provider: 'local', ...(o.cdp ? { cdp_url: o.cdp } : {}) };
   cfg.mcp_servers = {
-    ...(cfg.mcp_servers ?? {}),
+    ...section(cfg, 'mcp_servers'),
     dispatch: { url: `${mcpBaseUrl()}/mcp/${o.bot.id}`, headers: { Authorization: `Bearer ${mcpToken(o.bot.id)}` }, timeout: 1800, connect_timeout: 30 },
   };
 
-  cfg.nous = { ...(cfg.nous ?? {}), guest: false };
-  cfg.tools = { ...(cfg.tools ?? {}), connectors: { ...(cfg.tools?.connectors ?? {}), enabled: false } };
-  cfg.telemetry = { ...(cfg.telemetry ?? {}), shared_metrics: { ...(cfg.telemetry?.shared_metrics ?? {}), enabled: false, send: false } };
-  cfg.updates = { ...(cfg.updates ?? {}), check: false };
-  cfg.model_catalog = { ...(cfg.model_catalog ?? {}), enabled: false };
-  cfg.plugins = { ...(cfg.plugins ?? {}), auto_update_check_hours: 0 };
-  cfg.stt = { ...(cfg.stt ?? {}), enabled: false };
-  cfg.lsp = { ...(cfg.lsp ?? {}), install_strategy: 'manual' };
+  cfg.nous = { ...section(cfg, 'nous'), guest: false };
+  const tools = section(cfg, 'tools');
+  cfg.tools = { ...tools, connectors: { ...section(tools, 'connectors'), enabled: false } };
+  const telemetry = section(cfg, 'telemetry');
+  cfg.telemetry = { ...telemetry, shared_metrics: { ...section(telemetry, 'shared_metrics'), enabled: false, send: false } };
+  cfg.updates = { ...section(cfg, 'updates'), check: false };
+  cfg.model_catalog = { ...section(cfg, 'model_catalog'), enabled: false };
+  cfg.plugins = { ...section(cfg, 'plugins'), auto_update_check_hours: 0 };
+  cfg.stt = { ...section(cfg, 'stt'), enabled: false };
+  cfg.lsp = { ...section(cfg, 'lsp'), install_strategy: 'manual' };
   // Hermes would otherwise rewrite the machine's `hermes` command to run from this home (see scripts/provision.sh).
-  cfg.cli = { ...(cfg.cli ?? {}), expose_on_path: false };
+  cfg.cli = { ...section(cfg, 'cli'), expose_on_path: false };
 }
 
 // ---------- approvals (Settings > Permissions) ----------
@@ -317,7 +339,7 @@ function configFiles(userId: string): string[] {
     .filter((f) => fs.existsSync(f));
 }
 
-const allowlistOf = (cfg: any): string[] => (Array.isArray(cfg?.command_allowlist) ? cfg.command_allowlist.filter((x: unknown): x is string => typeof x === 'string') : []);
+const allowlistOf = (cfg: Mapping | null): string[] => strings(cfg?.command_allowlist);
 
 /** "Allow without Asking": every entry an "Always allow" answer left in any of the owner's bots. */
 export function allowedActions(userId: string): string[] {
@@ -326,8 +348,8 @@ export function allowedActions(userId: string): string[] {
   return [...all].sort((a, b) => a.localeCompare(b));
 }
 
-function applyApprovals(cfg: any, s: ApprovalSettings, allowed: string[]) {
-  cfg.approvals = { ...(cfg.approvals ?? {}), mode: s.mode, deny: s.deny };
+function applyApprovals(cfg: Mapping, s: ApprovalSettings, allowed: string[]) {
+  cfg.approvals = { ...section(cfg, 'approvals'), mode: s.mode, deny: s.deny };
   if (allowed.length) cfg.command_allowlist = allowed;
   else delete cfg.command_allowlist;
 }
@@ -419,7 +441,7 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   const fresh = !fs.existsSync(cfgFile);
   // A broken config.yaml stops the start here (the settings panel shows why) rather than being
   // rewritten from nothing.
-  const cfg = fresh ? {} : readYaml(cfgFile);
+  const cfg: Mapping = fresh ? {} : readYaml(cfgFile);
   if (fresh) {
     // The primary bot's settings are only a starting point: if its config can't be read, the new bot
     // starts on the defaults rather than not at all.
@@ -455,7 +477,7 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   if (searxngUrl()) vars.SEARXNG_URL = searxngUrl(); else delete vars.SEARXNG_URL;
   writePrivate(envFile, Object.entries(vars).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
 
-  const managed: any = {};
+  const managed: Mapping = {};
   applyManagedConfig(managed, { bot: b, cwd, display, cdp });
   // Hermes reads the default model again when config.yaml changes (syncModel), so choosing another one restarts nothing.
   delete managed.model;
@@ -484,10 +506,16 @@ function startedWith(home: string): string {
 
 // ---------- a bot's gateway ----------
 
-async function healthy(url: string, timeoutMs = 2500): Promise<any | null> {
+/** What a gateway's GET /health answers. A 200 with JSON is what counts; only the version is read from it. */
+const Health = z.object({ version: z.string().optional().catch(undefined) });
+type Health = z.infer<typeof Health>;
+
+async function healthy(url: string, timeoutMs = 2500): Promise<Health | null> {
   try {
     const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) });
-    return r.ok ? await r.json() : null;
+    if (!r.ok) return null;
+    const body: unknown = await r.json();
+    return Health.safeParse(body).data ?? {};
   } catch { return null; }
 }
 
@@ -836,6 +864,13 @@ const PROVIDERS: { id: string; name: string; kind: EngineProvider['kind']; signI
 
 type Endpoint = 'anthropic-api' | 'self-hosted';
 
+// What an OpenAI-style or Anthropic GET /models answers: {data: [{id}]}, or {error: {message}} when it refuses.
+const ModelList = z.object({
+  data: z.array(z.unknown()).optional().catch(undefined),
+  error: z.object({ message: z.string() }).optional().catch(undefined),
+});
+const ModelEntry = z.object({ id: z.string().min(1) });
+
 const endpointCache = new Map<Endpoint, { at: number; models: string[]; error: string | null }>();
 
 /**
@@ -861,9 +896,9 @@ export async function endpointModels(id: Endpoint): Promise<{ models: string[]; 
   let out: { models: string[]; error: string | null };
   try {
     const r = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-    const body: any = await r.json().catch(() => null);
-    const models = Array.isArray(body?.data) ? body.data.map((m: any) => m?.id).filter((m: unknown): m is string => typeof m === 'string' && !!m) : [];
-    if (!r.ok) out = { models: [], error: `${url} answered HTTP ${r.status}${typeof body?.error?.message === 'string' ? `: ${body.error.message}` : ''}` };
+    const body = ModelList.safeParse(await r.json().catch(() => null)).data;
+    const models = (body?.data ?? []).flatMap((m) => ModelEntry.safeParse(m).data?.id ?? []);
+    if (!r.ok) out = { models: [], error: `${url} answered HTTP ${r.status}${body?.error?.message ? `: ${body.error.message}` : ''}` };
     else out = models.length ? { models, error: null } : { models: [], error: `${url} lists no models` };
   } catch (e) {
     out = { models: [], error: `Couldn’t reach ${url}: ${String(errorField(errorField(e, 'cause'), 'code') ?? errorText(e))}` };
@@ -878,17 +913,37 @@ export function signInName(provider: string): string | null {
   return p?.signIn ? p.name : null;
 }
 
-const optionsCache = new Map<string, { at: number; data: any }>();
+// What a gateway's GET /api/model/options answers: its default model and provider, and per provider
+// whether it is signed in and the models Hermes suggests. A provider entry that can't be read is
+// left out, as one Hermes doesn't list (not connected).
+const ModelOptions = z.object({
+  model: z.string().nullish().catch(undefined),
+  provider: z.string().nullish().catch(undefined),
+  providers: z.array(z.unknown()).optional().catch(undefined),
+});
+type ModelOptions = z.infer<typeof ModelOptions>;
+const ProviderOption = z.object({
+  slug: z.string(),
+  authenticated: z.boolean().optional().catch(undefined),
+  featured_models: z.array(z.unknown()).optional().catch(undefined),
+  models: z.array(z.unknown()).optional().catch(undefined),
+});
 
-async function modelOptions(botId: string, e: { url: string; key: string }): Promise<any | null> {
+const optionsCache = new Map<string, { at: number; data: ModelOptions }>();
+
+async function modelOptions(botId: string, e: { url: string; key: string }): Promise<ModelOptions | null> {
   const hit = optionsCache.get(botId);
   if (hit && Date.now() - hit.at < 15_000) return hit.data;
   try {
     const r = await fetch(`${e.url}/api/model/options`, { headers: e.key ? { Authorization: `Bearer ${e.key}` } : {}, signal: AbortSignal.timeout(8000) });
     if (!r.ok) return null;
-    const data = await r.json();
-    optionsCache.set(botId, { at: Date.now(), data });
-    return data;
+    const parsed = ModelOptions.safeParse(await r.json());
+    if (!parsed.success) {
+      console.warn(`[engine] ${botId}: Hermes' model options aren't shaped as expected: ${z.prettifyError(parsed.error).replace(/\s+/g, ' ')}`);
+      return null;
+    }
+    optionsCache.set(botId, { at: Date.now(), data: parsed.data });
+    return parsed.data;
   } catch { return null; }
 }
 
@@ -896,12 +951,12 @@ async function modelOptions(botId: string, e: { url: string; key: string }): Pro
  * Our providers with what the bot's Hermes reports about them (signed in, the models it suggests); one
  * Hermes leaves out counts as not connected. Dispatch's own endpoints list the models their server lists.
  */
-async function toProviders(data: any): Promise<EngineProvider[]> {
-  const list: any[] = Array.isArray(data?.providers) ? data.providers : [];
+async function toProviders(data: ModelOptions | null): Promise<EngineProvider[]> {
+  const list = (data?.providers ?? []).flatMap((x) => ProviderOption.safeParse(x).data ?? []);
   return Promise.all(PROVIDERS.map(async (p): Promise<EngineProvider> => {
-    const h = list.find((x) => x?.slug === p.id);
-    const featured = Array.isArray(h?.featured_models) && h.featured_models.length ? h.featured_models : Array.isArray(h?.models) ? h.models : [];
-    let models: string[] = featured.filter((m: unknown) => typeof m === 'string');
+    const h = list.find((x) => x.slug === p.id);
+    const featured = h?.featured_models?.length ? h.featured_models : h?.models ?? [];
+    let models = featured.filter((m): m is string => typeof m === 'string');
     if (p.endpoint && h) {
       const listed = (await endpointModels(p.endpoint)).models;
       if (listed.length) models = listed;
@@ -934,7 +989,7 @@ export async function engineInfo(botId: string): Promise<EngineInfo> {
   return {
     ...base,
     status: 'ready',
-    version: typeof health.version === 'string' && health.version !== 'unknown' ? health.version : null,
+    version: health.version && health.version !== 'unknown' ? health.version : null,
     model: b.model ?? data?.model ?? null,
     provider: b.provider ?? data?.provider ?? null,
     providers: await toProviders(data),
