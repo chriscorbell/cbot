@@ -9,6 +9,7 @@ import { instructionsFor } from './prompt.js';
 import { callNews, markTold } from './catchup.js';
 import * as live from './live.js';
 import { TurnTranscript, type ToolClaim } from './transcript.js';
+import { eventName, runEvent, startedRun } from './run-events.js';
 
 /**
  * Turns: each one hands a message to the bot's Hermes gateway and streams the answer into the chat.
@@ -245,7 +246,7 @@ async function runTurn(botId: string, running: Running) {
       }),
     });
     if (!res.ok) throw new Error(await failureText(res));
-    const runId = String(((await res.json()) as any)?.run_id ?? '');
+    const runId = startedRun(await res.json());
     if (!runId) throw new Error('Hermes started no run');
     run = { engine, id: runId };
     sessions.set(botId, convo.generation);
@@ -256,16 +257,17 @@ async function runTurn(botId: string, running: Running) {
     const events = await fetch(`${engine.url}/v1/runs/${runId}/events`, { headers: authHeaders(engine), signal });
     if (!events.ok || !events.body) throw new Error(await failureText(events));
     running.transcript = transcript;
-    for await (const ev of sseEvents(events.body)) {
-      const d = ev.data;
-      slot(d?.event);
-      if (d?.event === 'approval.request') {
+    for await (const raw of sseEvents(events.body)) {
+      const d = runEvent(raw.data);
+      if (!d) continue;
+      slot(eventName(d));
+      if (d.event === 'approval.request') {
         const tool = transcript.awaitingApproval();
         const seq = tool?.seq ?? null;
         askApproval({ convo, engine, runId, event: d, tool, onSettled: (o) => transcript.approvalSettled(seq, o) });
         continue;
       }
-      if (d?.event !== 'approval.responded') runMoved(runId);
+      if (d.event !== 'approval.responded') runMoved(runId);
       if (transcript.onRunEvent(d)) break;
     }
   } catch (e) {

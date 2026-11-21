@@ -2,6 +2,7 @@ import { markUnread, type Conversation } from '../store.js';
 import type { ActivityKind, MessageBody, ToolCallBody } from '../types.js';
 import * as live from './live.js';
 import { activityFor, appToolName } from './tools.js';
+import type { RunEvent } from './run-events.js';
 
 /**
  * What one turn writes into the chat, from the events of its Hermes run (GET /v1/runs/<id>/events).
@@ -69,16 +70,16 @@ export class TurnTranscript {
   // ---------- events ----------
 
   /** Apply one event of the run. True when the run is over; throws when it failed or was cut short. */
-  onRunEvent(d: any): boolean {
-    switch (d?.event) {
+  onRunEvent(d: RunEvent): boolean {
+    switch (d.event) {
       case 'message.delta':
-        if (typeof d.delta === 'string') this.textDelta(d.delta);
+        this.textDelta(d.delta);
         return false;
       case 'message.interim':
-        if (typeof d.text === 'string') this.commentary(d.text, !!d.already_streamed);
+        this.commentary(d.text, !!d.already_streamed);
         return false;
       case 'reasoning.available':
-        if (typeof d.text === 'string' && d.text.trim()) {
+        if (d.text.trim()) {
           live.doing(this.botId, 'thinking', { unlessAlready: true });
           this.caption(captionFrom(d.text.slice(-4000)));
         }
@@ -112,17 +113,17 @@ export class TurnTranscript {
     if (this.msgSeq === null ? this.text.length >= HOLD : this.clock() - this.lastFlush > FLUSH_MS) this.flush(true);
   }
 
-  private toolStarted(d: any) {
+  private toolStarted(d: Extract<RunEvent, { event: 'tool.started' }>) {
     // Text written before this call was the bot thinking aloud: a note, not a message.
     this.closeMessage(true);
-    const raw = String(d.tool ?? '');
+    const raw = d.tool ?? '';
     const { name, ours } = appToolName(raw);
     if (!ours && TOOLBOX.has(name)) {
       this.caption('Finding the right tool', true);
       return;
     }
     const act = activityFor(raw);
-    const callId = String(d.tool_call_id ?? '');
+    const callId = d.tool_call_id ?? '';
     const row = this.convo.append('tool-call', { type: 'tool-call', callId, name, label: act.label, status: 'running' } satisfies ToolCallBody);
     if (row) this.tools.push({ seq: row.seq, callId, name, claimed: false, done: false });
     // send_to_bot names its recipient once the call reaches the app (noteArgs).
@@ -150,8 +151,8 @@ export class TurnTranscript {
     this.say(out);
   }
 
-  private toolOutput(d: any) {
-    const callId = String(d.tool_call_id ?? '');
+  private toolOutput(d: Extract<RunEvent, { event: 'tool.completed' }>) {
+    const callId = d.tool_call_id ?? '';
     if (!callId || this.outputsSeen.has(callId)) return;
     this.outputsSeen.add(callId);
     const ref = this.tools.find((r) => r.callId === callId);

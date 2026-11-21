@@ -25,6 +25,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
+import { z } from 'zod';
 import { authenticate, crossSite, headerOf } from './lib/auth.js';
 import { engineFor, runSlot, type Engine } from './engine.js';
 import { failureText, sseEvents } from './lib/sse.js';
@@ -36,8 +37,37 @@ import { claimCall, type ActiveCall } from './voice.js';
 import { chatNews } from './agent/catchup.js';
 import type { ClientEvent, RealtimeResponse, RelayEvent, SpeechEvent } from './voice-protocol.js';
 import { errorText } from './lib/errors.js';
+import { eventName, runEvent, startedRun, stoppedStatus, type RunEvent } from './agent/run-events.js';
 
-type Json = Record<string, any>;
+/** The browser's events, checked as they arrive (voice-protocol.ts describes them). */
+const ClientEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('input_audio_buffer.append'), audio: z.string() }),
+  z.object({ type: z.literal('input_audio_buffer.clear') }),
+  z.object({ type: z.literal('response.create') }),
+  z.object({ type: z.literal('response.cancel'), response_id: z.string().optional() }),
+  z.object({ type: z.literal('session.update') }),
+]) satisfies z.ZodType<ClientEvent>;
+
+/** The speech service's events, checked as they arrive (speech/README.md describes them). */
+const SpeechEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('ready'), model: z.string().optional(), sample_rate: z.number().optional() }),
+  z.object({ type: z.literal('speech_started'), utterance: z.number(), start_ms: z.number(), audio_ms: z.number() }),
+  z.object({ type: z.literal('partial'), utterance: z.number(), text: z.string() }),
+  z.object({ type: z.literal('speech_stopped'), utterance: z.number(), end_ms: z.number(), audio_ms: z.number(), forced: z.boolean().optional() }),
+  z.object({ type: z.literal('final'), utterance: z.number(), text: z.string(), model: z.string().optional() }),
+  z.object({ type: z.literal('speech_dropped'), utterance: z.number() }),
+  z.object({ type: z.literal('error'), message: z.string() }),
+]) satisfies z.ZodType<SpeechEvent>;
+
+const Typed = z.object({ type: z.string() });
+
+/** A text frame's JSON, or undefined (logged) when it isn't JSON. */
+function frameJson(data: unknown, from: string): unknown {
+  try { return JSON.parse(String(data)); } catch {
+    console.warn(`[voice] ${from} sent a frame that isn't JSON: ${String(data).slice(0, 200)}`);
+    return undefined;
+  }
+}
 
 /** Wall-clock times for the latency log. `endOfSpeech` is when the user's last word ended. */
 interface Timing { start: number; endOfSpeech?: number; final?: number; firstToken?: number; firstAudio?: number }
@@ -197,13 +227,35 @@ export class Relay {
     this.speech = new WebSocket(listenUrl());
     this.speech.on('message', (data, isBinary) => {
       if (isBinary) return;
-      try { this.onSpeech(JSON.parse(String(data))); } catch (e) { console.warn('[voice] bad speech event', e); }
+      const json = frameJson(data, 'the speech service');
+      if (json === undefined) return;
+      const ev = SpeechEventSchema.safeParse(json);
+      if (!ev.success) {
+        console.warn(`[voice] ignored a speech event that isn't shaped as expected (${z.prettifyError(ev.error).replace(/\s+/g, ' ')}): ${String(data).slice(0, 200)}`);
+        return;
+      }
+      try { this.onSpeech(ev.data); } catch (e) { console.warn('[voice] a speech event failed', e); }
     });
     this.speech.on('error', (e) => { this.speechError ||= e.message; });
     this.speech.on('close', () => this.fail(this.ready ? 'The speech service ended the call.' : `The speech service is not answering${this.speechError ? ` (${this.speechError})` : ''}.`));
     client.on('message', (data, isBinary) => {
       if (isBinary) return this.audio(data as Buffer);
-      try { this.onClient(JSON.parse(String(data))); } catch (e) { console.warn('[voice] bad client event', e); }
+      const json = frameJson(data, 'the browser');
+      if (json === undefined) return;
+      const ev = ClientEventSchema.safeParse(json);
+      if (!ev.success) {
+        // An event this relay doesn't speak, or one of its own events with the wrong fields.
+        const type = Typed.safeParse(json).data?.type;
+        const known = ClientEventSchema.options.some((o) => o.shape.type.value === type);
+        this.send({
+          type: 'error',
+          error: known
+            ? { type: 'invalid_request_error', code: 'invalid_event', message: `Malformed ${type}: ${z.prettifyError(ev.error).replace(/\s+/g, ' ')}` }
+            : { type: 'invalid_request_error', code: 'unknown_event', message: `Unknown event ${String(type)}` },
+        });
+        return;
+      }
+      try { this.onClient(ev.data); } catch (e) { console.warn('[voice] a client event failed', e); }
     });
     client.on('close', () => this.close());
   }
@@ -221,7 +273,7 @@ export class Relay {
   private onClient(ev: ClientEvent) {
     switch (ev.type) {
       case 'input_audio_buffer.append':
-        return this.audio(Buffer.from(String(ev.audio ?? ''), 'base64'));
+        return this.audio(Buffer.from(ev.audio, 'base64'));
       case 'input_audio_buffer.clear': // the microphone was muted: drop what the user was saying
         if (this.speech.readyState === WebSocket.OPEN) this.speech.send(JSON.stringify({ type: 'reset' }));
         this.playOn();
@@ -237,8 +289,10 @@ export class Relay {
         return;
       case 'session.update': // the call's settings come from POST /api/voice/session
         return;
-      default:
-        this.send({ type: 'error', error: { type: 'invalid_request_error', code: 'unknown_event', message: `Unknown event ${String((ev as { type?: unknown }).type)}` } });
+      default: {
+        const unknown: never = ev;
+        console.warn('[voice] unhandled client event', unknown);
+      }
     }
   }
 
@@ -374,7 +428,7 @@ export class Relay {
   }
 
   /** A request to the bot's gateway. */
-  private hermes(engine: Engine, path: string, body?: Json, signal?: AbortSignal) {
+  private hermes(engine: Engine, path: string, body?: object, signal?: AbortSignal) {
     return fetch(`${engine.url}${path}`, {
       method: body ? 'POST' : 'GET',
       signal,
@@ -413,16 +467,18 @@ export class Relay {
         model_options: { reasoning_effort: this.call.effort },
       }, AbortSignal.timeout(30_000));
       if (!res.ok) throw new Error(await failureText(res));
-      r.runId = String(((await res.json()) as Json).run_id ?? '') || null;
+      r.runId = startedRun(await res.json());
       if (!r.runId) throw new Error('Hermes started no run');
       created();
       if (r.state !== 'active') return;
       const events = await this.hermes(engine, `/v1/runs/${r.runId}/events`, undefined, r.abort.signal);
       if (!events.ok || !events.body) throw new Error(await failureText(events));
-      for await (const ev of sseEvents(events.body)) {
-        slot((ev.data as Json | undefined)?.event);
+      for await (const raw of sseEvents(events.body)) {
+        const ev = runEvent(raw.data);
+        if (!ev) continue;
+        slot(eventName(ev));
         if (r.state !== 'active') return;
-        if (this.onRunEvent(r, ev.data)) break;
+        if (this.onRunEvent(r, ev)) break;
       }
     } catch (e) {
       if (r.state !== 'active') return; // cancelled
@@ -444,11 +500,11 @@ export class Relay {
   }
 
   /** Handles one event of the run. True when the run is over. */
-  private onRunEvent(r: Reply, d: any): boolean {
-    if (r.runId && d?.event !== 'approval.request' && d?.event !== 'approval.responded') runMoved(r.runId);
-    switch (d?.event) {
+  private onRunEvent(r: Reply, d: RunEvent): boolean {
+    if (r.runId && d.event !== 'approval.request' && d.event !== 'approval.responded') runMoved(r.runId);
+    switch (d.event) {
       case 'message.delta': {
-        if (typeof d.delta !== 'string' || r.hangup) return false;
+        if (r.hangup) return false;
         r.timing.firstToken ??= Date.now();
         const [done, rest] = cutSentences(r.buffer + d.delta);
         r.buffer = rest;
@@ -461,8 +517,8 @@ export class Relay {
           this.say(r, [r.buffer]);
           r.buffer = '';
         }
-        r.tools.add(String(d.tool_call_id ?? d.tool ?? ''));
-        const raw = String(d.tool ?? '');
+        r.tools.add(d.tool_call_id ?? d.tool ?? '');
+        const raw = d.tool ?? '';
         const { name, ours } = appToolName(raw);
         if (ours && name === 'end_call') {
           // Nothing the agent writes after this is said: finish once the goodbye has been spoken.
@@ -476,7 +532,7 @@ export class Relay {
         return false;
       }
       case 'tool.completed':
-        r.tools.delete(String(d.tool_call_id ?? d.tool ?? ''));
+        r.tools.delete(d.tool_call_id ?? d.tool ?? '');
         return false;
       case 'approval.request': {
         // Hermes asks before an action: the card shows in the bot's chat and the call waits for the
@@ -487,7 +543,7 @@ export class Relay {
           convo: conversation(bot.id, bot.generation), engine: r.engine, runId: r.runId, event: d, tool,
           onSettled: (o) => { if (r.state === 'active') this.send({ type: 'dispatch.activity', response_id: r.id, label: o === 'denied' ? '' : tool?.label ?? '' }); },
         }) : null;
-        console.log(`[voice] ${this.call.id} ${r.id}: ${asked ? 'asked in the chat' : 'could not ask'} before: ${clip(String(d.command ?? d.description ?? ''), 160)}`);
+        console.log(`[voice] ${this.call.id} ${r.id}: ${asked ? 'asked in the chat' : 'could not ask'} before: ${clip(d.command ?? d.description ?? '', 160)}`);
         if (asked) this.send({ type: 'dispatch.activity', response_id: r.id, label: 'Waiting for you in the chat' });
         return false;
       }
@@ -506,7 +562,7 @@ export class Relay {
       case 'run.interrupted':
         return true;
       case 'run.failed':
-        throw new Error(String(d.error ?? 'the run failed'));
+        throw new Error(typeof d.error === 'string' && d.error ? d.error : 'the run failed');
       default:
         return false;
     }
@@ -540,7 +596,7 @@ export class Relay {
         console.warn(`[voice] ${this.call.id} ${r.id}: couldn't stop run ${r.runId}; it may still be running:`, (e as Error)?.message ?? e);
         return null;
       });
-      const status = res?.ok ? String(((await res.json().catch(() => ({}))) as Json).status ?? '') : '';
+      const status = res?.ok ? stoppedStatus(await res.json().catch(() => null)) : '';
       return status !== 'cancelled' && status !== '';
     })();
     return r.stopped;

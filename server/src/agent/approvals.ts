@@ -4,6 +4,7 @@ import { failureText } from '../lib/sse.js';
 import { getRow, getBotRow, updateRow, type Conversation, type RowRef } from '../store.js';
 import { syncApprovals, type Engine } from '../engine.js';
 import type { ApprovalChoice, CardBody } from '../types.js';
+import { openPrompts, type ApprovalRequest } from './run-events.js';
 
 /**
  * Hermes' approval prompts, as cards in the chat.
@@ -52,9 +53,9 @@ const hermes = (e: Engine, path: string, body?: unknown) => fetch(`${e.url}${pat
 });
 
 /** The card's words, from Hermes' prompt: its description says what, its command shows how. */
-function cardText(ev: any): { title: string; detail: string; command?: string } {
-  const description = String(ev?.description ?? '').replace(/\s+/g, ' ').trim();
-  const command = String(ev?.command ?? '').trim();
+function cardText(ev: ApprovalRequest): { title: string; detail: string; command?: string } {
+  const description = (ev.description ?? '').replace(/\s+/g, ' ').trim();
+  const command = (ev.command ?? '').trim();
   const [first = '', ...rest] = description.split(/(?<=[.!?])\s+/);
   const title = first ? first.charAt(0).toUpperCase() + first.slice(1) : 'Allow this action?';
   // Hermes writes a non-command action as "<write to …>", which the title already says.
@@ -67,14 +68,15 @@ function cardText(ev: any): { title: string; detail: string; command?: string } 
  * tool waiting on it, when known. Returns the approval's id, or null when the prompt can't be answered.
  */
 export function askApproval(o: {
-  convo: Conversation; engine: Engine; runId: string; event: any; tool?: { name: string; label: string } | null;
+  convo: Conversation; engine: Engine; runId: string; event: ApprovalRequest; tool?: { name: string; label: string } | null;
   onSettled?: (outcome: Settled) => void;
 }): string | null {
-  const promptId = o.event?.prompt_id ?? o.event?.request_id;
-  const executionGeneration = o.event?.execution_generation;
+  const promptId = o.event.prompt_id ?? o.event.request_id;
+  const executionGeneration = o.event.execution_generation;
   const bot = getBotRow(o.convo.botId);
-  if (typeof promptId !== 'string' || !promptId || typeof executionGeneration !== 'number' || !bot) return null;
-  const offered = Array.isArray(o.event?.choices) ? CHOICES.filter((c) => o.event.choices.includes(c)) : CHOICES;
+  if (!promptId || typeof executionGeneration !== 'number' || !bot) return null;
+  const asked = o.event.choices;
+  const offered = asked ? CHOICES.filter((c) => asked.includes(c)) : CHOICES;
   const id = `ap_${crypto.randomBytes(9).toString('base64url')}`;
   const card = o.convo.append('card', {
     type: 'card', card: 'approval', approvalId: id, ...cardText(o.event),
@@ -153,7 +155,8 @@ export function runMoved(runId: string) {
     try {
       const res = await hermes(waiting[0].engine, `/v1/runs/${runId}`);
       if (!res.ok) return;
-      const open = new Set(((await res.json()) as any)?.pending_controls?.map((c: any) => c?.prompt_id) ?? []);
+      const open = openPrompts(await res.json());
+      if (!open) return;
       for (const p of waiting) if (!open.has(p.promptId) && pending.get(p.id) === p && !p.answering) settle(recordOf(p), 'expired');
     } catch (e) {
       // Checked again on the run's next event, and at its end.
