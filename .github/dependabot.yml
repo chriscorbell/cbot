@@ -6,16 +6,23 @@ updates:
     schedule: { interval: weekly }
     groups:
       npm: { patterns: ["*"] }
+  # speech/requirements.in, and requirements.txt compiled from it with hashes (pip-compile, from the
+  # command in its header).
   - package-ecosystem: pip
     directory: /speech
     schedule: { interval: weekly }
     groups:
       pip: { patterns: ["*"] }
+  # The base images are pinned by tag and digest; Dependabot moves both. A new Python minor version
+  # waits for a person, since speech/requirements.txt is compiled for the image's Python.
   - package-ecosystem: docker
     directories: [/, /speech]
     schedule: { interval: weekly }
     groups:
       docker: { patterns: ["*"] }
+    ignore:
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

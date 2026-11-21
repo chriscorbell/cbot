@@ -5,7 +5,7 @@
 # The ASR runtime. Built at a pinned commit of main because the buffered streaming path for
 # Parakeet Unified was fixed after the last release (k2-fsa/sherpa-onnx#4133, merged 2026-11-13;
 # 2.0.1 loses words with endpointing on). Swap in the PyPI wheel once a release includes it.
-FROM python:3.12.16-slim-bookworm AS sherpa
+FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df AS sherpa
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 ARG SHERPA_ONNX_COMMIT=78022953788ff05f62f4a733c6268a5689efeb86
@@ -21,18 +21,24 @@ RUN pip wheel --no-deps -w /wheels /src && ls -l /wheels
 # ---------------------------------------------------------------- models, at pinned revisions
 # models.json lists each file with its hash; fetch_models.py refuses a file that does not match.
 # One layer per model, so changing the set downloads only what changed. Nothing is fetched at runtime.
-FROM python:3.12.16-slim-bookworm AS models
+FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df AS models
 COPY models.json fetch_models.py /src/
 RUN python3 /src/fetch_models.py /models phonon-31m-en phonon-voices-en silero-vad
 RUN python3 /src/fetch_models.py /models parakeet-unified-en-0.6b
 RUN python3 /src/fetch_models.py /models nemotron-speech-streaming-en-0.6b-160ms
 
 # ---------------------------------------------------------------- the service
-FROM python:3.12.16-slim-bookworm
+FROM python:3.12.16-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# requirements.txt has every package with its hashes, compiled from requirements.in (README.md:
+# Dependencies), so pip installs exactly those files and nothing it resolves on its own. The
+# sherpa-onnx wheel was built above from a pinned commit, so it has no published hash to check; pip
+# check proves the locked packages cover what it needs.
 COPY requirements.txt /app/
 RUN --mount=type=bind,from=sherpa,source=/wheels,target=/wheels \
-    pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt /wheels/*.whl \
+    pip install --no-cache-dir --root-user-action=ignore --require-hashes --no-deps -r /app/requirements.txt \
+ && pip install --no-cache-dir --root-user-action=ignore --no-deps /wheels/*.whl \
+ && pip check \
  && useradd --system --home-dir /app --shell /usr/sbin/nologin speech
 COPY --from=models /models /models
 COPY app /app/app

@@ -3,7 +3,7 @@
 # says how to run it. Production runs on its own machine without Docker (scripts/deploy.sh).
 
 # ---------------------------------------------------------------- the computer
-FROM ubuntu:26.04 AS computer
+FROM ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db AS computer
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 COPY scripts/provision.sh /tmp/provision.sh
 RUN bash /tmp/provision.sh --container && rm /tmp/provision.sh

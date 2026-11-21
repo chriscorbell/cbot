@@ -151,11 +151,24 @@ compose.yaml sets `SPEECH_THREADS`; the rest are rarely needed.
 | `SPEECH_MAX_TTS_CHARS` | `4000` | |
 | `SPEECH_MAX_CLIP_SECONDS`, `SPEECH_MAX_UPLOAD_BYTES` | `600`, `52428800` | Limits for `/v1/transcribe` |
 
+## Dependencies
+
+`requirements.in` lists the service's direct dependencies. `requirements.txt` is compiled from it with every package and its hashes, and the image installs only that, with `--require-hashes`. After changing `requirements.in`, compile it again in the image's Python:
+
+```bash
+cd speech
+docker run --rm -v "$PWD":/w -w /w python:3.12.16-slim-bookworm sh -c \
+  'pip install -q pip-tools && pip-compile --generate-hashes --strip-extras --allow-unsafe requirements.in'
+```
+
+Dependabot proposes updates to `requirements.in` and compiles `requirements.txt` the same way, from the command in its header.
+
 ## Files
 
 | Path | |
 |---|---|
 | `Dockerfile` | Builds sherpa-onnx from source at a pinned commit, fetches the models, installs the service |
+| `requirements.in`, `requirements.txt` | The service's direct dependencies, and every package they need locked with its hashes |
 | `models.json`, `fetch_models.py` | Every model file with its repository, revision, license and hash, and the script that downloads and checks them |
 | `app/main.py` | The HTTP and WebSocket routes |
 | `app/tts.py` | Phonon: voices, speed, streaming |
