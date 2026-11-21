@@ -3,6 +3,7 @@ import type { Bot } from '@shared/types';
 import type { SearchFileHit, SearchMessageHit, SearchResponse } from '@shared/contract';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { displayName, useStore } from '../../store';
+import { notifyFailure } from '../../lib/uiEvents';
 import { useConfigUI } from '../../configStore';
 import { Icon } from '../Icon';
 import { Glyph } from '../config/glyphs';
@@ -92,8 +93,12 @@ export function SearchModal() {
     const st = useStore.getState();
     // Opening a bot hidden from the rail puts it back there.
     if (it.bot.sidebarHidden) {
-      useStore.setState((s) => ({ bots: s.bots.map((b) => (b.id === it.bot.id ? { ...b, sidebarHidden: false } : b)) }));
-      api.setFlags(it.bot.id, { sidebarHidden: false }).catch(() => {});
+      const unhide = (hidden: boolean) => useStore.setState((s) => ({ bots: s.bots.map((b) => (b.id === it.bot.id ? { ...b, sidebarHidden: hidden } : b)) }));
+      unhide(false);
+      api.setFlags(it.bot.id, { sidebarHidden: false }).catch(() => {
+        unhide(true);
+        notifyFailure(`Couldn’t put ${it.bot.name} back in the sidebar. Check the connection and try again.`);
+      });
     }
     st.selectBot(it.bot.id);
     const { jumpTo } = useConfigUI.getState();

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { onUi } from '../lib/uiEvents';
 import { createPortal } from 'react-dom';
 import { Check, CircleAlert } from 'lucide-react';
 
@@ -28,4 +29,11 @@ export function useToast() {
   ) : null;
   const flash = (text: string, ok = true) => setNote({ text, ok });
   return [node, flash] as const;
+}
+
+/** The toast for failures reported from anywhere with notifyFailure (lib/uiEvents.ts). Rendered once, by the app shell. */
+export function Notices() {
+  const [toast, flash] = useToast();
+  useEffect(() => onUi('notice', ({ text }) => flash(text, false)), [flash]);
+  return toast;
 }

@@ -11,7 +11,7 @@ import { ThinkingBlock } from './ActivityLine';
 import { CardRow } from './cards/Cards';
 import { Icon } from './Icon';
 import { Markdown } from './Markdown';
-import { emitUi } from '../lib/uiEvents';
+import { emitUi, notifyFailure } from '../lib/uiEvents';
 import { useConfigUI } from '../configStore';
 import { glow } from '../lib/glow';
 import { fileUrl } from '../lib/files';
@@ -87,13 +87,16 @@ function splitQuote(text: string): { quote: string | null; rest: string } {
 
 const plain = (md: string) => md.replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>]/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\s+/g, ' ').trim();
 
+/** A reaction the server didn't take: patchRow has put the old one back, and this says so. */
+const reactionFailed = () => notifyFailure('Couldn’t save the reaction. Check the connection and try again.');
+
 /** Reacting, replying and more, beside a message while the pointer is on it. */
 function MessageActions({ row, side }: { row: Row; side: 'left' | 'right' }) {
   const b = row.body as MessageBody;
   const [pop, setPop] = useState<'react' | 'more' | null>(null);
   const react = (emoji: string | null) => {
     setPop(null);
-    useStore.getState().patchRow(row.botId, row.seq, { reaction: emoji }).catch(() => {});
+    useStore.getState().patchRow(row.botId, row.seq, { reaction: emoji }).catch(reactionFailed);
   };
   return (
     <div className={`msg-actions is-${side}${pop ? ' is-open' : ''}`}>
@@ -162,7 +165,7 @@ function TouchActions({ row, side, onClose }: { row: Row; side: 'left' | 'right'
   }, [onClose]);
   const react = (emoji: string | null) => {
     onClose();
-    useStore.getState().patchRow(row.botId, row.seq, { reaction: emoji }).catch(() => {});
+    useStore.getState().patchRow(row.botId, row.seq, { reaction: emoji }).catch(reactionFailed);
   };
   const current = b.reaction ?? null;
   const ic = { size: 15, strokeWidth: 1.75 } as const;
@@ -255,7 +258,7 @@ const Bubble = memo(function Bubble({ row, side, pos }: { row: Row; side: 'left'
           </div>
         )}
         {b.reaction && (
-          <button type="button" className="bubble__reaction" onClick={() => useStore.getState().patchRow(row.botId, row.seq, { reaction: null }).catch(() => {})} title="Remove reaction" aria-label={`Reacted ${b.reaction}. Remove`}>{b.reaction}</button>
+          <button type="button" className="bubble__reaction" onClick={() => useStore.getState().patchRow(row.botId, row.seq, { reaction: null }).catch(reactionFailed)} title="Remove reaction" aria-label={`Reacted ${b.reaction}. Remove`}>{b.reaction}</button>
         )}
       </div>
       {!b.streaming && <MessageActions row={row} side={side} />}

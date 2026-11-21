@@ -1,6 +1,7 @@
 import type { ServerEvent } from '@shared/types';
 import { useConfigUI } from '../configStore';
 import { useStore } from '../store';
+import { notifyFailure } from './uiEvents';
 
 /**
  * Where each server event goes. The switch is exhaustive: a new ServerEvent type in
@@ -41,13 +42,18 @@ export function startEvents(): () => void {
 
   // Events sent while disconnected are lost: refetch what is on screen, and mark every other
   // transcript stale so it is refetched when opened.
+  // If a refetch fails, what is on screen may be out of date until the next reconnect, so say so once.
   const resync = () => {
     const st = useStore.getState();
     st.markTranscriptsStale();
-    st.loadBots().catch(() => {});
-    st.loadComputer().catch(() => {});
-    st.loadUpdate().catch(() => {});
-    if (st.selectedBotId) { st.loadRows(st.selectedBotId).catch(() => {}); st.loadRoutines(st.selectedBotId).catch(() => {}); }
+    const loads: Promise<unknown>[] = [st.loadBots(), st.loadComputer(), st.loadUpdate()];
+    if (st.selectedBotId) loads.push(st.loadRows(st.selectedBotId), st.loadRoutines(st.selectedBotId));
+    void Promise.allSettled(loads).then((results) => {
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      if (!failed.length) return;
+      console.warn('[events] refreshing after the reconnect failed:', failed.map((r) => r.reason));
+      notifyFailure('Reconnected, but couldn’t catch up on everything. Reload the page if something looks out of date.');
+    });
   };
 
   const open = () => {

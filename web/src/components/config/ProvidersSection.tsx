@@ -48,8 +48,8 @@ export function ProvidersSection() {
   };
 
   const signedIn = () => {
-    configApi.providers().then(setData).catch(() => {});
     flash('Signed in to GitHub. Each bot’s agent restarts to use it.');
+    configApi.providers().then(setData).catch(() => flash('Signed in to GitHub, but couldn’t load the providers again. Reopen Settings to see them.', false));
   };
 
   if (!data) {

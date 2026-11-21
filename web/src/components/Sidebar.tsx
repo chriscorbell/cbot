@@ -10,6 +10,7 @@ import type { Bot } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
 import { displayName, useStore } from '../store';
+import { notifyFailure } from '../lib/uiEvents';
 import { trapTabWithin } from '../lib/focus';
 import { Menu, type MenuItem } from './Menu';
 import { Presence, useExiting } from './Presence';
@@ -192,7 +193,7 @@ function AccountButton({ name, avatarUrl, tips }: { name: string; avatarUrl?: st
             { label: 'Search', hint: key('K'), icon: <Search size={14} strokeWidth={1.75} />, onSelect: go(() => useStore.getState().setModal('search')) },
             { label: 'New group chat', icon: <MessagesSquare size={14} strokeWidth={1.75} />, onSelect: go(() => useStore.getState().setModal('group')) },
             { label: 'Settings', hint: key(','), icon: <Settings size={14} strokeWidth={1.75} />, onSelect: go(() => useConfigUI.getState().openAppSettings()), separatorBefore: true },
-            { label: 'Sign out', icon: <LogOut size={14} strokeWidth={1.75} />, onSelect: go(() => { void useStore.getState().signOut(); }) },
+            { label: 'Sign out', icon: <LogOut size={14} strokeWidth={1.75} />, onSelect: go(() => { useStore.getState().signOut().catch(() => notifyFailure('Couldn’t sign out. Check the connection and try again.')); }) },
           ]}
         >
           <div className="menu__header">{name}</div>

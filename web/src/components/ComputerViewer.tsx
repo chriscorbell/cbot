@@ -176,7 +176,7 @@ export function ComputerScreen({ bot, variant, initialMode = 'watch', paused = f
     else changeMode('control');
   };
   const retry = () => {
-    useStore.getState().loadComputer().catch(() => {});
+    useStore.getState().loadComputer().catch(() => setNote('Couldn’t reach Dispatch to check the computer.'));
     setAttempt((n) => n + 1);
   };
   const toggleFullscreen = () => {

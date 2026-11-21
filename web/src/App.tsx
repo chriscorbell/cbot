@@ -13,6 +13,7 @@ import { useConfigUI } from './configStore';
 import { Presence } from './components/Presence';
 import { SignIn } from './components/SignIn';
 import { SetupWizard } from './components/SetupWizard';
+import { Notices } from './components/Toast';
 
 function Shell() {
   const detailsOpen = useStore((s) => s.detailsOpen);
@@ -71,6 +72,7 @@ function Shell() {
       <Presence show={modal === 'search'}><SearchModal /></Presence>
       <Presence show={viewerOpen} ms={180}><ComputerViewer /></Presence>
       <ConfigLayer />
+      <Notices />
     </div>
   );
 }
