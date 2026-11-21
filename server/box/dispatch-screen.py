@@ -20,6 +20,7 @@ import io
 import json
 import os
 import shutil
+import socket
 import struct
 import subprocess
 import sys
@@ -109,6 +110,20 @@ def home_alive():
     return dispatchlib.unit_active(dispatchlib.HOME_UNIT)
 
 
+def home_listens(n, wait=5.0):
+    """Whether the home screen server listens for screen n (it does for every dressed screen within half a
+    second), so the screen's Chrome gets its page from the first tab."""
+    end = time.time() + wait
+    while True:
+        try:
+            socket.create_connection((dispatchlib.home_address(n), dispatchlib.HOME_PORT), timeout=1).close()
+            return True
+        except OSError:
+            if time.time() >= end:
+                return False
+            time.sleep(0.1)
+
+
 def start_home(restart=False):
     """The home screen server, as dispatch-home.service (journalctl -u dispatch-home says how it went).
     It stays root: it starts the apps a bot's home screen asks for, as the bots' account, in the bot's
@@ -195,9 +210,9 @@ def build_extension(warnings):
     digest = hashlib.sha256(der).digest()
     ext_id = ''.join(chr(97 + (b >> 4)) + chr(97 + (b & 15)) for b in digest[:16])
     names = sorted(os.listdir(src))
-    # The pages name the home screen server as __HOME_URL__; the port comes from machine.json, so a
-    # change there repacks the extension too.
-    home_url = dispatchlib.HOME_URL.encode()
+    # The pages name the home screen as __HOME_URL__, which each bot's Chrome sends to its own screen's
+    # address; the port comes from machine.json, so a change there repacks the extension too.
+    home_url = dispatchlib.SCREEN_HOME_URL.encode()
     content = hashlib.sha256(home_url + b'\0')
     for name in names:
         content.update(name.encode() + b'\0' + open(os.path.join(src, name), 'rb').read() + b'\0')
@@ -443,6 +458,9 @@ def do_dress(n, flags, look_b64, warnings):
     lap('shell')
     if not start_home():
         warnings.append('the home screen server is not running (journalctl -u %s says why)' % dispatchlib.HOME_UNIT)
+    elif not home_listens(n):
+        warnings.append('the home screen server does not answer for screen %d on %s (journalctl -u %s says why)'
+                        % (n, dispatchlib.home_address(n), dispatchlib.HOME_UNIT))
     if reset:
         dispatchlib.stop_browser(bot['id'])
         left = close_windows(n)

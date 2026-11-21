@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """dispatch-home: the home screen every Chrome on this computer shows on a new tab.
 
-One small server on 127.0.0.1 serves a different page to each screen. It works out who is asking
-from the TCP connection: source port -> owning process -> that Chrome's profile folder (one per
-bot) or, failing that, the X display the Chrome runs on.
+One small server serves a different page to each screen, and knows which screen asks by the address
+the request came to. Each bot's Chrome reaches the home screen as http://home.localhost:<port>, and is
+started with a rule that sends that name to its own screen's loopback address (dispatchlib.home_address),
+where this server listens for that screen alone. Another Chrome resolves home.localhost to 127.0.0.1
+itself, and gets the plain page that the extension's files and updates are served beside.
 """
 import html
 import json
@@ -32,123 +34,54 @@ NEUTRAL = {
                '<rect width="100%" height="100%" fill="url(#n)"/></svg>',
 }
 
-# ---------------------------------------------------------------- who is asking
+# ---------------------------------------------------------------- one listener per screen
 
-_owner_cache = {}
-_owner_lock = threading.Lock()
+class Server(ThreadingHTTPServer):
+    """A listener on one address. `screen` is the screen whose Chrome reaches it, or None on 127.0.0.1."""
+    daemon_threads = True
 
-
-def _socket_inode(client_port):
-    """Inode of the client end of a loopback connection to us, from the kernel's socket table."""
-    for table, local_prefix in (('/proc/net/tcp', '0100007F'), ('/proc/net/tcp6', None)):
-        try:
-            with open(table) as f:
-                next(f, None)
-                for line in f:
-                    parts = line.split()
-                    if len(parts) < 10:
-                        continue
-                    local, remote = parts[1], parts[2]
-                    try:
-                        lport = int(local.rsplit(':', 1)[1], 16)
-                        rport = int(remote.rsplit(':', 1)[1], 16)
-                    except (IndexError, ValueError):
-                        continue
-                    if lport == client_port and rport == dispatchlib.HOME_PORT and parts[9] != '0':
-                        return parts[9]
-        except OSError:
-            continue
-    return None
+    def __init__(self, address, screen):
+        self.screen = screen
+        super().__init__((address, dispatchlib.HOME_PORT), Handler)
 
 
-def _holder_of(inode):
-    """Pid of a process that holds this socket. Chrome's network process owns its sockets."""
-    needle = 'socket:[%s]' % inode
-    pids = dispatchlib.all_pids()
-    browsers = [p for p in pids if 'chrom' in dispatchlib.comm(p).lower()]
-    for group in (browsers, [p for p in pids if p not in browsers]):
-        for pid in group:
-            fd_dir = '/proc/%d/fd' % pid
-            try:
-                for fd in os.listdir(fd_dir):
-                    try:
-                        if os.readlink('%s/%s' % (fd_dir, fd)) == needle:
-                            return pid
-                    except OSError:
-                        continue
-            except OSError:
-                continue
-    return None
+_listeners = {}
+_refused = set()
 
 
-def _describe(pid):
-    """(profile folder, display number) for the browser a process belongs to."""
-    profile, display, main = None, None, None
-    seen = 0
-    while pid and pid > 1 and seen < 6:
-        args = dispatchlib.cmdline(pid)
-        if args and 'chrom' in os.path.basename(args[0]).lower() and not any(a.startswith('--type=') for a in args):
-            main = pid
-        if display is None:
-            display = dispatchlib._marked_screen(args)
-        if profile is None:
-            for a in args:
-                if a.startswith('--user-data-dir='):
-                    profile = a.split('=', 1)[1].rstrip('/')
-                    break
-        if display is None:
-            display = dispatchlib.display_number(dispatchlib.environ_of(pid).get('DISPLAY'))
-        if profile is not None and display is not None:
-            break
-        pid = dispatchlib.ppid(pid)
-        seen += 1
-    if display is None and main:
-        # Chrome wipes its environment; find the screen it has a window on (dressed screens only).
-        display = dispatchlib.x_display_of(main, sorted(_screens()))
-    return profile, display
-
-
-def _screens():
-    out = {}
+def _dressed_screens():
     try:
         names = os.listdir(dispatchlib.SCREENS)
     except OSError:
-        return out
-    for name in names:
-        if name.isdigit():
-            look = dispatchlib.look_for(int(name))
-            if look:
-                out[int(name)] = look
-    return out
+        return []
+    return [int(name) for name in names if name.isdigit() and os.path.exists(dispatchlib.screen_dir(name) + '/look.json')]
 
 
-def screen_for_client(client_port):
-    """Which screen's home page this connection should get, or None."""
-    inode = _socket_inode(client_port)
-    if not inode:
-        return None
-    pid = _holder_of(inode)
-    if not pid:
-        return None
-    now = time.time()
-    with _owner_lock:
-        hit = _owner_cache.get(pid)
-        if hit and now - hit[0] < 5:
-            profile, display = hit[1], hit[2]
-        else:
-            profile, display = _describe(pid)
-            _owner_cache[pid] = (now, profile, display)
-            for old in [k for k, v in _owner_cache.items() if now - v[0] > 60]:
-                _owner_cache.pop(old, None)
-    screens = _screens()
-    if profile and profile.startswith(dispatchlib.PROFILES + '/'):
-        bot_id = os.path.basename(profile)
-        for n, look in screens.items():
-            if (look.get('bot') or {}).get('id') == bot_id:
-                return n
-    if display is not None and display in screens:
-        return display
-    return None
+def listen_for_screens():
+    """Start a listener for every dressed screen that has none. The dressing waits for it before it
+    starts the screen's Chrome (dispatch-screen.py), so a new screen is answered from its first tab."""
+    for n in _dressed_screens():
+        if n in _listeners:
+            continue
+        try:
+            server = Server(dispatchlib.home_address(n), n)
+        except OSError as e:
+            if n not in _refused:
+                _refused.add(n)
+                sys.stderr.write('%s cannot listen for screen %d on %s: %s\n' % (time.strftime('%F %T'), n, dispatchlib.home_address(n), e))
+            continue
+        _refused.discard(n)
+        _listeners[n] = server
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+
+
+def follow_screens():
+    while True:
+        try:
+            listen_for_screens()
+        except Exception as e:  # never let one odd folder stop new screens getting their page
+            sys.stderr.write('following the screens failed: %r\n' % e)
+        time.sleep(0.5)
 
 
 # ---------------------------------------------------------------- icons
@@ -232,8 +165,10 @@ def render_home(look):
     return re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), ''), template)
 
 
-# How Chrome and the box scripts name this server (dispatchlib.HOME_URL).
-LOCAL_HOSTS = ('127.0.0.1:%d' % dispatchlib.HOME_PORT, 'localhost:%d' % dispatchlib.HOME_PORT)
+# How Chrome and the box scripts name this server: the bots' Chrome as home.localhost (dispatchlib.SCREEN_HOME_URL),
+# the extension's updates and the scripts by its address (dispatchlib.HOME_URL).
+LOCAL_HOSTS = ('%s:%d' % (dispatchlib.HOME_HOST, dispatchlib.HOME_PORT), '127.0.0.1:%d' % dispatchlib.HOME_PORT,
+               'localhost:%d' % dispatchlib.HOME_PORT)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -268,14 +203,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(403, 'Forbidden', 'text/plain')
         return False
 
-    def _screen(self, query):
-        forced = (query.get('screen') or [''])[0]
-        if forced.isdigit() and self.command == 'GET':
-            return int(forced)
-        return screen_for_client(self.client_address[1])
-
-    def _look(self, query):
-        n = self._screen(query)
+    def _look(self):
+        n = self.server.screen
         look = dispatchlib.look_for(n) if n is not None else None
         return n, (look or NEUTRAL)
 
@@ -287,10 +216,10 @@ class Handler(BaseHTTPRequestHandler):
         path = url.path
         try:
             if path in ('/', '/home'):
-                _, look = self._look(query)
+                _, look = self._look()
                 self._send(200, render_home(look), 'text/html; charset=utf-8')
             elif path == '/stamp':
-                n, look = self._look(query)
+                n, look = self._look()
                 self._json(200, {'stamp': str(look.get('stamp') or ''), 'screen': n})
             elif path == '/apps':
                 apps = [{'id': a['id'], 'name': a['name'], 'kind': a['kind']} for a in dispatchlib.list_apps()]
@@ -303,11 +232,11 @@ class Handler(BaseHTTPRequestHandler):
                         data = f.read()
                     self._send(200, data, 'image/svg+xml' if icon.endswith('.svg') else 'image/png', 'max-age=300')
                 else:
-                    _, look = self._look(query)
+                    _, look = self._look()
                     accent = (look.get('colors') or {}).get('accent', '#6b7280')
                     self._send(200, letter_icon(app['name'] if app else '?', accent), 'image/svg+xml', 'max-age=60')
             elif path == '/favicon.svg' or path == '/favicon.ico':
-                _, look = self._look(query)
+                _, look = self._look()
                 self._send(200, look.get('avatarSvg') or NEUTRAL['avatarSvg'], 'image/svg+xml', 'max-age=60')
             elif path == '/ext/updates.xml':
                 data = dispatchlib.read_text(dispatchlib.EXT + '/updates.xml')
@@ -348,14 +277,14 @@ class Handler(BaseHTTPRequestHandler):
         # Only our own page may launch apps: a same-origin fetch that carries our custom header.
         site = self.headers.get('Sec-Fetch-Site')
         origin = self.headers.get('Origin')
-        if self.headers.get('X-Dispatch') != '1' or (site and site != 'same-origin') or (origin and origin != dispatchlib.HOME_URL):
+        if self.headers.get('X-Dispatch') != '1' or (site and site != 'same-origin') or (origin and origin != dispatchlib.SCREEN_HOME_URL):
             self._json(403, {'ok': False, 'error': 'forbidden'})
             return
         try:
             app_id = str(json.loads(raw.decode('utf-8') or '{}').get('id') or '')
         except ValueError:
             app_id = ''
-        n = screen_for_client(self.client_address[1])
+        n = self.server.screen
         if n is None or not dispatchlib.find_app(app_id):
             self._json(404, {'ok': False, 'error': 'unknown app or screen'})
             return
@@ -368,8 +297,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer(('127.0.0.1', dispatchlib.HOME_PORT), Handler)
-    server.daemon_threads = True
+    server = Server('127.0.0.1', None)
+    listen_for_screens()
+    threading.Thread(target=follow_screens, daemon=True).start()
     dispatchlib.write_atomic(dispatchlib.ROOT + '/home.pid', str(os.getpid()))
     sys.stderr.write('%s dispatch-home listening on %s\n' % (time.strftime('%F %T'), dispatchlib.HOME_URL))
     sys.stderr.flush()

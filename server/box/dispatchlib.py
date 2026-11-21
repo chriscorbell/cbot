@@ -66,7 +66,12 @@ BOTS_ROOT = ACCOUNT_HOME + '/' + MACHINE['botsDir']
 PROFILES = BOTS_ROOT + '/profiles'
 LIBRARY = BOTS_ROOT + '/files'
 HOME_PORT = MACHINE['homePort']
+# The home screen server by its address: what the scripts and the extension's updates use.
 HOME_URL = 'http://127.0.0.1:%d' % HOME_PORT
+# The home screen as the bots' Chrome shows it. Each bot's Chrome sends this name to its screen's own
+# address (home_address), so the server knows from where a request arrived which screen asks.
+HOME_HOST = 'home.localhost'
+SCREEN_HOME_URL = 'http://%s:%d' % (HOME_HOST, HOME_PORT)
 BROWSER_CLASS = 'DispatchBrowser'
 SCREEN_FLAG = '--dispatch-screen'
 SHELL_CLASS = 'DispatchShell'
@@ -236,10 +241,6 @@ def run(argv, env=None, timeout=10, input_bytes=None):
 
 # ---------------------------------------------------------------- processes
 
-def all_pids():
-    return [int(d) for d in os.listdir('/proc') if d.isdigit()]
-
-
 def cmdline(pid):
     try:
         with open('/proc/%d/cmdline' % pid, 'rb') as f:
@@ -265,20 +266,6 @@ def environ_of(pid):
             k, v = item.split(b'=', 1)
             env[k.decode('utf-8', 'replace')] = v.decode('utf-8', 'replace')
     return env
-
-
-def comm(pid):
-    return (read_text('/proc/%d/comm' % pid, '') or '').strip()
-
-
-def ppid(pid):
-    stat = read_text('/proc/%d/stat' % pid)
-    if not stat:
-        return 0
-    try:
-        return int(stat.rsplit(')', 1)[1].split()[1])
-    except (IndexError, ValueError):
-        return 0
 
 
 def alive(pid):
@@ -875,20 +862,6 @@ def _marked_screen(args):
     return None
 
 
-def x_display_of(pid, candidates=None):
-    """Which display a program has a window on. Chrome wipes its own environment, so DISPLAY cannot be read from it."""
-    if candidates is None:
-        candidates = []
-        try:
-            candidates = sorted(int(name[1:]) for name in os.listdir('/tmp/.X11-unix') if name[1:].isdigit())
-        except OSError:
-            pass
-    for n in candidates:
-        if any(w['pid'] == pid for w in windows(n)):
-            return n
-    return None
-
-
 def _browser_of(unit):
     """(main pid, display) of the Chrome a running unit holds, or None."""
     pid = unit_main_pid(unit)
@@ -924,6 +897,18 @@ def stop_browser(bot_id):
 
 def cdp_port(n):
     return MACHINE['cdpPortBase'] + int(n)
+
+
+def home_address(n):
+    """The loopback address the home screen server listens on for screen n alone (all of 127.0.0.0/8
+    is this machine's own, so it needs no setting up). 127.1.x.y keeps clear of 127.0.0.1."""
+    n = int(n)
+    return '127.1.%d.%d' % ((n >> 8) & 255, n & 255)
+
+
+def home_rule(n):
+    """Chrome's rule that sends the home screen's name to screen n's own address."""
+    return 'MAP %s %s' % (HOME_HOST, home_address(n))
 
 
 def cdp(n, path, method='GET', timeout=3):
@@ -1018,8 +1003,11 @@ def start_browser(n, bot_id, accent=None, restart=False, log=None):
         raise RuntimeError('Chrome is not installed on this computer')
     running = our_browser(bot_id)
     wrong_place = [pid for pid, disp in running if disp != n]
-    if running and (restart or wrong_place):
-        say('stopping Chrome for %s (restart=%s, on other screen=%s)' % (bot_id, restart, bool(wrong_place)))
+    # A Chrome started before it was given the home screen's rule, or another screen's, shows no bot's home.
+    no_home = [pid for pid, _ in running if home_rule(n) not in ' '.join(cmdline(pid))]
+    if running and (restart or wrong_place or no_home):
+        say('stopping Chrome for %s (restart=%s, on other screen=%s, without its home=%s)'
+            % (bot_id, restart, bool(wrong_place), bool(no_home)))
         stop_browser(bot_id)
         running = []
     # A Chrome of ours left on this screen for a bot that no longer lives here would fight over the DevTools port.
@@ -1038,6 +1026,7 @@ def start_browser(n, bot_id, accent=None, restart=False, log=None):
             '--user-data-dir=%s' % profile_dir(bot_id),
             '--class=%s' % BROWSER_CLASS,
             '--start-maximized',
+            '--host-resolver-rules=%s' % home_rule(n),
             '%s=%d' % (SCREEN_FLAG, n),     # ours: lets us tell later which screen this Chrome is on
         ]
         # In the bot's slice, under its memory limit, outside the server's control group.
