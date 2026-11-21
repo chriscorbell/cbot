@@ -63,8 +63,9 @@ class Machine(unittest.TestCase):
         self.assertEqual(dispatchlib.ROOT, m['boxRoot'])
         self.assertEqual(dispatchlib.LOGS, m['logs'])
         self.assertEqual(dispatchlib.RUN, m['run'])
-        self.assertEqual(dispatchlib.PROFILES, m['botsRoot'] + '/profiles')
-        self.assertEqual(dispatchlib.LIBRARY, m['botsRoot'] + '/files')
+        self.assertEqual(dispatchlib.BOTS_ROOT, dispatchlib.ACCOUNT_HOME + '/' + m['botsDir'])
+        self.assertEqual(dispatchlib.PROFILES, dispatchlib.BOTS_ROOT + '/profiles')
+        self.assertEqual(dispatchlib.LIBRARY, dispatchlib.BOTS_ROOT + '/files')
         self.assertEqual(dispatchlib.HOME_URL, 'http://127.0.0.1:%d' % m['homePort'])
         self.assertEqual(dispatchlib.cdp_port(99), m['cdpPortBase'] + 99)
 
@@ -111,6 +112,71 @@ class Units(unittest.TestCase):
         finally:
             dispatchlib.SCREENS = old
         self.assertEqual(dispatchlib.screen_scopes(101), ['dispatch-term-101-*.scope', 'dispatch-files-101-*.scope', 'dispatch-app-101-*.scope'])
+
+
+# The same passwd lines as server/test/account.test.ts.
+PASSWD = {
+    'root': (0, 0, '/root'),
+    'daemon': (1, 1, '/usr/sbin'),
+    'ada': (1000, 1000, '/home/ada'),
+}
+
+
+def fake_getpwnam(name):
+    if name not in PASSWD:
+        raise KeyError(name)
+    uid, gid, home = PASSWD[name]
+    return pwd_entry(uid, gid, home)
+
+
+class pwd_entry:
+    def __init__(self, uid, gid, home):
+        self.pw_uid, self.pw_gid, self.pw_dir = uid, gid, home
+
+
+class Account(unittest.TestCase):
+    """The bots' account, found by the rule server/src/account.ts follows."""
+
+    def test_the_account_is_dispatch_user_or_root_with_its_home_from_passwd(self):
+        self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': 'ada'}, fake_getpwnam), ('ada', 1000, 1000, '/home/ada'))
+        self.assertEqual(dispatchlib.bots_account({}, fake_getpwnam), ('root', 0, 0, '/root'))
+        self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': '  '}, fake_getpwnam)[0], 'root')
+
+    def test_dispatch_home_stands_in_for_the_home_and_an_unknown_account_stops(self):
+        self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': 'ada', 'DISPATCH_HOME': '/tmp/x/../home'}, fake_getpwnam)[3], '/tmp/home')
+        with self.assertRaises(SystemExit):
+            dispatchlib.bots_account({'DISPATCH_USER': 'nobody-here'}, fake_getpwnam)
+
+    def test_what_runs_for_a_bot_runs_as_the_account_and_dispatchs_own_pieces_stay_root(self):
+        saved = dispatchlib.hands_over, dispatchlib.ACCOUNT_UID, dispatchlib.ACCOUNT_GID
+        dispatchlib.hands_over, dispatchlib.ACCOUNT_UID, dispatchlib.ACCOUNT_GID = (lambda: True), 1000, 1000
+        try:
+            chrome = dispatchlib.service_argv('dispatch-chrome-bot_1.service', 'dispatch-bot-bot_1.slice', ['chrome'], {'HOME': '/home/ada'})
+            self.assertIn('--uid=1000', chrome)
+            self.assertIn('--gid=1000', chrome)
+            home = dispatchlib.service_argv('dispatch-home.service', 'dispatch.slice', ['dispatch-home.py'], {'HOME': '/root'}, account=False)
+            self.assertNotIn('--uid=1000', home)
+            term = dispatchlib.scope_argv('dispatch-term-101-5.scope', 'dispatch-bot-bot_1.slice', ['xfce4-terminal'])
+            self.assertEqual(term[term.index('--') + 1:], ['setpriv', '--reuid=1000', '--regid=1000', '--init-groups', '--', 'xfce4-terminal'])
+            job = dispatchlib.scope_argv('dispatch-job-x.scope', 'dispatch.slice', ['python3', 'job'], account=False)
+            self.assertEqual(job[job.index('--') + 1:], ['python3', 'job'])
+        finally:
+            dispatchlib.hands_over, dispatchlib.ACCOUNT_UID, dispatchlib.ACCOUNT_GID = saved
+
+    def test_chrome_keeps_its_sandbox_unless_the_bots_are_root(self):
+        saved = dispatchlib.ACCOUNT_UID
+        try:
+            dispatchlib.ACCOUNT_UID = 1000
+            self.assertEqual(dispatchlib.chrome_sandbox_flags(), [])
+            dispatchlib.ACCOUNT_UID = 0
+            self.assertEqual(dispatchlib.chrome_sandbox_flags(), ['--no-sandbox'])
+        finally:
+            dispatchlib.ACCOUNT_UID = saved
+
+    def test_the_screens_scripts_find_the_same_account(self):
+        env = dispatchlib.base_env(101)
+        self.assertEqual(env['DISPATCH_USER'], dispatchlib.ACCOUNT)
+        self.assertEqual(env['HOME'], dispatchlib.ACCOUNT_HOME)
 
 
 if __name__ == '__main__':

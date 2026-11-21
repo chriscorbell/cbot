@@ -35,7 +35,8 @@ from dispatchlib import ROOT, JOBS, EXT, LOGS  # noqa: E402
 
 POLICY_DIRS = ('/etc/opt/chrome/policies/managed', '/etc/chromium/policies/managed')
 POLICY_NAME = 'dispatch.json'
-GTK_SETTINGS = os.path.expanduser('~/.config/gtk-3.0/settings.ini')
+# The GTK settings of the bots' account, whose apps (terminals, file manager) open on the screens.
+GTK_SETTINGS = dispatchlib.ACCOUNT_HOME + '/.config/gtk-3.0/settings.ini'
 
 
 class Fatal(Exception):
@@ -62,8 +63,9 @@ def start_job(name, argv):
             pass
     job = '%s-%d-%d' % (name, int(now * 1000), os.getpid())
     # In a scope of its own, so a restart of the server doesn't cut a dressing or a package install short.
+    # It stays root: dressing writes Chrome's policies under /etc, and setting up installs packages.
     dispatchlib.spawn([sys.executable, os.path.abspath(__file__), '_job', job, name] + argv, dict(os.environ), 'jobs',
-                      'dispatch-job-%s.scope' % job, dispatchlib.MACHINE_SLICE, cwd='/')
+                      'dispatch-job-%s.scope' % job, dispatchlib.MACHINE_SLICE, cwd='/', account=False)
     return job
 
 
@@ -110,16 +112,19 @@ def home_alive():
 
 
 def start_home(restart=False):
-    """The home screen server, as dispatch-home.service (journalctl -u dispatch-home says how it went)."""
+    """The home screen server, as dispatch-home.service (journalctl -u dispatch-home says how it went).
+    It stays root: it starts the apps a bot's home screen asks for, as the bots' account, in the bot's
+    slice, which only root may do."""
     if restart:
         dispatchlib.stop_units(dispatchlib.HOME_UNIT)
     elif home_alive():
         return True
-    env = dispatchlib.base_env(99)
+    env = dispatchlib.base_env(99, account=False)
     for key in ('DISPLAY', 'GTK_THEME'):
         env.pop(key, None)
     try:
-        dispatchlib.start_service(dispatchlib.HOME_UNIT, dispatchlib.MACHINE_SLICE, [sys.executable, ROOT + '/dispatch-home.py'], env, cwd='/')
+        dispatchlib.start_service(dispatchlib.HOME_UNIT, dispatchlib.MACHINE_SLICE, [sys.executable, ROOT + '/dispatch-home.py'], env,
+                                  cwd='/', account=False)
     except RuntimeError as e:
         log(str(e))
         return False
@@ -137,7 +142,7 @@ def gtk_works():
     code, _ = dispatchlib.run([sys.executable, '-c',
                          "import gi; gi.require_version('Gtk','3.0'); gi.require_version('GdkPixbuf','2.0'); "
                          "from gi.repository import Gtk, Gdk, GdkPixbuf; import cairo"],
-                        env={k: v for k, v in dispatchlib.base_env(99).items() if k != 'DISPLAY'}, timeout=20)
+                        env={k: v for k, v in dispatchlib.base_env(99, account=False).items() if k != 'DISPLAY'}, timeout=20)
     return code == 0
 
 
@@ -208,11 +213,11 @@ def _field(number, data):
 def build_extension(warnings):
     """Pack the new-tab extension as a signed CRX3 with a key that never leaves this computer.
 
-    The key sits beside the browser profiles rather than under /opt/dispatch, so the extension keeps its
-    id when the computer is set up again (a new dev container) and the profiles keep their copy of it.
+    The key is Dispatch's, so it stays root's, beside the box scripts; a computer set up again makes a
+    new one, and Chrome takes the new extension from the policy.
     """
     src = EXT + '/src'
-    key = os.path.join(os.path.dirname(dispatchlib.PROFILES), 'home-extension.pem')
+    key = os.path.join(ROOT, 'home-extension.pem')
     os.makedirs(os.path.dirname(key), exist_ok=True)
     state_path = EXT + '/state.json'
     state = dispatchlib.read_json(state_path) or {}
@@ -325,7 +330,7 @@ def write_gtk_settings(warnings):
         out += ['%s=%s' % (k, v) for k, v in wanted.items() if k not in seen]
         text = '\n'.join(out) + '\n'
         if dispatchlib.read_text(GTK_SETTINGS) != text:
-            dispatchlib.write_atomic(GTK_SETTINGS, text)
+            dispatchlib.write_owned(GTK_SETTINGS, text)
     except OSError as e:
         warnings.append('could not write %s: %s' % (GTK_SETTINGS, e))
 
@@ -333,7 +338,8 @@ def write_gtk_settings(warnings):
 def do_base(base_hash, warnings):
     os.makedirs(ROOT + '/screens', exist_ok=True)
     os.makedirs(LOGS, exist_ok=True)
-    os.makedirs(dispatchlib.PROFILES, exist_ok=True)
+    dispatchlib.makedirs_owned(dispatchlib.PROFILES)
+    dispatchlib.makedirs_owned(dispatchlib.LIBRARY)
     installed = install_packages(warnings)
     shell_ok = gtk_works()
     if not shell_ok:
@@ -361,9 +367,12 @@ def base_current(base_hash):
 # ---------------------------------------------------------------- dressing a screen
 
 def start_shell(n):
-    """Screen n's wallpaper and dock, as dispatch-shell-<n>.service in the slice of the screen's bot."""
+    """Screen n's wallpaper and dock, as dispatch-shell-<n>.service in the slice of the screen's bot. It
+    stays root, as Dispatch's own piece: what the dock opens goes through systemd (launch_app), as the
+    bots' account, which only root may ask for. It needs no session bus, and the screen's bus answers
+    the bots' account alone."""
     dispatchlib.start_service(dispatchlib.shell_unit(n), dispatchlib.screen_slice(n), [sys.executable, ROOT + '/dispatch-shell.py', str(n)],
-                              dispatchlib.screen_env(n))
+                              dispatchlib.base_env(n, account=False), account=False)
 
 
 def ensure_shell(n, stamp, warnings):
@@ -472,7 +481,7 @@ def do_dress(n, flags, look_b64, warnings):
     size = dispatchlib.geometry(n)
     if not size:
         raise Fatal('screen %d does not answer (X display :%d is not running)' % (n, n))
-    os.makedirs(folder, exist_ok=True)
+    dispatchlib.screen_folder(n)
     previous = dispatchlib.look_for(n)
     if previous and previous.get('manageChrome') and (previous.get('bot') or {}).get('id') not in (None, bot['id']):
         dispatchlib.stop_browser(previous['bot']['id'])

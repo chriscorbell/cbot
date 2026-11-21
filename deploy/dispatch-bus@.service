@@ -1,14 +1,17 @@
 # Display :%i's D-Bus session bus, part of dispatch-display@%i.target. The window manager and the
-# apps on the screen use it; its address is fixed, so nothing has to look it up.
+# apps on the screen use it; its address is fixed, so nothing has to look it up. It runs as the bots'
+# account (account.conf beside this file, from scripts/install-units.sh), and a session bus answers its
+# own account only, so everything on the screen that uses it runs as that account too.
 [Unit]
 Description=Dispatch display :%i (session bus)
 PartOf=dispatch-display@%i.target
 
 [Service]
 Slice=dispatch-displays.slice
-Environment=HOME=/root USER=root LANG=C.UTF-8 DISPLAY=:%i
-ExecStartPre=/usr/bin/install -d -m 0755 /run/dispatch/display-%i
-ExecStartPre=/bin/rm -f /run/dispatch/display-%i/bus
+Environment=LANG=C.UTF-8 DISPLAY=:%i
+# The bus's folder, made fresh for the account each start and removed when it stops.
+RuntimeDirectory=dispatch/display-%i
+RuntimeDirectoryMode=0755
 ExecStart=dbus-daemon --session --nofork --nopidfile --address=unix:path=/run/dispatch/display-%i/bus
 Restart=on-failure
 RestartSec=1

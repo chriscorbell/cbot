@@ -10,13 +10,13 @@ Only the newest release gets fixes. **Settings** > **General** > **Updates** ins
 
 Dispatch is made for one owner, on a machine of its own. Know this first:
 
-- **The bots run as root.** Each bot's agent can run any command, read any file on the machine, and reach anything on your network that the machine can. Give Dispatch a computer or VM with nothing on it you'd mind a bot seeing or changing.
+- **The bots share one ordinary account, and it can sudo.** Every bot runs as the account you ran the installer from, not as root: its agent, screen, Chrome and apps. So a bot has no root shell, and a file one bot makes is every bot's to use. The installer lets that account run anything as root without a password (`/etc/sudoers.d/dispatch`), so a bot can still install what it needs, as a person at the machine would. This keeps a mistake, or an exploit in Chrome, from reaching root on its own; it doesn't stop a bot that sets out to use sudo. Each bot can still read any file the account can, and reach anything on your network that the machine can. Give Dispatch a computer or VM with nothing on it you'd mind a bot seeing or changing, and know that the account you install from gets passwordless sudo.
 - **Your Dispatch account is the key to the machine.** Whoever signs in controls the bots, and through them the machine. Use a password you don't use anywhere else. Sign-in stops for an address after 10 wrong passwords in 15 minutes.
 - **Approvals are a safety net, not a wall.** With **Smart**, the default, the bot's own model decides what is risky, and a web page or message the bot reads can try to talk it into something. **Ask** asks before every action.
 - **Dispatch is on your local network.** It listens on port 8787 on every address, over HTTPS with a certificate of its own. Don't forward that port to the internet. To reach Dispatch from elsewhere, use Tailscale (the installer can set it up). To keep it off the local network, set `HOST=127.0.0.1` in `/etc/dispatch/env` and restart it; Tailscale Serve still reaches it.
 - **Nobody else can claim a fresh install.** Making the account needs the one-time setup code in the link the installer prints.
-- **Each bot's Chrome runs without Chrome's sandbox**, because it runs as root. A page that exploits a bug in Chrome could take over the machine. Dispatch's updates don't update Chrome, so keep the machine's packages current: `sudo apt update && sudo apt upgrade`.
-- **Provider keys and sign-ins are stored on the machine**, in Dispatch's data folder (`/var/lib/dispatch`): the keys in its database and in each bot's Hermes home, and each bot's sign-ins in its home. Only root can read that folder.
+- **Each bot's Chrome keeps Chrome's sandbox**, as on a desktop: its pages render in sandboxed processes. Dispatch's updates don't update Chrome, so keep the machine's packages current: `sudo apt update && sudo apt upgrade`.
+- **Provider keys and sign-ins are stored on the machine.** Dispatch's own data (`/var/lib/dispatch`: the database with the keys you set, the secret that signs the bots' tokens, and the setup code) only root can read. Each bot's agent needs its keys and sign-ins, so they are also in its Hermes home, in the bots' account's home (`~/dispatch/engines`), where every bot and that account can read them.
 
 ## How releases are checked
 

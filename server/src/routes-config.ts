@@ -15,6 +15,7 @@ import { cancelSignIn, getSignIn, startSignIn } from './signin.js';
 import { listMemories } from './engine-memory.js';
 import { inlineType, type Attachment, type LibraryFile, type Skill } from './types.js';
 import type { BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, ProviderSignIn, SignInResponse, SkillResponse, UpdateResponse, UploadResponse, UrlResponse } from './contract.js';
+import { mkdirOwned } from './account.js';
 import { LIBRARY_ROOT } from './machine.js';
 import { numbered, safeName, uploadsDir } from './library.js';
 import { setRelayMode } from './vnc.js';
@@ -271,7 +272,7 @@ configApi.post('/bots/:id/handback', (c) => {
   return c.json({ ok: true } satisfies Ok);
 });
 
-// ---------- library: files under /root/dispatch/files/<botId> on the computer ----------
+// ---------- library: files under ~/dispatch/files/<botId> of the bots' account (machine.ts) ----------
 
 const LIB_ROOT = LIBRARY_ROOT;
 
@@ -385,7 +386,7 @@ configApi.post('/bots/:id/files/upload', async (c) => {
   const files = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter((f): f is File => typeof f !== 'string');
   if (!files.length) return c.json({ error: 'no file' }, 400);
   const dir = uploadsDir(b.id);
-  fs.mkdirSync(dir, { recursive: true });
+  mkdirOwned(dir);
   const saved: Attachment[] = [];
   for (const f of files) {
     if (f.size > MAX_UPLOAD) return c.json({ error: `${f.name} is over 200 MB` }, 413);

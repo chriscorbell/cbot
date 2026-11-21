@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { z } from 'zod';
+import { ACCOUNT } from './account.js';
 
 /**
  * The computer the bots share (the machine Dispatch runs on): where things live on it, and how a bot's
@@ -7,11 +8,13 @@ import { z } from 'zod';
  *
  * The values the box scripts need too are in server/box/machine.json, which this file and
  * server/box/dispatchlib.py both read, so the two can't drift apart. desk.ts installs it beside the
- * scripts. scripts/provision.sh creates BOTS_ROOT, BOX_ROOT and HERMES_ROOT.
+ * scripts. The bots' own files are in the home of the account they run as (account.ts), so BOTS_ROOT
+ * is found from that account when the server starts. scripts/provision.sh creates BOX_ROOT and
+ * HERMES_ROOT.
  */
 
 const Machine = z.object({
-  botsRoot: z.string(),
+  botsDir: z.string(),
   boxRoot: z.string(),
   hermesRoot: z.string(),
   logs: z.string(),
@@ -27,14 +30,18 @@ const Machine = z.object({
 export const MACHINE_FILE = new URL('../box/machine.json', import.meta.url);
 const machine = Machine.parse(JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8')));
 
-/** The bots' own files: Chrome profiles and Libraries. */
-export const BOTS_ROOT = machine.botsRoot;
+/** The folder of botsDir in the bots' account's home, as `~` names it for the bots themselves. */
+export const BOTS_DIR = machine.botsDir;
+/** The bots' own files, in their account's home: Libraries, Chrome profiles and Hermes homes. */
+export const BOTS_ROOT = `${ACCOUNT.home}/${machine.botsDir}`;
 /** Each bot's Library: files it saves for the user, and uploads. */
 export const LIBRARY_ROOT = `${BOTS_ROOT}/files`;
 /** Each bot's Chrome profile (its sign-ins). */
 export const PROFILES_ROOT = `${BOTS_ROOT}/profiles`;
 export const libraryDir = (botId: string) => `${LIBRARY_ROOT}/${botId}`;
 export const profileDir = (botId: string) => `${PROFILES_ROOT}/${botId}`;
+/** Each bot's Hermes home (engine.ts). */
+export const ENGINES_ROOT = `${BOTS_ROOT}/engines`;
 
 /** Where desk.ts installs the box scripts. */
 export const BOX_ROOT = machine.boxRoot;

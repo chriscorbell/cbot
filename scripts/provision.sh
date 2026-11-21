@@ -114,7 +114,7 @@ apt-get update -qq
 # for npm when a native module has no prebuilt binary.
 say "packages"
 apt_install \
-  git xz-utils unzip zip jq ripgrep libatomic1 procps psmisc lsof less nano tzdata \
+  git xz-utils unzip zip jq ripgrep libatomic1 procps psmisc lsof less nano tzdata sudo \
   build-essential python3 python3-venv python3-pip python3-dev \
   tigervnc-standalone-server xfwm4 xfconf dbus dbus-x11 \
   xfce4-terminal thunar \
@@ -167,7 +167,8 @@ HERMES_HOME=/opt/hermes hermes --version | head -1
 
 # ---------------------------------------------------------------- the bots' units
 
-# The systemd units each bot's screen and agent run as (deploy/, server/src/units.ts).
+# The systemd units each bot's screen and agent run as (deploy/, server/src/units.ts), and the account
+# they run as (DISPATCH_USER in /etc/dispatch/env): its sudo rule, and the Hermes install made its.
 bash "$here/scripts/install-units.sh"
 
 # ---------------------------------------------------------------- the dev image stops here
@@ -181,11 +182,12 @@ fi
 # ---------------------------------------------------------------- the production host
 
 # /srv/dispatch: releases/<commit> and `current`, the one running (scripts/release.sh).
-# /var/lib/dispatch: DATA_DIR (database, generated secret, the bots' Hermes homes).
-# /etc/dispatch/env: the settings, from .env.prod on the dev machine (scripts/deploy.sh).
-# /root/dispatch: the bots' Chrome profiles and Library files. /opt/dispatch: the box scripts (desk.ts).
+# /var/lib/dispatch: DATA_DIR (database, generated secret, setup code), root's alone.
+# /etc/dispatch/env: the settings, from the installer or .env.prod on the dev machine (scripts/deploy.sh).
+# ~<the bots' account>/dispatch: the bots' Hermes homes, Chrome profiles and Library files, which the
+# server makes as it needs them. /opt/dispatch: the box scripts (desk.ts).
 install -d -m 0755 /srv/dispatch /srv/dispatch/releases /var/log/dispatch
-install -d -m 0700 /var/lib/dispatch /etc/dispatch /root/dispatch
+install -d -m 0700 /var/lib/dispatch /etc/dispatch
 
 install -m 0644 "$here/deploy/dispatch.service" /etc/systemd/system/dispatch.service
 systemctl daemon-reload

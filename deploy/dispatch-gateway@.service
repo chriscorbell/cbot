@@ -3,6 +3,8 @@
 # of the server's secrets) and starts it. It outlives restarts of the server, which uses it as it is
 # while the settings it started with still hold. It runs in the bot's slice with the bot's Chrome and
 # apps, under the bot's memory limit; its own processes (Hermes' browser helper among them) stop with it.
+# It runs as the bots' account (account.conf beside this file, from scripts/install-units.sh), whose
+# home holds the bot's Hermes home.
 [Unit]
 Description=Dispatch bot %I (Hermes gateway)
 

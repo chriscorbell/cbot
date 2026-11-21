@@ -10,7 +10,7 @@ import { createRoom, postToRoom } from './rooms.js';
 import type { ActivityKind } from '../types.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
-import { libraryDir, LIBRARY_ROOT } from '../machine.js';
+import { BOTS_DIR, libraryDir } from '../machine.js';
 import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
 
@@ -70,7 +70,7 @@ function botByName(userId: string, name: string) {
 export const TOOLS: ToolDef[] = [
   tool({
     name: 'save_file',
-    description: `Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under ${LIBRARY_ROOT}/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.`,
+    description: `Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under ~/${BOTS_DIR}/files/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.`,
     params: z.object({ filename: z.string().describe('e.g. briefing-2026-11-09.md'), content: z.string() }),
     activity: 'drafting_file',
     label: 'Saving a file',

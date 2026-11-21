@@ -7,6 +7,8 @@ import { vi } from 'vitest';
 // A throwaway data directory and the settings env.ts requires, so importing server modules opens a
 // fresh database and touches nothing real.
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-test-'));
+// The bots' account's home (server/src/account.ts): their Libraries, profiles and Hermes homes.
+process.env.DISPATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-test-home-'));
 process.env.TZ ??= 'UTC';
 process.env.DISPATCH_NO_SCHEDULER = '1';
 

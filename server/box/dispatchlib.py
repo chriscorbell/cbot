@@ -16,6 +16,7 @@ import contextlib
 import fcntl
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
@@ -35,9 +36,27 @@ JOBS = ROOT + '/jobs'
 EXT = ROOT + '/ext'
 LOGS = MACHINE['logs']
 RUN = MACHINE['run']
-# The bots' Chrome profiles and Libraries.
-PROFILES = MACHINE['botsRoot'] + '/profiles'
-LIBRARY = MACHINE['botsRoot'] + '/files'
+
+
+def bots_account(environ=None, getpwnam=pwd.getpwnam):
+    """The account every bot runs as, as server/src/account.ts finds it: DISPATCH_USER, or root when
+    it is unset; its home from the passwd database, or DISPATCH_HOME when that is set (tests). Returns
+    (name, uid, gid, home)."""
+    environ = os.environ if environ is None else environ
+    name = (environ.get('DISPATCH_USER') or '').strip() or 'root'
+    try:
+        pw = getpwnam(name)
+    except KeyError:
+        raise SystemExit('DISPATCH_USER is %s, and this machine has no account by that name' % name)
+    home = (environ.get('DISPATCH_HOME') or '').strip()
+    return (name, pw.pw_uid, pw.pw_gid, os.path.abspath(home) if home else pw.pw_dir)
+
+
+ACCOUNT, ACCOUNT_UID, ACCOUNT_GID, ACCOUNT_HOME = bots_account()
+# The bots' own files, in their account's home (machine.json's botsDir): Chrome profiles and Libraries.
+BOTS_ROOT = ACCOUNT_HOME + '/' + MACHINE['botsDir']
+PROFILES = BOTS_ROOT + '/profiles'
+LIBRARY = BOTS_ROOT + '/files'
 HOME_PORT = MACHINE['homePort']
 HOME_URL = 'http://127.0.0.1:%d' % HOME_PORT
 BROWSER_CLASS = 'DispatchBrowser'
@@ -114,8 +133,59 @@ def write_json(path, obj):
     write_atomic(path, json.dumps(obj, indent=1, sort_keys=True))
 
 
+# ---------------------------------------------------------------- the bots' account
+
+def hands_over():
+    """Whether what these scripts make for the bots must go to the bots' account: the scripts run as
+    root (the server starts them) and the account isn't root."""
+    return os.getuid() == 0 and ACCOUNT_UID != 0
+
+
+def own(path):
+    """Give a file or folder these scripts made for the bots to their account."""
+    if hands_over():
+        os.lchown(path, ACCOUNT_UID, ACCOUNT_GID)
+
+
+def makedirs_owned(path, mode=0o755):
+    """os.makedirs, with every folder it makes given to the bots' account."""
+    missing = []
+    p = os.path.abspath(path)
+    while not os.path.isdir(p) and p != os.path.dirname(p):
+        missing.append(p)
+        p = os.path.dirname(p)
+    os.makedirs(path, mode=mode, exist_ok=True)
+    for d in reversed(missing):
+        own(d)
+
+
+def write_owned(path, data, mode=0o644):
+    """write_atomic for a file of the bots' (in a Chrome profile, say), which their account must be able
+    to change."""
+    makedirs_owned(os.path.dirname(path))
+    write_atomic(path, data, mode)
+    own(path)
+
+
+def as_account(argv):
+    """A command line that runs as the bots' account. setpriv keeps the environment it is given, so HOME
+    and USER come from base_env."""
+    if not hands_over():
+        return list(argv)
+    return ['setpriv', '--reuid=%d' % ACCOUNT_UID, '--regid=%d' % ACCOUNT_GID, '--init-groups', '--'] + list(argv)
+
+
 def screen_dir(n):
     return '%s/%d' % (SCREENS, int(n))
+
+
+def screen_folder(n):
+    """screen_dir(n), made if it isn't there. It belongs to the bots' account: their terminals' bus puts
+    its socket there and keeps its settings there, and their terminals run the scripts written there."""
+    folder = screen_dir(n)
+    os.makedirs(folder, exist_ok=True)
+    own(folder)
+    return folder
 
 
 def look_for(n):
@@ -291,25 +361,30 @@ def stop_units(*units):
         systemctl('stop', *units, timeout=120)
 
 
-def service_argv(unit, slice_, argv, env, cwd=None):
+def service_argv(unit, slice_, argv, env, cwd=None, account=True):
     """systemd-run for a long-lived program as a service of its own: its environment, its folder, its
-    slice. Its output goes to the journal (journalctl -u <unit>), and once it stops it is forgotten."""
+    slice, and the bots' account unless `account` is False (Dispatch's own pieces, which stay root).
+    Its output goes to the journal (journalctl -u <unit>), and once it stops it is forgotten."""
     out = ['systemd-run', '--quiet', '--collect', '--unit=' + unit, '--slice=' + slice_,
            '--property=TimeoutStopSec=10', '--working-directory=' + (cwd or env.get('HOME') or '/')]
+    if account and hands_over():
+        out += ['--uid=%d' % ACCOUNT_UID, '--gid=%d' % ACCOUNT_GID]
     out += ['--setenv=%s=%s' % (k, v) for k, v in sorted(env.items())]
     return out + ['--'] + list(argv)
 
 
-def start_service(unit, slice_, argv, env, cwd=None):
-    code, out = run(service_argv(unit, slice_, argv, env, cwd), timeout=30)
+def start_service(unit, slice_, argv, env, cwd=None, account=True):
+    code, out = run(service_argv(unit, slice_, argv, env, cwd, account), timeout=30)
     if code != 0:
         raise RuntimeError('could not start %s: %s' % (unit, out.strip()[-200:]))
 
 
-def scope_argv(unit, slice_, argv):
+def scope_argv(unit, slice_, argv, account=True):
     """systemd-run --scope: the program runs as this process's child, exec'd in place (same pid), in a
-    scope of its own in the slice, so it outlives the script that starts it and the server's restarts."""
-    return ['systemd-run', '--scope', '--quiet', '--collect', '--unit=' + unit, '--slice=' + slice_, '--'] + list(argv)
+    scope of its own in the slice, so it outlives the script that starts it and the server's restarts.
+    It runs as the bots' account unless `account` is False."""
+    return (['systemd-run', '--scope', '--quiet', '--collect', '--unit=' + unit, '--slice=' + slice_, '--']
+            + (as_account(argv) if account else list(argv)))
 
 
 # ---------------------------------------------------------------- look and feel of things we start
@@ -368,8 +443,9 @@ def private_bus(n):
     env = base_env(n)
     # Services this bus starts (the Xfce settings store) keep their files in the screen's own folder,
     # so what we set for this screen never changes the settings of the main desktop.
+    screen_folder(n)
     env['XDG_CONFIG_HOME'] = screen_dir(n) + '/config'
-    os.makedirs(env['XDG_CONFIG_HOME'], exist_ok=True)
+    makedirs_owned(env['XDG_CONFIG_HOME'])
     try:
         os.unlink(socket)
     except OSError:
@@ -409,23 +485,30 @@ def _light_terminal(env):
     """A light, plain terminal for a screen that has its own settings store."""
     if not shutil.which('xfconf-query') or not shutil.which('xfce4-terminal'):
         return
+    # The bus is the bots' account's, and a session bus answers its own account only.
     for prop, kind, value in _TERMINAL_LOOK:
-        run(['xfconf-query', '-c', 'xfce4-terminal', '-p', prop, '-n', '-t', kind, '-s', value], env=env, timeout=8)
+        run(as_account(['xfconf-query', '-c', 'xfce4-terminal', '-p', prop, '-n', '-t', kind, '-s', value]), env=env, timeout=8)
 
 
-def base_env(n):
+def base_env(n, account=True):
+    """Environment for what runs on screen n: as the bots' account (their home, their runtime folder),
+    or with `account` False as these scripts themselves (root), for Dispatch's own pieces."""
     env = {
         'PATH': os.environ.get('PATH') or '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-        'HOME': os.environ.get('HOME') or '/root',
-        'USER': os.environ.get('USER') or 'root',
+        'HOME': ACCOUNT_HOME if account else (os.environ.get('HOME') or '/root'),
+        'USER': ACCOUNT if account else (os.environ.get('USER') or 'root'),
         'LANG': os.environ.get('LANG') or 'C.UTF-8',
         'TZ': os.environ.get('TZ') or 'UTC',
         'DISPLAY': ':%d' % int(n),
         'GTK_THEME': light_theme(),
         'XDG_CURRENT_DESKTOP': 'XFCE',
         'NO_AT_BRIDGE': '1',
+        # The scripts started this way (the dock, the home screen server) find the same account.
+        'DISPATCH_USER': ACCOUNT,
     }
-    runtime = '/run/user/%d' % os.getuid()
+    if os.environ.get('DISPATCH_HOME'):
+        env['DISPATCH_HOME'] = os.environ['DISPATCH_HOME']
+    runtime = '/run/user/%d' % (ACCOUNT_UID if account else os.getuid())
     if os.path.isdir(runtime):
         env['XDG_RUNTIME_DIR'] = runtime
     return env
@@ -440,9 +523,9 @@ def screen_env(n):
     return env
 
 
-def spawn(argv, env, log_name, unit, slice_, cwd=None):
-    """Start a long-lived program in a scope of its own (scope_argv), its output in LOGS/<log_name>.log.
-    Returns its pid."""
+def spawn(argv, env, log_name, unit, slice_, cwd=None, account=True):
+    """Start a long-lived program in a scope of its own (scope_argv), its output in LOGS/<log_name>.log,
+    as the bots' account unless `account` is False. Returns its pid."""
     os.makedirs(LOGS, exist_ok=True)
     for child in list(_children):          # reap what has exited since last time
         if child.poll() is not None:
@@ -455,7 +538,7 @@ def spawn(argv, env, log_name, unit, slice_, cwd=None):
         pass
     log = open(path, 'ab')
     try:
-        p = subprocess.Popen(scope_argv(unit, slice_, argv), env=env, cwd=cwd or env.get('HOME') or '/',
+        p = subprocess.Popen(scope_argv(unit, slice_, argv, account), env=env, cwd=cwd or env.get('HOME') or '/',
                              stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
     finally:
         log.close()
@@ -749,8 +832,9 @@ def open_terminal(n, command=None, title=None):
     title = (title or 'Terminal').replace('\n', ' ')[:120]
     script = None
     if command is not None:
+        screen_folder(n)
         folder = screen_dir(n) + '/term'
-        os.makedirs(folder, exist_ok=True)
+        makedirs_owned(folder)
         for old in os.listdir(folder):
             full = os.path.join(folder, old)
             try:
@@ -759,7 +843,7 @@ def open_terminal(n, command=None, title=None):
             except OSError:
                 pass
         script = '%s/run-%d-%d.sh' % (folder, int(time.time()), os.getpid())
-        write_atomic(script, '#!/bin/bash\ncd "$HOME" 2>/dev/null\n%s\n' % command, 0o700)
+        write_owned(script, '#!/bin/bash\ncd "$HOME" 2>/dev/null\n%s\n' % command, 0o700)
     keep = None
     if script:
         # The window stays open after the command ends, with one plain line saying how it went.
@@ -925,10 +1009,16 @@ def _signed32(value):
     return value - (1 << 32) if value >= (1 << 31) else value
 
 
+def chrome_sandbox_flags():
+    """Chrome keeps its sandbox: it runs as the bots' account. Only root, which Chrome won't run
+    sandboxed, gets --no-sandbox (a machine set up by hand whose bots are root)."""
+    return ['--no-sandbox'] if ACCOUNT_UID == 0 else []
+
+
 def prepare_profile(bot_id, accent=None):
     """Make the profile start clean: no stale locks, no 'restore pages' prompt, light look, home on start."""
     folder = profile_dir(bot_id)
-    os.makedirs(folder + '/Default', exist_ok=True)
+    makedirs_owned(folder + '/Default')
     for name in os.listdir(folder):
         if name.startswith('Singleton'):
             try:
@@ -946,7 +1036,7 @@ def prepare_profile(bot_id, accent=None):
             fixed = re.sub(r'"exit_type":"[A-Za-z]*"', '"exit_type":"Normal"', raw)
             fixed = fixed.replace('"exited_cleanly":false', '"exited_cleanly":true')
             if fixed != raw:
-                write_atomic(prefs_path, fixed, 0o600)
+                write_owned(prefs_path, fixed, 0o600)
             return
     if not isinstance(prefs, dict):
         prefs = {}
@@ -975,7 +1065,7 @@ def prepare_profile(bot_id, accent=None):
     promo = section('signin', 'avatar_button_promo_dict')   # no 'Sign in to Chrome?' nudge in the toolbar
     promo['AvatarButtonSigninPromoShownCount'] = max(100, int(promo.get('AvatarButtonSigninPromoShownCount') or 0))
     promo.setdefault('AvatarButtonSigninPromoLastShownTime', str(int((time.time() + 11644473600) * 1000000)))
-    write_atomic(prefs_path, json.dumps(prefs, separators=(',', ':')), 0o600)
+    write_owned(prefs_path, json.dumps(prefs, separators=(',', ':')), 0o600)
 
 
 def browser_windows(n, pid=None):
@@ -1012,9 +1102,8 @@ def start_browser(n, bot_id, accent=None, restart=False, log=None):
     if not running:
         prepare_profile(bot_id, accent)
         env = screen_env(n)
-        argv = [
-            binary,
-            '--no-sandbox', '--no-first-run', '--no-default-browser-check', '--hide-crash-restore-bubble',
+        argv = [binary] + chrome_sandbox_flags() + [
+            '--no-first-run', '--no-default-browser-check', '--hide-crash-restore-bubble',
             '--password-store=basic', '--disable-dev-shm-usage',
             '--remote-debugging-port=%d' % cdp_port(n),
             '--user-data-dir=%s' % profile_dir(bot_id),

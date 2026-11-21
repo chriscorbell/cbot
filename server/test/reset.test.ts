@@ -38,7 +38,8 @@ test('a reset takes every bot down, then erases the data and exits for a fresh s
   const bea = seedBot(user.id, { name: 'Bea' });
   const team = seedBot(user.id, { kind: 'room', name: 'Team', members: [ada, bea.id] });
   const data = (name: string) => path.join(env.dataDir, name);
-  fs.mkdirSync(data('engines/old'), { recursive: true });
+  // The Hermes homes are in the bots' account's home, apart from the server's data.
+  fs.mkdirSync(path.join(env.enginesDir, 'old'), { recursive: true });
   fs.writeFileSync(data('dispatch.db.before-something'), '');
   fs.writeFileSync(data('notes.txt'), 'not ours');
 
@@ -57,6 +58,7 @@ test('a reset takes every bot down, then erases the data and exits for a fresh s
   expect(db.open).toBe(false);
   // The fresh install's account takes the code the reply gave the browser.
   expect(fs.readdirSync(env.dataDir).sort()).toEqual(['notes.txt', 'setup-code']);
+  expect(fs.existsSync(env.enginesDir)).toBe(false);
   expect(fs.readFileSync(data('setup-code'), 'utf8').trim()).toBe(setupCode);
   expect(setupCode).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
 });

@@ -9,10 +9,14 @@ import path from 'node:path';
 
 export interface BashResult { output: string; exit_code: number }
 
-import { displayFor } from './machine.js';
+import { mkdirOwnedAsync, ownAsync } from './account.js';
+import { BOTS_ROOT, displayFor } from './machine.js';
 import { errorField } from './lib/errors.js';
 
-/** Only what a desktop command needs; none of this server's secrets. */
+/**
+ * Only what a desktop command needs; none of this server's secrets. The box scripts it runs find the
+ * bots' account the way account.ts does, so they get DISPATCH_USER (and DISPATCH_HOME, set in tests).
+ */
 function shellEnv(screenId?: string | null): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH ?? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
@@ -21,8 +25,13 @@ function shellEnv(screenId?: string | null): NodeJS.ProcessEnv {
     LANG: process.env.LANG ?? 'C.UTF-8',
     TZ: process.env.TZ || 'UTC',
     DISPLAY: displayFor(screenId),
+    ...(process.env.DISPATCH_USER ? { DISPATCH_USER: process.env.DISPATCH_USER } : {}),
+    ...(process.env.DISPATCH_HOME ? { DISPATCH_HOME: process.env.DISPATCH_HOME } : {}),
   };
 }
+
+/** A file in the bots' folders (a Library, say) belongs to their account, so every bot can change it. */
+const forBots = (file: string) => path.resolve(file).startsWith(`${path.resolve(BOTS_ROOT)}/`);
 
 /** A path safe to put inside single quotes in a shell command. */
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -41,9 +50,11 @@ export const box = {
   },
 
   async writeFile(file: string, content: string | Buffer, mode = '0644'): Promise<void> {
-    await fs.mkdir(path.dirname(file), { recursive: true });
+    if (forBots(file)) await mkdirOwnedAsync(path.dirname(file));
+    else await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, content);
     await fs.chmod(file, parseInt(mode, 8));
+    if (forBots(file)) await ownAsync(file);
   },
 
   /** Read a file, or null if it isn't there. */

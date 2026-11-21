@@ -12,6 +12,9 @@ import { env } from './env.js';
  */
 
 fs.mkdirSync(path.dirname(env.dbPath), { recursive: true });
+// The data folder (the database, the secret, the setup code) is the server's alone: the bots' account
+// (account.ts) can't read it without sudo, whatever made the folder (a Docker volume starts at 0755).
+fs.chmodSync(path.dirname(env.dbPath), 0o700);
 export const db = new Database(env.dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');

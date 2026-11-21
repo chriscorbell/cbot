@@ -1,4 +1,6 @@
 # Display :%i's X server and VNC server in one process (TigerVNC's Xvnc), part of dispatch-display@%i.target.
+# It runs as the bots' account (account.conf beside this file, from scripts/install-units.sh), whose
+# Chrome and apps draw on it.
 # displays.ts writes /run/dispatch/display-%i.env (its VNC port, size and time zone) before it starts
 # the target, then waits for the X socket and for the VNC server to take the relay. Only the relay
 # connects, over loopback, and it does its own sign-in check; every connection comes from 127.0.0.1,
@@ -9,13 +11,14 @@ PartOf=dispatch-display@%i.target
 
 [Service]
 Slice=dispatch-displays.slice
-Environment=HOME=/root USER=root LANG=C.UTF-8
+Environment=LANG=C.UTF-8
 EnvironmentFile=/run/dispatch/display-%i.env
 # A lock or socket left by an X server that is gone (a crash, a reboot) would stop this one taking the
-# display. displays.ts refuses to start the display while an X server it didn't start holds it.
-ExecStartPre=/bin/rm -f /tmp/.X%i-lock /tmp/.X11-unix/X%i
+# display. displays.ts refuses to start the display while an X server it didn't start holds it. As
+# root (+): /tmp is sticky, and the leftovers may be another account's.
+ExecStartPre=+/bin/rm -f /tmp/.X%i-lock /tmp/.X11-unix/X%i
 # Two servers starting at once race to create the socket folder, and the loser runs without a socket.
-ExecStartPre=/usr/bin/install -d -m 1777 /tmp/.X11-unix
+ExecStartPre=+/usr/bin/install -d -m 1777 /tmp/.X11-unix
 ExecStart=Xvnc :%i -geometry ${GEOMETRY} -depth 24 -dpi 96 -rfbport ${VNC_PORT} -localhost -SecurityTypes None -UseBlacklist=0 -AlwaysShared -AcceptSetDesktopSize=0 -nolisten tcp -s 0 -dpms -desktop "dispatch :%i"
 Restart=on-failure
 RestartSec=1

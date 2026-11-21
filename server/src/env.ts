@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { errorField } from './lib/errors.js';
+import { ENGINES_ROOT } from './machine.js';
 
 /**
  * A random secret made on first start and kept in the data directory, readable only by us.
@@ -38,13 +39,13 @@ export const env = {
   host: process.env.HOST?.trim() || undefined,
   /** HTTPS=1: serve HTTPS on the same port with Dispatch's own certificate (https.ts), for a machine reached on the local network. The installer sets it. */
   https: process.env.HTTPS === '1',
-  /** Database, generated secret and the bots' Hermes homes. */
+  /** The database, the generated secret and the setup code: the server's alone, root's only on a machine. */
   dataDir,
   dbPath: path.join(dataDir, 'dispatch.db'),
   /** Signs the tokens the agents use to reach /mcp. */
   appSecret: generatedSecret(path.join(dataDir, 'secret')),
-  /** Each bot's own Hermes home (see engine.ts). */
-  enginesDir: path.join(dataDir, 'engines'),
+  /** Each bot's own Hermes home (see engine.ts), in the bots' account's home (machine.ts). */
+  enginesDir: ENGINES_ROOT,
   /** Bots on the team. Each one has a screen, a Chrome and a Hermes gateway running, so this is a cap on memory. */
   maxBots: Number(process.env.MAX_BOTS ?? 4),
   /** The server's IANA time zone: routines and check-ins default to it, and every bot's Hermes uses it. */

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { z } from 'zod';
+import { ACCOUNT, asAccount, mkdirOwned, own } from './account.js';
 import { cdpUrlFor, screenFor } from './computer.js';
 import { db, type BotRecord, type UserRecord } from './db.js';
 import { env } from './env.js';
@@ -52,12 +53,15 @@ export interface Engine { url: string; key: string; home: string }
 /** The `hermes` CLI (scripts/provision.sh installs it under HERMES_ROOT). */
 export const HERMES_BIN = 'hermes';
 
-/** The environment a `hermes` command for one home runs with: only what Hermes needs, none of this server's secrets. */
+/**
+ * The environment a `hermes` command for one home runs with: the bots' account's (account.ts), which
+ * every gateway runs as, and only what Hermes needs, none of this server's secrets.
+ */
 export function hermesEnv(home: string, extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
     PATH: process.env.PATH ?? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-    HOME: process.env.HOME ?? '/root',
-    USER: process.env.USER ?? 'root',
+    HOME: ACCOUNT.home,
+    USER: ACCOUNT.name,
     LANG: process.env.LANG ?? 'C.UTF-8',
     TZ: process.env.TZ || 'UTC',
     HERMES_HOME: home,
@@ -132,10 +136,12 @@ function readYamlOrSkip(file: string): Mapping | null {
   }
 }
 
+/** A file of the bot's home only its account may read (account.ts): its gateway reads it as that account. */
 function writePrivate(file: string, content: string) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  mkdirOwned(path.dirname(file));
   fs.writeFileSync(file, content, { mode: 0o600 });
   fs.chmodSync(file, 0o600);
+  own(file);
 }
 
 /** Replace a file a running gateway may read at any moment: it sees the old file or the new one, never half. */
@@ -393,6 +399,7 @@ export function syncPersona(botId: string) {
   const home = homeFor(botId);
   if (!fs.existsSync(home)) return;
   fs.writeFileSync(path.join(home, 'SOUL.md'), soul(b));
+  own(path.join(home, 'SOUL.md'));
 }
 
 /** Rewrite every bot's persona after the owner's user name changed (the account was created). */
@@ -402,7 +409,7 @@ export function syncPersonas(userId: string) {
 
 /** Point a link in the home at the machine's shared copy, replacing whatever Hermes made there on its own. */
 function linkToShared(home: string, name: string) {
-  fs.mkdirSync(path.dirname(path.join(home, name)), { recursive: true });
+  mkdirOwned(path.dirname(path.join(home, name)));
   const link = path.join(home, name);
   const target = path.join(HERMES_ROOT, name);
   if (!fs.existsSync(target)) return; // no Hermes installed on this machine
@@ -411,14 +418,15 @@ function linkToShared(home: string, name: string) {
     fs.rmSync(link, { recursive: true, force: true });
   } catch { /* not there yet */ }
   fs.symlinkSync(target, link);
+  own(link);
 }
 
 /** Create or refresh the home. config.yaml is created once; after that only the keys we own are patched. */
 async function writeHome(botId: string): Promise<{ home: string; key: string; display: string | null; settings: string }> {
   let b = requireBot(botId);
   const home = homeFor(botId);
-  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
-  fs.mkdirSync(path.join(home, 'locks'), { recursive: true });
+  mkdirOwned(path.join(home, 'logs'));
+  mkdirOwned(path.join(home, 'locks'));
   fs.chmodSync(home, 0o700);
   linkToShared(home, 'tools');
   linkToShared(home, 'installs');
@@ -440,7 +448,7 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
 
   // It works in its Library folder, so what it makes there shows up in the app.
   const cwd = libraryDir(botId);
-  fs.mkdirSync(cwd, { recursive: true });
+  mkdirOwned(cwd);
 
   const from = inheritedHome(botId);
   const cfgFile = path.join(home, 'config.yaml');
@@ -459,7 +467,10 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   applyApprovals(cfg, approvalSettings(b.user_id), [...new Set([...allowlistOf(cfg), ...allowedActions(b.user_id)])]);
   replacePrivate(cfgFile, YAML.stringify(cfg));
 
-  if (!fs.existsSync(path.join(home, 'SOUL.md'))) fs.writeFileSync(path.join(home, 'SOUL.md'), soul(b));
+  if (!fs.existsSync(path.join(home, 'SOUL.md'))) {
+    fs.writeFileSync(path.join(home, 'SOUL.md'), soul(b));
+    own(path.join(home, 'SOUL.md'));
+  }
 
   // Subscription sign-ins live in auth.json, and each bot keeps its own: a new home starts without one.
   // A copy would give two bots the same refresh token, and providers rotate it on every refresh (Claude
@@ -594,6 +605,7 @@ async function startGateway(botId: string): Promise<void> {
   // Set every time, so a change of MAX_BOTS or of the machine's memory reaches the bot's next start.
   await setSliceLimits(botSlice(botId), botLimits(os.totalmem(), env.maxBots));
   fs.writeFileSync(path.join(home, SETTINGS_FILE), `${settings}\n`);
+  own(path.join(home, SETTINGS_FILE));
   warmed.delete(botId);
   await restart(unit);
   if (!(await cameUp(unit, url))) {
@@ -749,7 +761,9 @@ export function stopOwnScreen(botId: string): Promise<void> {
   const home = engineHome(botId);
   if (!home) return Promise.reject(new Error('This bot has no agent.'));
   return new Promise((resolve, reject) => {
-    execFile(HERMES_BIN, ['computer-use', 'screen', 'stop'], { env: { ...process.env, HERMES_HOME: home }, timeout: 60_000 }, (err, stdout, stderr) => {
+    // As the bots' account, with its environment, like the gateway that started the screen.
+    const [cmd, ...args] = asAccount([HERMES_BIN, 'computer-use', 'screen', 'stop']);
+    execFile(cmd, args, { env: hermesEnv(home), timeout: 60_000 }, (err, stdout, stderr) => {
       if (!ownScreenOn(botId)) return resolve();
       const said = `${stderr || ''}\n${stdout || ''}`.trim().split('\n').filter(Boolean).pop();
       reject(new Error(said || (err ? String(err.message) : 'The screen is still running.')));
@@ -793,7 +807,7 @@ export async function removeEngine(botId: string, port: number | null): Promise<
 
 /** On server start: bring the gateways up. */
 export function initEngines() {
-  fs.mkdirSync(env.enginesDir, { recursive: true });
+  mkdirOwned(env.enginesDir);
   for (const b of db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine='managed'").all()) provisionEngine(b.id);
 }
 

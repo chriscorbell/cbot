@@ -1,6 +1,6 @@
 {
-  "//": "Where things live on the computer the bots share, and how screens map to displays and ports. server/src/machine.ts and server/box/dispatchlib.py both read this file, so the server and the box scripts can't disagree. scripts/provision.sh creates botsRoot, boxRoot and hermesRoot. run holds what the systemd units read and the displays' buses (deploy/*.service name the same folder).",
-  "botsRoot": "/root/dispatch",
+  "//": "Where things live on the computer the bots share, and how screens map to displays and ports. server/src/machine.ts and server/box/dispatchlib.py both read this file, so the server and the box scripts can't disagree. botsDir is a folder in the home of the bots' account (server/src/account.ts says which account): their Libraries, Chrome profiles and Hermes homes. scripts/provision.sh creates boxRoot and hermesRoot. run holds what the systemd units read and the displays' buses (deploy/*.service name the same folder).",
+  "botsDir": "dispatch",
   "boxRoot": "/opt/dispatch",
   "hermesRoot": "/opt/hermes",
   "logs": "/var/log/dispatch",

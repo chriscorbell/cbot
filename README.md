@@ -69,13 +69,13 @@ Other Ubuntu and Debian derivatives may work; the installer warns that they're u
 
 ### Install
 
-On the target machine, run:
+On the target machine, from the account the bots should use (an ordinary account that can use sudo, not root), run:
 
 ```bash
 curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/install.sh | bash
 ```
 
-The installer takes over the terminal: you pick the bots' time zone from a list you can search, how many bots the machine can run, and whether to add Tailscale, then it shows each step as it installs. A first install takes 15 to 30 minutes.
+The installer asks for sudo itself, then takes over the terminal: you pick the bots' time zone from a list you can search, how many bots the machine can run, and whether to add Tailscale, then it shows each step as it installs. A first install takes 15 to 30 minutes. Every bot runs as the account you ran it from, which it lets use sudo without a password.
 
 After installation is complete, open the link the installer prints, `https://<ip-address>:8787/#setup=<code>`, in your browser (accept the certificate warning), create your account, then follow the setup wizard. The link carries a one-time setup code, so nobody else on your network can make the account first.
 
@@ -87,7 +87,7 @@ When a new version is out, **Update available** shows in the sidebar, and one cl
 
 ### Uninstall
 
-On the target machine, run this to remove Dispatch and all its data (Chrome, Node.js, Docker, the desktop packages and Tailscale stay installed):
+On the target machine, run this to remove Dispatch and all its data, the bots' `~/dispatch` folder among it (Chrome, Node.js, Docker, the desktop packages and Tailscale stay installed, and the bots' account stays, without its passwordless sudo):
 
 ```bash
 curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/uninstall.sh | bash
@@ -97,7 +97,7 @@ It asks once before removing anything, then shows each step as it goes.
 
 ## Security
 
-Dispatch's bots run as root and can do anything on the machine, so give it a machine of its own, keep it off the internet (use Tailscale to reach it from elsewhere), and use a password you don't use anywhere else. [SECURITY.md](SECURITY.md) explains what Dispatch protects and what it trusts, and how to report a vulnerability privately.
+Dispatch's bots run as one ordinary account that can use sudo, so they can still do anything on the machine: give it a machine of its own, keep it off the internet (use Tailscale to reach it from elsewhere), and use a password you don't use anywhere else. [SECURITY.md](SECURITY.md) explains what Dispatch protects and what it trusts, and how to report a vulnerability privately.
 
 ## Development
 

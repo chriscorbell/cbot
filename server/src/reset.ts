@@ -33,14 +33,16 @@ export function takeDown(): Promise<void> {
   return teardown;
 }
 
-/** What the data directory holds (env.ts): the database and its old copies, the secret, the Hermes homes. */
-const DATA = /^(dispatch\.db.*|secret|auth-fingerprint|engines|setup-code)$/;
+/** What the data directory holds (env.ts): the database and its old copies, the secret, the setup code. */
+const DATA = /^(dispatch\.db.*|secret|auth-fingerprint|setup-code)$/;
 
 /** Erase the rest and exit for the supervisor to start a fresh server, whose account takes `setupCode`. Only the first call does anything. */
 export async function eraseAndExit(setupCode: string): Promise<void> {
   if (erasing) return;
   erasing = true;
   await forgetAllBotFiles().catch((e) => console.warn('[reset] bot files:', e?.message ?? e));
+  // The bots' Hermes homes, in their account's home (machine.ts), what deleting each bot left.
+  fs.rmSync(env.enginesDir, { recursive: true, force: true });
   db.close();
   for (const name of fs.readdirSync(env.dataDir)) {
     if (DATA.test(name)) fs.rmSync(path.join(env.dataDir, name), { recursive: true, force: true });

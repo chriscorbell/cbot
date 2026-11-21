@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { own } from './account.js';
 import { db, type BotRecord } from './db.js';
 import { hub } from './lib/hub.js';
 import { sha256 } from './lib/ids.js';
@@ -53,6 +54,8 @@ function writeAtomic(file: string, text: string) {
   const mode = fs.statSync(file).mode & 0o777;
   fs.writeFileSync(tmp, text);
   fs.chmodSync(tmp, mode);
+  // The memory file is the bot's: its gateway, running as the bots' account, writes it too.
+  own(tmp);
   fs.renameSync(tmp, file);
 }
 

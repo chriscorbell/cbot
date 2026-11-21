@@ -3,16 +3,24 @@
 import { expect, test } from 'vitest';
 import fs from 'node:fs';
 import {
-  BOX_ROOT, BOTS_ROOT, cdpPortFor, displayFor, displayNumber, ENGINE_PORT_BASE, FIRST_BOT_DISPLAY, HERMES_ROOT, HOME_PORT,
-  LIBRARY_ROOT, LOGS_ROOT, MACHINE_FILE, PROFILES_ROOT, RUN_ROOT, vncPortFor,
+  BOX_ROOT, BOTS_DIR, BOTS_ROOT, cdpPortFor, displayFor, displayNumber, ENGINE_PORT_BASE, ENGINES_ROOT, FIRST_BOT_DISPLAY, HERMES_ROOT,
+  HOME_PORT, LIBRARY_ROOT, LOGS_ROOT, MACHINE_FILE, PROFILES_ROOT, RUN_ROOT, vncPortFor,
 } from '../src/machine.js';
+import { env } from '../src/env.js';
 
 const machine = JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8'));
 
-test('the folders and ports come from machine.json', () => {
-  expect(BOTS_ROOT).toBe(machine.botsRoot);
-  expect(PROFILES_ROOT).toBe(`${machine.botsRoot}/profiles`);
-  expect(LIBRARY_ROOT).toBe(`${machine.botsRoot}/files`);
+test('the folders and ports come from machine.json, the bots\' in their account\'s home', () => {
+  // test/env.ts points DISPATCH_HOME at a temporary folder (account.ts).
+  const home = process.env.DISPATCH_HOME;
+  expect(BOTS_DIR).toBe(machine.botsDir);
+  expect(BOTS_ROOT).toBe(`${home}/${machine.botsDir}`);
+  expect(PROFILES_ROOT).toBe(`${BOTS_ROOT}/profiles`);
+  expect(LIBRARY_ROOT).toBe(`${BOTS_ROOT}/files`);
+  expect(ENGINES_ROOT).toBe(`${BOTS_ROOT}/engines`);
+  expect(env.enginesDir).toBe(ENGINES_ROOT);
+  // The bots' Hermes homes are theirs, out of the server's own data (DATA_DIR).
+  expect(ENGINES_ROOT).not.toBe(`${env.dataDir}/engines`);
   expect(BOX_ROOT).toBe(machine.boxRoot);
   expect(HERMES_ROOT).toBe(machine.hermesRoot);
   expect(LOGS_ROOT).toBe(machine.logs);

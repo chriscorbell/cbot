@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { asAccount } from './account.js';
 import { newId } from './lib/ids.js';
 import { engineHome, forgetEngineOptions, HERMES_BIN, hermesEnv, signInName } from './engine.js';
 import { saveProviderSettings } from './providers.js';
@@ -162,7 +163,9 @@ function view(s: Session): ProviderSignIn {
 
 function hermes(s: Session, home: string, botId: string) {
   // No terminal and no browser: Hermes prints the link and the code, and the user opens them on their own device.
-  const child = spawn(HERMES_BIN, ['auth', 'add', s.provider], {
+  // As the bots' account, so the sign-in it saves (auth.json) is one the bot's gateway can read.
+  const [cmd, ...args] = asAccount([HERMES_BIN, 'auth', 'add', s.provider]);
+  const child = spawn(cmd, args, {
     cwd: home,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: hermesEnv(home, { BROWSER: 'true', PYTHONUNBUFFERED: '1', NO_COLOR: '1' }),

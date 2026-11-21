@@ -16,6 +16,18 @@ The installer writes where it installed from to `/etc/dispatch/source`, and upda
 
 Dispatch's updates don't update the machine's other packages, Chrome among them. Keep them current with `sudo apt update && sudo apt upgrade`.
 
+## The bots' account
+
+Every bot runs as one ordinary account: the one you ran the installer from, which the installer writes to `/etc/dispatch/env` as `DISPATCH_USER`. It refuses to run from a root login unless `DISPATCH_USER=<account>` names another account. The bots' agents, screens, Chromes and apps run as that account, and their files are in its home, under `~/dispatch`:
+
+| Folder | Holds |
+|---|---|
+| `~/dispatch/engines/<botId>` | Each bot's Hermes home: its settings, keys, sign-ins, memory and sessions |
+| `~/dispatch/files/<botId>` | Each bot's Library, also the folder it works in |
+| `~/dispatch/profiles/<botId>` | Each bot's Chrome profile |
+
+The account may run anything as root without a password (`/etc/sudoers.d/dispatch`), so a bot can install what it needs. The server itself runs as root, and its data in `/var/lib/dispatch` (the database, the secret that signs the bots' tokens, the setup code) only root can read. To look at a bot's files as the bots see them, use that account: `sudo -iu <account>`.
+
 The server runs as the systemd service `dispatch`: `journalctl -u dispatch -f` follows its log, and the installer's own log is `/var/log/dispatch/install.log`. Each bot's agent, screen and Chrome are units of their own: `systemctl list-units 'dispatch-*'` lists them, `journalctl -u 'dispatch-gateway@*'` shows the agents' logs, `journalctl -u 'dispatch-chrome-*'` the Chromes', and `systemctl status 'dispatch-bot-*.slice'` how much memory each bot uses against its limit. Restarting `dispatch` leaves them running.
 
 ## Settings
@@ -111,12 +123,12 @@ The first time the workflow pushes the speech image, GitHub makes the `dispatch-
 To put your own commits on the machine instead of the newest release, deploy them over SSH:
 
 ```bash
-cp .env.example .env.prod   # set DISPATCH_HOST in it; every deploy copies it to /etc/dispatch/env
+cp .env.example .env.prod   # set DISPATCH_HOST and DISPATCH_USER in it; every deploy copies it to /etc/dispatch/env
 scripts/deploy.sh           # deploy the committed main branch to DISPATCH_HOST
 scripts/deploy.sh <commit>  # deploy that commit, or roll back to it
 ```
 
-A commit has to pass `npm run check` before it deploys. The machine builds it with `scripts/build-release.sh`, as GitHub Actions builds a release, and builds the speech image from its source. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
+`DISPATCH_USER` names the ordinary account on the machine the bots run as; each deploy gives it passwordless sudo, as the installer does. A commit has to pass `npm run check` before it deploys. The machine builds it with `scripts/build-release.sh`, as GitHub Actions builds a release, and builds the speech image from its source. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
 
 ## Development
 

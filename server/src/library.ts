@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
+import { mkdirOwnedAsync, ownAsync } from './account.js';
 import { libraryDir } from './machine.js';
 
 /**
@@ -27,13 +28,15 @@ export function numbered(name: string, n: number) {
  */
 export async function copyToUploads(src: string, botId: string): Promise<string> {
   const dir = uploadsDir(botId);
-  await fs.mkdir(dir, { recursive: true });
+  await mkdirOwnedAsync(dir);
   const name = safeName(path.basename(src));
   for (let n = 1; ; n++) {
     const dest = `${dir}/${n === 1 ? name : numbered(name, n)}`;
     try {
       // A clone where the disk supports it, so a large file costs no space until someone changes it.
       await fs.copyFile(src, dest, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+      // The bots' account owns everything in their Libraries, so any bot can change the copy.
+      await ownAsync(dest);
       return dest;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
