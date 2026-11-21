@@ -1,13 +1,13 @@
 # The service's direct dependencies, which requirements.txt locks with hashes (README.md: Dependencies).
 # sherpa-onnx comes from the wheel the Dockerfile builds.
-fastapi==0.163.0
+fastapi==0.163.2
 uvicorn==0.54.0
 websockets==17.4
 httptools==0.9.0
 uvloop==0.23.0
-python-multipart==0.0.33
-numpy==2.5.4
+python-multipart==0.0.34
+numpy==2.5.5
 soxr==1.1.0
 av==19.0.2
-onnxruntime==1.28.0  # 1.29 and later upload telemetry to Microsoft from Linux by default
+onnxruntime==1.32.0  # 1.29 and later upload telemetry to Microsoft from Linux by default
 ptts==0.7.1
