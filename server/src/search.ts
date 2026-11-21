@@ -35,7 +35,7 @@ export function excerpt(text: string, q: string, before = 48, after = 110): stri
 export function searchMessages(userId: string, q: string): SearchMessageHit[] {
   const rows = db.prepare<[string, string], RowRecord>(`
     SELECT r.* FROM rows r JOIN bots b ON b.id = r.bot_id
-    WHERE b.user_id = ? AND b.hidden = 0 AND r.generation = b.generation AND r.kind = 'message'
+    WHERE b.user_id = ? AND r.generation = b.generation AND r.kind = 'message'
       AND json_extract(r.body, '$.text') LIKE ? ESCAPE '\\'
       AND COALESCE(json_extract(r.body, '$.note'), 0) = 0
     ORDER BY r.created_at DESC LIMIT ${MAX_HITS}`).all(userId, likePattern(q));
@@ -59,7 +59,7 @@ const MAX_ENTRIES = 5000;
  */
 export async function searchLibraries(userId: string, q: string, root: string): Promise<SearchFileHit[]> {
   const needle = q.toLowerCase();
-  const bots = db.prepare<[string], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE user_id = ? AND hidden = 0 AND kind <> 'room'").all(userId);
+  const bots = db.prepare<[string], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE user_id = ? AND kind <> 'room'").all(userId);
   const hits: SearchFileHit[] = [];
   for (const { id } of bots) {
     const base = path.join(root, id);

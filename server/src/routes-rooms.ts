@@ -29,7 +29,7 @@ roomsApi.get('/:id/members', (c) => {
 roomsApi.post('/', async (c) => {
   const user = c.get('user');
   const { name, botIds } = await body(c, z.object({ name: z.string().default(''), botIds: z.array(z.string()).default([]) }));
-  const valid = [...new Set(botIds)].filter((id) => db.prepare("SELECT 1 FROM bots WHERE id=? AND user_id=? AND kind<>'room' AND hidden=0").get(id, user.id));
+  const valid = [...new Set(botIds)].filter((id) => db.prepare("SELECT 1 FROM bots WHERE id=? AND user_id=? AND kind<>'room'").get(id, user.id));
   if (!name.trim() || valid.length < 2) return c.json({ error: 'A group needs a name and at least 2 Bots.' }, 400);
   const id = createRoom(user.id, name.trim(), valid);
   return c.json({ id } satisfies RoomCreated);

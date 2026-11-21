@@ -23,7 +23,7 @@ import { newSetupCode } from './lib/auth.js';
 let teardown: Promise<void> | null = null;
 let erasing = false;
 
-/** Delete every bot, groups and hidden ones too. A second call waits for the first. */
+/** Delete every bot, groups too. A second call waits for the first. */
 export function takeDown(): Promise<void> {
   teardown ??= (async () => {
     const bots = db.prepare<[], BotRecord>("SELECT * FROM bots ORDER BY kind='room' DESC, created_at").all();

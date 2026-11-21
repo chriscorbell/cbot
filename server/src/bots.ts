@@ -25,7 +25,7 @@ function hashPick<T>(id: string, list: readonly T[]): T {
 /** Thrown for things the user can fix; the message is shown to them. */
 export class UserError extends Error {}
 
-const agentCount = () => db.prepare<[], { n: number }>("SELECT COUNT(*) n FROM bots WHERE kind<>'room' AND hidden=0").get()!.n;
+const agentCount = () => db.prepare<[], { n: number }>("SELECT COUNT(*) n FROM bots WHERE kind<>'room'").get()!.n;
 
 /** The user's primary bot, if they have made a bot yet. */
 export const primaryBot = (userId: string) =>

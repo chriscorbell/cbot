@@ -65,7 +65,7 @@ export const getBot = (id: string) => {
   return r ? toBot(r) : null;
 };
 export const listBots = (userId: string) =>
-  db.prepare<[string], BotRecord>('SELECT * FROM bots WHERE user_id=? AND hidden=0 ORDER BY is_primary DESC, created_at ASC').all(userId).map(toBot);
+  db.prepare<[string], BotRecord>('SELECT * FROM bots WHERE user_id=? ORDER BY is_primary DESC, created_at ASC').all(userId).map(toBot);
 
 export function emitBot(botId: string) {
   const r = getBotRow(botId);

@@ -810,7 +810,7 @@ export function initEngines() {
   fs.mkdirSync(env.enginesDir, { recursive: true });
   // A bot that ran on the separately managed "primary" agent (before this app ran every agent) gets one of its own.
   db.prepare("UPDATE bots SET engine=NULL, engine_port=NULL WHERE engine='primary'").run();
-  const bots = db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine IS NULL AND kind <> 'room' AND hidden=0 ORDER BY is_primary DESC, created_at ASC").all();
+  const bots = db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine IS NULL AND kind <> 'room' ORDER BY is_primary DESC, created_at ASC").all();
   for (const b of bots) assignEngine(b.id);
   for (const b of db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine='managed'").all()) provisionEngine(b.id);
 }

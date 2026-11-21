@@ -16,7 +16,7 @@ export async function instructionsFor(userId: string, botId: string): Promise<st
   const user = db.prepare<[string], UserRecord>('SELECT * FROM users WHERE id=?').get(userId);
   const owner = user?.username ?? 'the user';
 
-  const team = db.prepare<[string, string], Pick<BotRecord, 'name' | 'label' | 'is_primary'>>("SELECT name, label, is_primary FROM bots WHERE user_id=? AND id<>? AND hidden=0 AND kind<>'room' ORDER BY created_at").all(userId, botId)
+  const team = db.prepare<[string, string], Pick<BotRecord, 'name' | 'label' | 'is_primary'>>("SELECT name, label, is_primary FROM bots WHERE user_id=? AND id<>? AND kind<>'room' ORDER BY created_at").all(userId, botId)
     .map((b) => `- ${b.name}${b.label ? ` (${b.label})` : ''}${b.is_primary ? ' [main point of contact]' : ''}`)
     .join('\n');
   const groupRows = db.prepare<[string, string], Pick<BotRecord, 'name' | 'description' | 'instructions'>>("SELECT name, description, instructions FROM bots WHERE user_id=? AND kind='room' AND members LIKE ? ORDER BY created_at").all(userId, `%${botId}%`);
