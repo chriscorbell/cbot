@@ -6,6 +6,13 @@ updates:
     schedule: { interval: weekly }
     groups:
       npm: { patterns: ["*"] }
+    ignore:
+      # typescript-eslint supports TypeScript below 6.1; a newer one fails npm ci until it catches up.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
+      # Node's types follow the Node a release brings (.node-version), not the newest Node.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
   # speech/requirements.in, and requirements.txt compiled from it with hashes (pip-compile, from the
   # command in its header).
   - package-ecosystem: pip
@@ -13,6 +20,10 @@ updates:
     schedule: { interval: weekly }
     groups:
       pip: { patterns: ["*"] }
+    ignore:
+      # 1.29 and later upload telemetry to Microsoft from Linux by default (requirements.in).
+      - dependency-name: onnxruntime
+        versions: [">=1.29"]
   # The base images are pinned by tag and digest; Dependabot moves both. A new Python minor version
   # waits for a person, since speech/requirements.txt is compiled for the image's Python.
   - package-ecosystem: docker
