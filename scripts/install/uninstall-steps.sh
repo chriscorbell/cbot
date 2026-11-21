@@ -38,7 +38,9 @@ stop_everything() {
 
 speech_here() { command -v docker >/dev/null && docker info >/dev/null 2>&1; }
 
-# The speech service: its Compose project's containers and network, and every image built for it.
+# The speech service: its Compose project's containers and network, and every image of it: built here
+# (dispatch-speech:<hash>, for a deploy or a branch) or pulled by digest for a release
+# (ghcr.io/<owner>/dispatch-speech, with no tag).
 remove_speech() {
   local ids images
   speech_here || return 0
@@ -48,7 +50,7 @@ remove_speech() {
   ids="$(docker network ls -q --filter label=com.docker.compose.project=dispatch-speech)"
   # shellcheck disable=SC2086 # one network id per word
   [ -z "$ids" ] || docker network rm $ids >/dev/null
-  images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^dispatch-speech:' || true)"
+  images="$(docker image ls --format '{{.ID}} {{.Repository}}' | awk '$2 == "dispatch-speech" || $2 ~ /\/dispatch-speech$/ { print $1 }' | sort -u)"
   # shellcheck disable=SC2086 # one image per word
   [ -z "$images" ] || docker image rm -f $images >/dev/null
   # Building the speech image leaves gigabytes of build cache; any other project's is only a cache.
