@@ -80,8 +80,32 @@ function readDotenv(file: string): Record<string, string> {
   return out;
 }
 
+/**
+ * A Hermes config.yaml as an object, {} when the file is missing or empty. One that isn't a YAML
+ * mapping throws: Dispatch writes these files back from what it reads, so reading a broken or
+ * half-edited config as empty would write the bot's settings away.
+ */
 function readYaml(file: string): any {
-  try { return YAML.parse(fs.readFileSync(file, 'utf8')) ?? {}; } catch { return {}; }
+  let text: string;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw e;
+  }
+  let parsed: unknown;
+  try { parsed = YAML.parse(text); } catch (e) {
+    throw new Error(`${file} isn't valid YAML, so Dispatch won't rewrite it: ${(e as Error).message}`);
+  }
+  if (parsed == null) return {};
+  if (typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${file} isn't a YAML mapping, so Dispatch won't rewrite it`);
+  return parsed;
+}
+
+/** readYaml for work over several bots: a config that can't be read is logged and left alone, and the others go on. */
+function readYamlOrSkip(file: string): any {
+  try { return readYaml(file); } catch (e) {
+    console.warn(`[engine] ${(e as Error).message}`);
+    return null;
+  }
 }
 
 function writePrivate(file: string, content: string) {
@@ -273,8 +297,14 @@ const APPROVAL_MODES: ApprovalMode[] = ['off', 'smart', 'manual'];
 export function approvalSettings(userId: string): ApprovalSettings {
   const u = db.prepare<[string], Pick<UserRecord, 'approval_mode' | 'approval_deny'>>('SELECT approval_mode, approval_deny FROM users WHERE id=?').get(userId);
   const mode = APPROVAL_MODES.find((m) => m === u?.approval_mode) ?? 'off';
-  let deny: string[] = [];
-  try { deny = (JSON.parse(u?.approval_deny ?? '[]') as unknown[]).filter((p): p is string => typeof p === 'string'); } catch { /* keep none */ }
+  let deny: string[];
+  try { deny = (JSON.parse(u?.approval_deny ?? '[]') as unknown[]).filter((p): p is string => typeof p === 'string'); } catch (e) {
+    // Rules we can't read can't be enforced, and dropping them would let the bots run what the user
+    // said never to. Asking before every action is the safe reading until the user saves the rules
+    // again; the stored value stays as it is until then.
+    console.error(`[engine] the Never Allow rules of ${userId} can't be read, so every action asks first:`, (e as Error).message);
+    return { mode: 'manual', deny: [] };
+  }
   return { mode, deny };
 }
 
@@ -290,7 +320,7 @@ const allowlistOf = (cfg: any): string[] => (Array.isArray(cfg?.command_allowlis
 /** "Allow without Asking": every entry an "Always allow" answer left in any of the owner's bots. */
 export function allowedActions(userId: string): string[] {
   const all = new Set<string>();
-  for (const f of configFiles(userId)) for (const e of allowlistOf(readYaml(f))) all.add(e);
+  for (const f of configFiles(userId)) for (const e of allowlistOf(readYamlOrSkip(f))) all.add(e);
   return [...all].sort((a, b) => a.localeCompare(b));
 }
 
@@ -305,7 +335,8 @@ export function syncApprovals(userId: string, drop?: string) {
   const s = approvalSettings(userId);
   const allowed = allowedActions(userId).filter((e) => e !== drop);
   for (const f of configFiles(userId)) {
-    const cfg = readYaml(f);
+    const cfg = readYamlOrSkip(f);
+    if (!cfg) continue;
     const before = JSON.stringify([cfg.approvals, cfg.command_allowlist]);
     applyApprovals(cfg, s, allowed);
     if (JSON.stringify([cfg.approvals, cfg.command_allowlist]) !== before) replacePrivate(f, YAML.stringify(cfg));
@@ -384,9 +415,13 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   const from = inheritedHome(botId);
   const cfgFile = path.join(home, 'config.yaml');
   const fresh = !fs.existsSync(cfgFile);
+  // A broken config.yaml stops the start here (the settings panel shows why) rather than being
+  // rewritten from nothing.
   const cfg = fresh ? {} : readYaml(cfgFile);
   if (fresh) {
-    const primary = from ? readYaml(path.join(from, 'config.yaml')) : {};
+    // The primary bot's settings are only a starting point: if its config can't be read, the new bot
+    // starts on the defaults rather than not at all.
+    const primary = (from ? readYamlOrSkip(path.join(from, 'config.yaml')) : null) ?? {};
     for (const k of SHARED_CONFIG) if (primary[k] !== undefined) cfg[k] = primary[k];
     cfg.agent = { reasoning_effort: 'medium' };
   }
@@ -670,7 +705,8 @@ export function syncModel(botId: string) {
   if (!b || b.engine !== 'managed') return;
   const file = path.join(homeFor(botId), 'config.yaml');
   if (!fs.existsSync(file)) return;
-  const cfg = readYaml(file);
+  const cfg = readYamlOrSkip(file);
+  if (!cfg) return;
   const before = JSON.stringify(cfg.model ?? null);
   applyModel(cfg, b);
   if (JSON.stringify(cfg.model ?? null) !== before) replacePrivate(file, YAML.stringify(cfg));
