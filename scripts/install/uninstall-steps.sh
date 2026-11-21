@@ -7,9 +7,9 @@ installed() {
   return 1
 }
 
-# The service, then whatever it started. Its screens, Chromes and gateways outlive the server on
-# purpose (KillMode=process in deploy/dispatch.service), but they stay in the service's control group,
-# which holds every process started from it, the bots' own included.
+# The service, then what runs for the bots: their screens, Chromes, gateways and apps are units of
+# their own under dispatch.slice (server/src/units.ts), which outlive the server on purpose, and
+# anything still left in the service's control group goes after them.
 stop_everything() {
   local group pids _
   group="$(systemctl show -p ControlGroup --value dispatch.service 2>/dev/null || true)"
@@ -17,6 +17,7 @@ stop_everything() {
   if [ -e "$UNIT" ]; then
     systemctl disable --now dispatch.service >/dev/null 2>&1 || true
   fi
+  systemctl stop dispatch.slice >/dev/null 2>&1 || true
   if [ -r "$group/cgroup.procs" ]; then
     pids="$(cat "$group/cgroup.procs")"
     if [ -n "$pids" ]; then
@@ -30,9 +31,11 @@ stop_everything() {
       kill -KILL $(cat "$group/cgroup.procs" 2>/dev/null) 2>/dev/null || true
     fi
   fi
-  rm -f "$UNIT"
+  # The service, and the units scripts/install-units.sh put beside it.
+  rm -f "$UNIT" /etc/systemd/system/dispatch-*@.service /etc/systemd/system/dispatch-*@.target
+  rm -rf /run/systemd/system.control/dispatch-bot-*.slice.d /run/dispatch
   systemctl daemon-reload
-  systemctl reset-failed dispatch.service >/dev/null 2>&1 || true
+  systemctl reset-failed 'dispatch*' >/dev/null 2>&1 || true
   done_ "Stopped Dispatch, the bots' screens and their agents"
 }
 
