@@ -81,7 +81,7 @@ After installation is complete, open the link the installer prints, `https://<ip
 
 Dispatch signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, choose **Set it up** at the installer's Tailscale question.
 
-When a new version is out, **Update available** shows in the sidebar, and one click installs it.
+When a new version is out, **Update available** shows in the sidebar, and one click installs it. Dispatch installs and updates only from releases signed with its release key.
 
 [docs/RUNNING.md](docs/RUNNING.md) covers updates, settings, HTTPS, models, a forgotten password and starting over.
 
@@ -94,6 +94,10 @@ curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/
 ```
 
 It asks once before removing anything, then shows each step as it goes.
+
+## Security
+
+Dispatch's bots run as root and can do anything on the machine, so give it a machine of its own, keep it off the internet (use Tailscale to reach it from elsewhere), and use a password you don't use anywhere else. [SECURITY.md](SECURITY.md) explains what Dispatch protects and what it trusts, and how to report a vulnerability privately.
 
 ## Development
 

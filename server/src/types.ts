@@ -278,8 +278,10 @@ export interface EngineInfo {
  * GitHub's page of what changed between them. `checkedAt` is when GitHub last answered.
  */
 export type UpdateState = {
+  /** What runs: its release (v1.2.0), or the first seven characters of its commit on a machine that follows a branch. */
   current: string;
-  available: { commit: string; url: string } | null;
+  /** A later release or commit, the same way, and where to read what changed. */
+  available: { version: string; url: string } | null;
   checkedAt: number | null;
 } & (
   /** `error`: why the last check got no answer. */

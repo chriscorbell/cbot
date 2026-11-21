@@ -116,17 +116,17 @@ test('after an update this page saw start, the server coming back on another com
   const reload = vi.fn();
   vi.stubGlobal('window', { location: { reload } });
   try {
-    const base = { current: 'aaaaaaaaaaaa', available: { commit: 'bbbbbbbbbbbb', url: 'u' }, checkedAt: 1 };
+    const base = { current: 'v0.1.0', available: { version: 'v0.2.0', url: 'u' }, checkedAt: 1 };
     applyServerEvent({ type: 'hello', serverTime: 0, version: 'aaaaaaaaaaaa' });
     // A restart on the same commit, or a deploy no update here started, leaves the page alone.
     applyServerEvent({ type: 'hello', serverTime: 0, version: 'aaaaaaaaaaaa' });
     applyServerEvent({ type: 'hello', serverTime: 0, version: 'cccccccccccc' });
     expect(reload).not.toHaveBeenCalled();
 
-    applyServerEvent({ type: 'update', update: { ...base, current: 'cccccccccccc', status: 'updating', step: null, startedAt: 1 } });
+    applyServerEvent({ type: 'update', update: { ...base, status: 'updating', step: null, startedAt: 1 } });
     expect(useStore.getState().update?.status).toBe('updating');
     // The new server's idle state may land before its hello; the page still knows an update was underway.
-    useStore.getState().applyUpdate({ current: 'bbbbbbbbbbbb', available: null, checkedAt: null, status: 'idle', error: null });
+    useStore.getState().applyUpdate({ current: 'v0.2.0', available: null, checkedAt: null, status: 'idle', error: null });
     applyServerEvent({ type: 'hello', serverTime: 0, version: 'bbbbbbbbbbbb' });
     expect(reload).toHaveBeenCalledOnce();
   } finally {

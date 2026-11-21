@@ -7,7 +7,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | Command | What it does |
 |---|---|
 | `npm run check` | Typecheck both workspaces, lint, and run every unit test. Run it before every commit; `scripts/deploy.sh` refuses a commit that fails it |
-| `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`) and the speech service's text fixes (`npm run test:speech`), both stdlib only. Seconds, no services needed |
+| `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`), the speech service's (`npm run test:speech`) and the installer's release check (`npm run test:install`, which needs git and ssh-keygen), all stdlib only. Seconds, no services needed |
 | `npm run lint` | ESLint: floating promises and non-exhaustive switches on the server, hooks rules on the web app |
 | `DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
 | `node tests/e2e.mjs`, `tests/voice-*.mjs` | End-to-end scripts against a running app (real gateways, screens and speech). See their headers |
@@ -30,7 +30,8 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/agent/approvals.ts` | Hermes' approval prompts as chat cards, and the answers sent back to the run |
 | `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order), and the first-run setup that makes the first one |
 | `server/src/reset.ts` | Resetting Dispatch to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
-| `server/src/updates.ts` | Updating Dispatch from GitHub: checking the branch the installer used, and running the installer again in a unit of its own |
+| `server/src/updates.ts` | Updating Dispatch from GitHub: checking for a newer release (or commit of the branch the installer was told to follow), and running this release's installer again in a unit of its own |
+| `scripts/install.sh`, `scripts/publish.sh` | Installing and updating from signed release tags (`release_signers`, `fetch_signed`), and publishing a release. Changing `release_signers` changes which keys every machine trusts once it updates |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |

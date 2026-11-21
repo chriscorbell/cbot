@@ -4,15 +4,17 @@
 #   curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 #
 # It checks the machine (Ubuntu or Debian on x86-64, with systemd), asks three things (the bots' time
-# zone, how many bots at most, and whether to set up Tailscale too), then downloads a commit from
-# GitHub into /srv/dispatch/releases and runs that commit's scripts/release.sh, the same step
+# zone, how many bots at most, and whether to set up Tailscale too), then downloads the newest release
+# from GitHub into /srv/dispatch/releases and runs its scripts/release.sh, the same step
 # scripts/deploy.sh runs: it provisions the machine, builds the release and the speech image, and
-# starts the dispatch service. Dispatch serves HTTPS on the local network with a certificate of its own
-# (server/src/https.ts), which browsers warn about once per device; Tailscale adds an address with a
-# certificate they trust. The answers go to /etc/dispatch/env. Run it again to update to the newest
-# commit; the settings stay as they are. The app does that itself from Settings > General: it runs
-# this script unattended (server/src/updates.ts), and /etc/dispatch/source tells it the repository and
-# branch to follow.
+# starts the dispatch service. A release is a vX.Y.Z tag signed by one of the keys in release_signers
+# (scripts/publish.sh makes them), and nothing of it runs until the signature checks out. Dispatch
+# serves HTTPS on the local network with a certificate of its own (server/src/https.ts), which
+# browsers warn about once per device; Tailscale adds an address with a certificate they trust. The
+# answers go to /etc/dispatch/env. Run it again to update to the newest release; the settings stay as
+# they are. The app does that itself from Settings > General: it runs the installer of the release it
+# is running, unattended (server/src/updates.ts), so each new release is checked against the keys of
+# the one before it. /etc/dispatch/source tells it the repository to follow.
 #
 # At a terminal it takes the whole screen, as an editor does: a screen for each question, with gum's
 # lists and buttons (a pinned release from GitHub, checked against its checksum and deleted when the
@@ -23,8 +25,9 @@
 #
 # Unattended, the answers come from the environment, DISPATCH_TZ, DISPATCH_MAX_BOTS and DISPATCH_TAILSCALE (1 or
 # 0), with the defaults for any left out. DISPATCH_YES=1 takes them without asking even at a terminal.
-# DISPATCH_REF installs a branch, tag or commit other than main, DISPATCH_REPO a fork, and GITHUB_TOKEN reads
-# a private one.
+# DISPATCH_REF installs a branch, tag or commit instead of the newest release, with no signature to
+# check, and updates then follow that branch. DISPATCH_REPO installs from a fork, and GITHUB_TOKEN
+# reads a private one.
 #
 # Everything is in functions and main runs on the last line, so a download cut short runs nothing.
 
@@ -40,7 +43,7 @@ ui_init() {
     *UTF-8* | *utf8* | *UTF8* | *utf-8*) OK='✓' NO='✗' NOW='●' LATER='○' LINE='─' BAR='│' DOT='·' SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) ;;
     *) OK='+' NO='x' NOW='*' LATER='o' LINE='-' BAR='|' DOT='-' SPIN=('|' '/' '-' "\\") ;;
   esac
-  steps=0 tui=false tty3=false watcher='' reported=false machine='' gum_dir='' LOG=''
+  steps=0 tui=false tty3=false watcher='' reported=false machine='' gum_dir='' fetch_dir='' LOG=''
 }
 
 step() { steps=$((steps + 1)); printf '\n%s%s. %s%s\n' "$B" "$steps" "$1" "$R"; }
@@ -105,6 +108,7 @@ on_exit() {
     printf '\n%s%s%s Stopped. Run the installer again to pick up where it stopped.%s\n' "$E" "$NO" "$R" "${LOG:+ The log is $LOG.}" >&"$fd"
   fi
   [ -z "$gum_dir" ] || rm -rf "$gum_dir"
+  [ -z "$fetch_dir" ] || rm -rf "$fetch_dir"
 }
 
 # ---------------------------------------------------------------- the full screen
@@ -601,12 +605,23 @@ EOF
   mv /etc/dispatch/env.new /etc/dispatch/env
 }
 
-# Where this install comes from, which the app checks for updates (server/src/updates.ts). Written on
-# every run, so updates follow the branch installed last.
+# Where this install comes from, which the app checks for updates (server/src/updates.ts): the
+# repository, and either the release it runs or the branch it follows. Written on every run, so
+# updates follow what was installed last.
 write_source() {
   install -d -m 0700 /etc/dispatch
-  printf '# Where scripts/install.sh installed Dispatch from. The app checks it for updates.\nDISPATCH_REPO=%s\nDISPATCH_REF=%s\n' "$repo" "$ref" >/etc/dispatch/source.new
+  {
+    echo '# Where scripts/install.sh installed Dispatch from. The app checks it for updates: the newest'
+    echo '# signed release after DISPATCH_VERSION, or with DISPATCH_REF the newest commit of that branch.'
+    printf 'DISPATCH_REPO=%s\nDISPATCH_REF=%s\nDISPATCH_VERSION=%s\n' "$repo" "$ref" "$tag"
+  } >/etc/dispatch/source.new
   mv /etc/dispatch/source.new /etc/dispatch/source
+}
+
+# The release this machine runs, as the last run wrote it, or nothing.
+installed_version() {
+  [ -r /etc/dispatch/source ] || return 0
+  sed -nE 's/^DISPATCH_VERSION=(v[0-9]+\.[0-9]+\.[0-9]+)$/\1/p' /etc/dispatch/source | tail -n 1
 }
 
 # ---------------------------------------------------------------- Tailscale
@@ -633,32 +648,128 @@ setup_tailscale() {
 
 # ---------------------------------------------------------------- the release
 
-# Sets commit and script (the release.sh to run), or up_to_date when that commit already runs.
+# The keys that sign Dispatch's releases, in ssh-keygen's allowed signers format. The installer installs
+# a release only when one of them signed its tag. An update runs the installer of the release it
+# updates from, so a release can change this list only if a key already on it signed that release.
+# scripts/publish.sh signs with one of them.
+release_signers() {
+  cat <<'EOF'
+dispatch namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBMSc9gHrkDHjyiDVKCPOIm1aJlbAGswe01RpgEsWdFV
+EOF
+}
+
+# git for GitHub: GITHUB_TOKEN reads a private fork, from the environment rather than the command
+# line, where other users could see it, and git never stops to ask for a password.
+github_git() {
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader \
+      GIT_CONFIG_VALUE_0="Authorization: Basic $(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)" git "$@"
+  else
+    GIT_TERMINAL_PROMPT=0 git "$@"
+  fi
+}
+
+# git fetches a release and ssh-keygen checks its signature. Most servers have both.
+release_tools() {
+  local missing=()
+  command -v git >/dev/null || missing+=(git)
+  command -v ssh-keygen >/dev/null || missing+=(openssh-client)
+  [ ${#missing[@]} -gt 0 ] || return 0
+  info "Installing ${missing[*]}"
+  { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"; } >>"$LOG" 2>&1 ||
+    die "${missing[*]} didn't install. The log is $LOG."
+}
+
+# newest_release <repository url>: the highest vX.Y.Z tag there, or nothing when it has none. Other
+# tags, such as v2.0.0-rc1, aren't releases.
+newest_release() {
+  local refs
+  refs="$(github_git ls-remote --tags --refs "$1")" || return 1
+  sed -nE 's#^[0-9a-f]{40}\trefs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$#\1#p' <<<"$refs" | sort -V | tail -n 1
+}
+
+# older <a> <b>: whether version a comes before version b.
+older() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]; }
+
+# fetch_signed <repository url> <tag> <folder>: fetches the tag and its commit into a repository in the
+# folder, and sets sha to the commit once one of release_signers' keys is found to have signed the
+# tag. git checks every object it fetches against its hash, so the files are the ones the signature
+# covers. The signature is checked as git verify-tag checks one, with ssh-keygen (OpenSSH 8.2 and
+# later), over the tag's text before the signature. That text names the commit and the tag itself, so
+# the signed tag of one release can't be passed off as another.
+fetch_signed() {
+  local url=$1 tag=$2 dir=$3 git=$3/repo.git
+  git init -q --bare "$git" || die "Couldn't make a folder to download $tag into."
+  github_git -C "$git" fetch -q --depth 1 --no-tags "$url" "refs/tags/$tag:refs/tags/$tag" ||
+    die "The download of $tag from $url failed."
+  [ "$(git -C "$git" cat-file -t "refs/tags/$tag")" = tag ] ||
+    die "$tag in $url isn't signed (it's a plain tag), so the installer won't install it."
+  git -C "$git" cat-file tag "refs/tags/$tag" >"$dir/tag"
+  sed '/^-----BEGIN SSH SIGNATURE-----$/,$d' "$dir/tag" >"$dir/signed"
+  sed -n '/^-----BEGIN SSH SIGNATURE-----$/,$p' "$dir/tag" >"$dir/signature"
+  release_signers >"$dir/signers"
+  if [ ! -s "$dir/signature" ] ||
+    ! ssh-keygen -Y verify -f "$dir/signers" -I dispatch -n git -s "$dir/signature" <"$dir/signed" >/dev/null 2>&1; then
+    die "$tag in $url isn't signed with a Dispatch release key, so the installer won't install it."
+  fi
+  # The header of what was signed: object <commit>, type commit, tag <name>, then the tagger.
+  local object type name
+  object="$(awk '$0 == "" { exit } $1 == "object" { print $2 }' "$dir/signed")"
+  type="$(awk '$0 == "" { exit } $1 == "type" { print $2 }' "$dir/signed")"
+  name="$(awk '$0 == "" { exit } $1 == "tag" { print $2 }' "$dir/signed")"
+  [ "$name" = "$tag" ] || die "The tag $tag in $url is the signed tag of ${name:-another release}, so the installer won't install it."
+  [ "$type" = commit ] && [[ "$object" =~ ^[0-9a-f]{40}$ ]] || die "$tag in $url doesn't name a commit."
+  sha=$object
+}
+
+# Sets commit and script (the release.sh to run), or up_to_date when that commit already runs. With no
+# DISPATCH_REF, the newest release (and tag, its version), checked as fetch_signed says, even when
+# its commit runs already, so an unsigned tag can't be written down as the version this machine runs.
+# With DISPATCH_REF, the newest commit of that branch, tag or commit, which only GitHub vouches for.
 fetch_release() {
-  local api="https://api.github.com/repos/$repo" auth=() sha releases=/srv/dispatch/releases
+  local api="https://api.github.com/repos/$repo" url="https://github.com/$repo.git" auth=() sha what had
+  local releases=/srv/dispatch/releases
   [ -z "${GITHUB_TOKEN:-}" ] || auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
-  sha="$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github.sha' "$api/commits/$ref")" ||
-    die "Couldn't find $ref in github.com/$repo."
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "GitHub didn't name a commit for $ref."
+  if [ -z "$ref" ]; then
+    release_tools
+    tag="$(newest_release "$url")" || die "Couldn't reach $url."
+    [ -n "$tag" ] || die "$url has no release yet."
+    had="$(installed_version)"
+    if [ -n "$had" ] && older "$tag" "$had"; then
+      die "The newest release in $url is $tag, older than $had, which this machine runs. The installer doesn't go back a version."
+    fi
+    fetch_dir="$(mktemp -d)"
+    fetch_signed "$url" "$tag" "$fetch_dir"
+    what="$tag (signed)"
+  else
+    sha="$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github.sha' "$api/commits/$ref")" ||
+      die "Couldn't find $ref in github.com/$repo."
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "GitHub didn't name a commit for $ref."
+    what=$ref
+  fi
   # Twelve characters, as scripts/deploy.sh names releases, so both reuse the same ones.
   commit="${sha:0:12}"
   up_to_date=false
   if [ "$(readlink /srv/dispatch/current 2>/dev/null)" = "releases/$commit" ] && systemctl is-active --quiet dispatch; then
     up_to_date=true
-    info "$ref is $commit, which is running already"
-    return
-  fi
-  if [ -d "$releases/$commit" ]; then
-    info "$ref is $commit, built before"
+    info "$what is $commit, which is running already"
+  elif [ -d "$releases/$commit" ]; then
+    info "$what is $commit, built before"
     script="$releases/$commit/scripts/release.sh"
-    return
+  else
+    rm -rf "$releases/$commit.new"
+    mkdir -p "$releases/$commit.new"
+    if [ -n "$fetch_dir" ]; then
+      git -C "$fetch_dir/repo.git" archive "$sha" | tar -x -C "$releases/$commit.new" ||
+        die "Unpacking $commit failed."
+    else
+      curl -fsSL "${auth[@]}" "$api/tarball/$sha" | tar -xz -C "$releases/$commit.new" --strip-components=1 ||
+        die "The download of $commit failed."
+    fi
+    info "$what is $commit"
+    script="$releases/$commit.new/scripts/release.sh"
   fi
-  rm -rf "$releases/$commit.new"
-  mkdir -p "$releases/$commit.new"
-  curl -fsSL "${auth[@]}" "$api/tarball/$sha" | tar -xz -C "$releases/$commit.new" --strip-components=1 ||
-    die "The download of $commit failed."
-  info "$ref is $commit"
-  script="$releases/$commit.new/scripts/release.sh"
+  [ -z "$fetch_dir" ] || { rm -rf "$fetch_dir"; fetch_dir=''; }
 }
 
 # progress <offset>: release.sh's steps as they reach the log after <offset>, line by line (the full
@@ -823,7 +934,7 @@ main() {
   ui_init
   [ "$(id -u)" -eq 0 ] || become_root
 
-  repo="${DISPATCH_REPO:-chriscorbell/dispatch}" ref="${DISPATCH_REF:-main}"
+  repo="${DISPATCH_REPO:-chriscorbell/dispatch}" ref="${DISPATCH_REF:-}" tag=''
   interactive=false
   if [ -z "${DISPATCH_YES:-}" ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
   installed=false
