@@ -1,4 +1,4 @@
-# cbot's dev image: the server, one X display and VNC server per bot, Chrome and Hermes Agent in one
+# Dispatch's dev image: the server, one X display and VNC server per bot, Chrome and Hermes Agent in one
 # container, set up by the same script as the production host (scripts/provision.sh). compose.yaml
 # says how to run it. Production runs on its own machine without Docker (scripts/deploy.sh).
 

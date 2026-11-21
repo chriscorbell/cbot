@@ -118,7 +118,7 @@ api.post('/setup/finish', async (c) => {
 });
 
 /**
- * Settings > General > Reset cbot (reset.ts). The reply comes once every bot is down; then the data is
+ * Settings > General > Reset Dispatch (reset.ts). The reply comes once every bot is down; then the data is
  * erased and the server restarts empty, so the web app waits for an answer that asks for a new account.
  */
 api.post('/reset', async (c) => {

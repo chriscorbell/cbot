@@ -17,7 +17,7 @@ interface Secret { id: SecretId; env: string; fromEnv?: string }
 export const SECRETS: readonly Secret[] = [
   // Not ANTHROPIC_API_KEY: Hermes would use that for the Claude subscription too, ahead of a bot's own
   // sign-in. The key reaches Hermes through the `anthropic-api` endpoint engine.ts declares.
-  { id: 'anthropic-api', env: 'CBOT_ANTHROPIC_API_KEY', fromEnv: 'ANTHROPIC_API_KEY' },
+  { id: 'anthropic-api', env: 'DISPATCH_ANTHROPIC_API_KEY', fromEnv: 'ANTHROPIC_API_KEY' },
   { id: 'openai-api', env: 'OPENAI_API_KEY', fromEnv: 'OPENAI_API_KEY' },
   { id: 'gemini', env: 'GEMINI_API_KEY', fromEnv: 'GEMINI_API_KEY' },
   { id: 'xai', env: 'XAI_API_KEY', fromEnv: 'XAI_API_KEY' },
@@ -26,7 +26,7 @@ export const SECRETS: readonly Secret[] = [
   // Subscription tokens: one sign-in for every bot instead of signing each in on its screen.
   { id: 'claude-token', env: 'CLAUDE_CODE_OAUTH_TOKEN', fromEnv: 'CLAUDE_CODE_OAUTH_TOKEN' },
   { id: 'copilot-token', env: 'COPILOT_GITHUB_TOKEN', fromEnv: 'COPILOT_GITHUB_TOKEN' },
-  { id: 'self-hosted-key', env: 'CBOT_SELF_HOSTED_API_KEY' },
+  { id: 'self-hosted-key', env: 'DISPATCH_SELF_HOSTED_API_KEY' },
 ];
 
 export const SECRET_IDS = SECRETS.map((s) => s.id);

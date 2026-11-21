@@ -1,9 +1,9 @@
 // Voice call test in headless Chrome. The fake microphone plays tests/ask-weather.wav once: nine
 // seconds of silence while the bot greets, then "Hey, can you look up the current weather in Tokyo
-// for me?", then silence. Checks the voice options and preview, the call over cbot's relay, the
+// for me?", then silence. Checks the voice options and preview, the call over Dispatch's relay, the
 // thinking loop while the bot's agent works, the spoken answer, dictation, and the call record's
 // summary.
-// Usage: CBOT_USER=… CBOT_PASSWORD=… node tests/voice-call.mjs [baseUrl] [botName]
+// Usage: DISPATCH_USER=… DISPATCH_PASSWORD=… node tests/voice-call.mjs [baseUrl] [botName]
 //   (default http://127.0.0.1:8788 and the primary bot; the call record stays in its chat)
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -48,8 +48,8 @@ const browser = await launch();
 const ctx = await browser.newContext(contextOptions);
 await ctx.addCookies([browserCookie(BASE, COOKIE)]);
 await ctx.addInitScript((botId) => {
-  localStorage.setItem('cbot.selectedBot', botId);
-  localStorage.setItem('cbot.detailsOpen', '1');
+  localStorage.setItem('dispatch.selectedBot', botId);
+  localStorage.setItem('dispatch.detailsOpen', '1');
   // Audio the page plays, in seconds, and when the thinking loop (the one looping source) started.
   window.__audio = { starts: 0, seconds: 0, loops: [] };
   const start = AudioBufferSourceNode.prototype.start;
@@ -174,7 +174,7 @@ log(`greeting: "${greeting?.transcript ?? ''}"`);
 check(!!greeting?.transcript, 'the bot answered the call with a greeting');
 const id = answer?.created.response.id;
 const words = recv.filter((e) => e.type === 'response.output_audio.delta' && e.response_id === id);
-const activity = recv.filter((e) => e.type === 'cbot.activity' && e.response_id === id).map((e) => e.label);
+const activity = recv.filter((e) => e.type === 'dispatch.activity' && e.response_id === id).map((e) => e.label);
 const said = recv.filter((e) => e.type === 'response.output_audio_transcript.done' && e.response_id === id).map((e) => e.transcript).join(' ');
 log(`while working: ${activity.join(', ') || 'no tools'}; thinking loop started ${audio.loops.length} times`);
 log(`the answer: "${said}" (${words.length} audio deltas, ${(words.reduce((s, e) => s + e.bytes, 0) / 48000).toFixed(1)} s), ${answer?.done.response.status ?? 'not finished'}`);
@@ -197,7 +197,7 @@ if (stopped) {
   const b = await launch();
   const c = await b.newContext(contextOptions);
   await c.addCookies([browserCookie(BASE, COOKIE)]);
-  await c.addInitScript((botId) => localStorage.setItem('cbot.selectedBot', botId), bot.id);
+  await c.addInitScript((botId) => localStorage.setItem('dispatch.selectedBot', botId), bot.id);
   const p = await c.newPage();
   await p.goto(BASE);
   const input = p.locator('.composer__input');

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""cbot-shell N: the desktop pieces of screen N. One process per X display.
+"""dispatch-shell N: the desktop pieces of screen N. One process per X display.
 
-It paints the wallpaper described in /opt/cbot/screens/N/look.json (through xfdesktop where that runs,
+It paints the wallpaper described in /opt/dispatch/screens/N/look.json (through xfdesktop where that runs,
 in a desktop window of its own on a bare display) and shows a small dock with Browser, Terminal and
 Files. The dock lives in the layer below normal windows, so a maximized window simply covers it.
 It follows changes to look.json and to the screen size on its own, and exits when the look is removed.
@@ -13,7 +13,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import cbotlib  # noqa: E402
+import dispatchlib  # noqa: E402
 
 import gi  # noqa: E402
 gi.require_version('Gtk', '3.0')
@@ -23,7 +23,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
 import cairo  # noqa: E402
 
 N = int(sys.argv[1])
-DIR = cbotlib.screen_dir(N)
+DIR = dispatchlib.screen_dir(N)
 LOOK = DIR + '/look.json'
 
 ICON = 44          # dock icon size
@@ -93,7 +93,7 @@ class Shell:
             g = display.get_monitor(i).get_geometry()
             w, h = max(w, g.x + g.width), max(h, g.y + g.height)
         if not w or not h:
-            geo = cbotlib.geometry(N)
+            geo = dispatchlib.geometry(N)
             w, h = geo if geo else (1280, 720)
         return w, h
 
@@ -111,13 +111,13 @@ class Shell:
 
     def guard(self):
         try:
-            cbotlib_hide_panel_strips()
+            dispatchlib_hide_panel_strips()
         except Exception as e:
             log('guard failed:', repr(e))
         return True
 
     def refresh(self, force=False):
-        look = cbotlib.look_for(N)
+        look = dispatchlib.look_for(N)
         if not look:
             return False
         try:
@@ -133,7 +133,7 @@ class Shell:
             self.show_wall()
             self.rebuild_dock()
             log('applied look %s at %dx%d in %.2fs' % (str(look.get('stamp'))[:10], size[0], size[1], time.time() - started))
-        cbotlib.write_json(DIR + '/shell.json', {
+        dispatchlib.write_json(DIR + '/shell.json', {
             'pid': os.getpid(), 'stamp': look.get('stamp'), 'width': size[0], 'height': size[1],
             'wallpaper': 'xfdesktop' if self.uses_xfdesktop else 'window',
             'composited': bool(self.screen.is_composited()),
@@ -170,7 +170,7 @@ class Shell:
     # ------------------------------------------------------------ wallpaper
 
     def show_wall(self):
-        self.uses_xfdesktop = bool(cbotlib.display_procs(N, ('xfdesktop',)))
+        self.uses_xfdesktop = bool(dispatchlib.display_procs(N, ('xfdesktop',)))
         if self.uses_xfdesktop:
             if self.wall_win:
                 self.wall_win.destroy()
@@ -182,7 +182,7 @@ class Shell:
         if not self.wall_win:
             win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
             win.set_title('Desktop')
-            win.set_wmclass('cbot-shell', cbotlib.SHELL_CLASS)
+            win.set_wmclass('dispatch-shell', dispatchlib.SHELL_CLASS)
             win.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
             win.set_decorated(False)
             win.set_accept_focus(False)
@@ -209,29 +209,29 @@ class Shell:
     def hand_to_xfdesktop(self, pixbuf, size, stamp):
         """xfdesktop owns the root window here, so give it our picture instead of covering it."""
         try:
-            env = cbotlib.screen_env(N)
+            env = dispatchlib.screen_env(N)
             name = 'wall-%s-%dx%d.png' % (stamp[:12], size[0], size[1])
             path = '%s/%s' % (DIR, name)
             pixbuf.savev(path + '.tmp', 'png', ['compression'], ['3'])
             os.replace(path + '.tmp', path)
-            code, out = cbotlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-l'], env=env)
+            code, out = dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-l'], env=env)
             props = [p.strip() for p in out.splitlines() if p.strip().startswith('/backdrop/')] if code == 0 else []
             images = [p for p in props if p.endswith('/last-image')]
             if not images:
                 images = ['/backdrop/screen0/monitor0/workspace0/last-image']
             saved_path = DIR + '/backdrop.json'
-            saved = cbotlib.read_json(saved_path)
+            saved = dispatchlib.read_json(saved_path)
             if saved is None:
                 saved = {}
                 for prop in images:
-                    c, v = cbotlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop], env=env)
+                    c, v = dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop], env=env)
                     if c == 0 and DIR not in v:
                         saved[prop] = v.strip()
-                cbotlib.write_json(saved_path, saved)
+                dispatchlib.write_json(saved_path, saved)
             for prop in images:
-                cbotlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-n', '-t', 'string', '-s', path], env=env)
+                dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-n', '-t', 'string', '-s', path], env=env)
                 style = prop[:-len('last-image')] + 'image-style'
-                cbotlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', style, '-n', '-t', 'int', '-s', '3'], env=env)
+                dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', style, '-n', '-t', 'int', '-s', '3'], env=env)
             for old in os.listdir(DIR):
                 if old.startswith('wall-') and old.endswith('.png') and old != name:
                     try:
@@ -245,7 +245,7 @@ class Shell:
 
     def load_icons(self):
         theme = Gtk.IconTheme()
-        theme.set_custom_theme(cbotlib.icon_theme())
+        theme.set_custom_theme(dispatchlib.icon_theme())
         fallback = Gtk.IconTheme.get_default()
         self.icons = []
         for _action, _label, names in DOCK_ITEMS:
@@ -274,7 +274,7 @@ class Shell:
         win_w, win_h, pill_w, pill_h = self.dock_geometry()
         win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
         win.set_title('Dock')
-        win.set_wmclass('cbot-shell', cbotlib.SHELL_CLASS)
+        win.set_wmclass('dispatch-shell', dispatchlib.SHELL_CLASS)
         win.set_type_hint(Gdk.WindowTypeHint.DOCK)
         win.set_decorated(False)
         win.set_resizable(False)
@@ -396,19 +396,19 @@ class Shell:
 
     def launch(self, action):
         try:
-            cbotlib.launch_app(N, action)
+            dispatchlib.launch_app(N, action)
             log('opened', action)
         except Exception as e:
             log('could not open %s:' % action, repr(e))
 
 
-def cbotlib_hide_panel_strips():
-    cbotlib.hide_panel_strips(N)
+def dispatchlib_hide_panel_strips():
+    dispatchlib.hide_panel_strips(N)
 
 
 def main():
-    GLib.set_prgname('cbot-shell')
-    Gdk.set_program_class(cbotlib.SHELL_CLASS)
+    GLib.set_prgname('dispatch-shell')
+    Gdk.set_program_class(dispatchlib.SHELL_CLASS)
     settings = Gtk.Settings.get_default()
     if settings:
         settings.set_property('gtk-application-prefer-dark-theme', False)

@@ -213,7 +213,7 @@ voiceApi.post('/session', async (c) => {
     id: callId, botId: bot.id, userId: user.id, startedAt: now(), generation: startRow.generation,
     botName: bot.name, firstName,
     instructions: `${await instructionsFor(user.id, bot.id)}\n${callPart}`,
-    conversation: `cbot-${bot.id}-${callId}`, chat,
+    conversation: `dispatch-${bot.id}-${callId}`, chat,
     model: bot.model ?? null, provider: bot.provider ?? null, effort: bot.effort ?? 'medium',
     greeting: pick(GREETINGS).replace('{name}', firstName),
     voice: s.voice, speed: s.speed, relayed: false,

@@ -1,7 +1,7 @@
-// Exercises every endpoint of the speech service, from the cbot container (Node 22, no packages):
+// Exercises every endpoint of the speech service, from the dispatch container (Node 22, no packages):
 //
-//   docker cp speech/bench/smoke.mjs cbot-dev-cbot-1:/tmp/ && docker cp clip.webm cbot-dev-cbot-1:/tmp/
-//   docker exec cbot-dev-cbot-1 node /tmp/smoke.mjs /tmp/clip.webm "what the clip says"
+//   docker cp speech/bench/smoke.mjs dispatch-dev-dispatch-1:/tmp/ && docker cp clip.webm dispatch-dev-dispatch-1:/tmp/
+//   docker exec dispatch-dev-dispatch-1 node /tmp/smoke.mjs /tmp/clip.webm "what the clip says"
 //
 // Writes /tmp/speech-smoke/{stream.wav,tts.wav} and prints what each step got.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

@@ -256,10 +256,10 @@ const MIGRATIONS: (() => void)[] = [
     addColumn('bots', 'hidden', 'INTEGER NOT NULL DEFAULT 0');
     addColumn('skills', 'description', "TEXT NOT NULL DEFAULT ''");
     addColumn('skills', 'updated_at', 'INTEGER');
-    // Older databases kept a hosted computer's status here, from before the bots' computer was the machine cbot runs on.
+    // Older databases kept a hosted computer's status here, from before the bots' computer was the machine Dispatch runs on.
     db.exec('DROP TABLE IF EXISTS computers');
   },
-  // 2. The account lives in the database instead of the server's environment (CBOT_USER, CBOT_PASSWORD
+  // 2. The account lives in the database instead of the server's environment (DISPATCH_USER, DISPATCH_PASSWORD
   // before). Both stay null until the first visit creates the account.
   () => {
     addColumn('users', 'username', 'TEXT');

@@ -3,7 +3,7 @@
 //   browser (web/src/voice/call.ts) ◄──ClientEvent / RelayEvent──► relay (voice-relay.ts) ◄──SpeechEvent── speech service
 //
 // Browser and relay speak a subset of the OpenAI Realtime protocol (so names follow it), plus three
-// events of cbot's own: `cbot.activity`, `cbot.playback` and `cbot.hangup`. Microphone audio also goes up as binary
+// events of Dispatch's own: `dispatch.activity`, `dispatch.playback` and `dispatch.hangup`. Microphone audio also goes up as binary
 // PCM16 frames. The speech service's events are documented in speech/README.md and sent by
 // speech/app/listen.py and main.py; SpeechEvent mirrors them.
 
@@ -35,7 +35,7 @@ export interface RealtimeResponse {
 export type RelayEvent =
   /** The speech service is listening; the browser sends `response.create`. */
   | { type: 'session.created'; session: { id: string; model: string; voice: string; speed: number; sample_rate: number } }
-  /** The user started talking: the browser pauses the bot's speech until `cbot.playback` says what became of it. */
+  /** The user started talking: the browser pauses the bot's speech until `dispatch.playback` says what became of it. */
   | { type: 'input_audio_buffer.speech_started'; item_id: string; audio_start_ms: number; audio_ms: number }
   | { type: 'input_audio_buffer.speech_stopped'; item_id: string; audio_end_ms: number; audio_ms: number }
   /** What the user has said so far, whole each time. */
@@ -51,15 +51,15 @@ export type RelayEvent =
   | { type: 'response.output_audio.delta'; response_id: string; item_id: string; output_index: number; content_index: number; delta: string }
   | { type: 'response.done'; response: RealtimeResponse }
   /** What the bot is doing while a tool runs, for the call bar. */
-  | { type: 'cbot.activity'; response_id: string; label: string }
+  | { type: 'dispatch.activity'; response_id: string; label: string }
   /**
    * Sent once for each `speech_started`, after its final transcript: `resume` when what paused the bot
    * had no words in it (play on from where it paused), `stop` when the user talked over it (drop what
    * is queued, and any late audio of that item).
    */
-  | { type: 'cbot.playback'; action: 'resume' | 'stop' }
+  | { type: 'dispatch.playback'; action: 'resume' | 'stop' }
   /** The bot called end_call: hang up once its last words have played. */
-  | { type: 'cbot.hangup'; response_id: string }
+  | { type: 'dispatch.hangup'; response_id: string }
   | { type: 'error'; error: RealtimeError };
 
 /** Speech service → relay, on its live recognition socket. `utterance` numbers what the user said. */

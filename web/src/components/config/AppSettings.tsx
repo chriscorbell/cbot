@@ -148,7 +148,7 @@ function GeneralSection() {
             <div className="cfg-row">
               <div className="cfg-row__text">
                 <div className="cfg-row__title">Certificate</div>
-                <div className="cfg-row__sub">cbot signs its own certificate for HTTPS, so browsers warn that the connection isn’t private. Install and trust it on a device to stop the warning there.</div>
+                <div className="cfg-row__sub">Dispatch signs its own certificate for HTTPS, so browsers warn that the connection isn’t private. Install and trust it on a device to stop the warning there.</div>
               </div>
               {/* The server sends it as a download; iPhones and iPads offer to install it as a profile. */}
               <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => location.assign('/api/https/certificate')}>Download</button>
@@ -189,7 +189,7 @@ function UpdatesSection() {
   switch (update.status) {
     case 'updating':
       title = <span className="cfg-update__busy"><span className="spinner" aria-hidden />Updating…</span>;
-      sub = `${update.step ?? 'Starting'}. cbot restarts when it’s done, and this page reloads.`;
+      sub = `${update.step ?? 'Starting'}. Dispatch restarts when it’s done, and this page reloads.`;
       break;
     case 'failed':
       title = 'The update didn’t finish';
@@ -202,7 +202,7 @@ function UpdatesSection() {
         sub = <>This is version {version}. {whatsNew}</>;
         action = <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setConfirming(true)}>Update</button>;
       } else {
-        title = 'cbot is up to date';
+        title = 'Dispatch is up to date';
         sub = update.error ?? <>Version {version}{update.checkedAt ? ` · checked ${ago(update.checkedAt)}` : ''}</>;
         action = <button type="button" className="cfg-btn cfg-btn--secondary" onClick={check} disabled={checking}>{checking ? 'Checking…' : 'Check Now'}</button>;
       }
@@ -227,8 +227,8 @@ function UpdatesSection() {
       </div>
       <Presence show={confirming}>
         <ConfirmDialog
-          title="Update cbot?"
-          body="cbot downloads and builds the new version, then restarts on it. That takes a few minutes, and bots, chats and settings stay as they are."
+          title="Update Dispatch?"
+          body="Dispatch downloads and builds the new version, then restarts on it. That takes a few minutes, and bots, chats and settings stay as they are."
           confirmLabel="Update"
           busyLabel="Starting…"
           onConfirm={async () => useStore.getState().applyUpdate((await configApi.startUpdate()).update)}
@@ -239,9 +239,9 @@ function UpdatesSection() {
   );
 }
 
-/** Reset cbot (server/src/reset.ts), behind two confirmations: the second can't be reached by Enter alone. */
+/** Reset Dispatch (server/src/reset.ts), behind two confirmations: the second can't be reached by Enter alone. */
 function ResetSection() {
-  const resetCbot = useStore((s) => s.resetCbot);
+  const resetDispatch = useStore((s) => s.resetDispatch);
   const [step, setStep] = useState<0 | 1 | 2>(0);
   return (
     <section className="cfg-section">
@@ -249,16 +249,16 @@ function ResetSection() {
       <div className="cfg-card">
         <div className="cfg-row">
           <div className="cfg-row__text">
-            <div className="cfg-row__title">Reset cbot</div>
-            <div className="cfg-row__sub">Erases every bot, chat and file, your provider keys and your account, so cbot starts over as if just installed. Programs the bots installed on the computer stay.</div>
+            <div className="cfg-row__title">Reset Dispatch</div>
+            <div className="cfg-row__sub">Erases every bot, chat and file, your provider keys and your account, so Dispatch starts over as if just installed. Programs the bots installed on the computer stay.</div>
           </div>
           <button type="button" className="cfg-btn cfg-btn--danger" onClick={() => setStep(1)}>Reset</button>
         </div>
       </div>
       <Presence show={step === 1}>
         <ConfirmDialog
-          title="Reset cbot?"
-          body="Every bot is deleted with its chats, memory, routines, files and sign-ins, along with your provider keys, your settings and your account. cbot then starts over like a new install."
+          title="Reset Dispatch?"
+          body="Every bot is deleted with its chats, memory, routines, files and sign-ins, along with your provider keys, your settings and your account. Dispatch then starts over like a new install."
           confirmLabel="Reset"
           danger
           focusCancel
@@ -269,12 +269,12 @@ function ResetSection() {
       <Presence show={step === 2}>
         <ConfirmDialog
           title="Are you absolutely sure?"
-          body="This can’t be undone. Everything in cbot is erased for good, and you’ll create a new account next."
+          body="This can’t be undone. Everything in Dispatch is erased for good, and you’ll create a new account next."
           confirmLabel="Erase everything"
           busyLabel="Resetting…"
           danger
           focusCancel
-          onConfirm={resetCbot}
+          onConfirm={resetDispatch}
           onClose={() => setStep(0)}
         />
       </Presence>

@@ -159,7 +159,7 @@ function triggerText(t: Trigger): string {
 const authHeaders = (e: Engine) => ({ 'content-type': 'application/json', ...(e.key ? { authorization: `Bearer ${e.key}` } : {}) });
 
 /** One engine-side session per conversation; "New chat" bumps the generation and starts another. */
-export const sessionFor = (botId: string, generation: number) => `cbot-${botId}-g${generation}`;
+export const sessionFor = (botId: string, generation: number) => `dispatch-${botId}-g${generation}`;
 
 /**
  * Compatibility: chats from before turns ran on Hermes runs kept their history in a Responses

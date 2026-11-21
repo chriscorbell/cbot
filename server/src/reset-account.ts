@@ -7,4 +7,4 @@ import { resetAccount } from './lib/auth.js';
 import { env } from './env.js';
 
 resetAccount();
-console.log(`Account cleared in ${env.dbPath}. The next visit to cbot asks for a new one.`);
+console.log(`Account cleared in ${env.dbPath}. The next visit to Dispatch asks for a new one.`);

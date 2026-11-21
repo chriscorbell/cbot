@@ -29,11 +29,11 @@ import { initUpdates } from './updates.js';
  *     the last process are expired, and the owner exists (its first bot comes from the setup wizard).
  *  3. The HTTP app, the built web app and the WebSocket relays (viewer, voice) are served, over HTTPS
  *     too with HTTPS=1 (https.ts), once its certificate is ready.
- *  4. Routines and check-ins are scheduled, unless CBOT_NO_SCHEDULER=1.
+ *  4. Routines and check-ins are scheduled, unless DISPATCH_NO_SCHEDULER=1.
  *  5. Gateways, screens and the speech catalog are brought back in the background, and stale
  *     voice calls are swept every 10 minutes.
  *  6. Every bot's memory files are watched, so an open Memories tab shows what the bot saves.
- *  7. On a machine the installer set up, GitHub is checked for a newer cbot now and then (updates.ts).
+ *  7. On a machine the installer set up, GitHub is checked for a newer Dispatch now and then (updates.ts).
  */
 
 // Keys and addresses that used to be read from .env, now set in Settings > Providers.
@@ -54,10 +54,10 @@ if (fs.existsSync(webDist)) {
   app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
 }
 
-const servePlain = () => serve({ fetch: app.fetch, port: env.port, hostname: env.host }, (info) => console.log(`[cbot] server on http://${env.host ?? 'localhost'}:${info.port}`)) as unknown as Server;
+const servePlain = () => serve({ fetch: app.fetch, port: env.port, hostname: env.host }, (info) => console.log(`[dispatch] server on http://${env.host ?? 'localhost'}:${info.port}`)) as unknown as Server;
 let server: Server;
 if (env.https) {
-  // Without a certificate cbot still works, over plain HTTP and without voice calls.
+  // Without a certificate Dispatch still works, over plain HTTP and without voice calls.
   server = await serveHttps(app.fetch).catch((e: unknown) => {
     console.error('[https] could not make a certificate; serving plain HTTP:', e);
     return servePlain();
@@ -65,11 +65,11 @@ if (env.https) {
 } else server = servePlain();
 attachVncRelay(server);
 attachVoiceRelay(server);
-// CBOT_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines don't fire twice.
-if (process.env.CBOT_NO_SCHEDULER !== '1') {
+// DISPATCH_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines don't fire twice.
+if (process.env.DISPATCH_NO_SCHEDULER !== '1') {
   initRoutines(enqueue);
   initProactive(enqueue);
-} else console.log('[cbot] scheduler disabled (CBOT_NO_SCHEDULER=1)');
+} else console.log('[dispatch] scheduler disabled (DISPATCH_NO_SCHEDULER=1)');
 // After a server restart the displays and gateways still run and are adopted; after a reboot (or in a
 // new dev container) nothing runs yet: bring back what the bots had.
 initEngines();

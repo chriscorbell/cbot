@@ -24,7 +24,7 @@ interface State {
   transcripts: Record<string, Transcript>;
   routines: Record<string, Routine[]>;
   computer: ComputerState | null;
-  /** Updating cbot (server/src/updates.ts); null when it can't update itself. */
+  /** Updating Dispatch (server/src/updates.ts); null when it can't update itself. */
   update: UpdateState | null;
   /** The commit the server named when this page first connected. */
   serverVersion: string | null;
@@ -43,8 +43,8 @@ interface State {
   viewerMode: 'watch' | 'control';
 
   checkAuth(): Promise<void>;
-  /** Settings > General > Reset cbot: erase everything, wait for the server to come back empty, and start the page over. */
-  resetCbot(): Promise<void>;
+  /** Settings > General > Reset Dispatch: erase everything, wait for the server to come back empty, and start the page over. */
+  resetDispatch(): Promise<void>;
   /** Asks again whether this browser is signed in; only a clear "no" signs it out, never a failed request. */
   recheckAuth(): Promise<void>;
   /** The sign-in screen's form. Throws the server's message when it refuses. */
@@ -84,7 +84,7 @@ interface State {
 
 /** How long a reset waits for the server to come back before saying so. A restart takes seconds. */
 const RESET_WAIT_MS = 120_000;
-/** Set once a reset is erasing the server (resetCbot). */
+/** Set once a reset is erasing the server (resetDispatch). */
 let resetting = false;
 /**
  * An update was underway when last heard of. Kept apart from `update`, which the new server's idle
@@ -92,11 +92,11 @@ let resetting = false;
  */
 let updateSeen = false;
 
-const LS_SELECTED = 'cbot.selectedBot';
-const LS_DETAILS = 'cbot.detailsOpen';
+const LS_SELECTED = 'dispatch.selectedBot';
+const LS_DETAILS = 'dispatch.detailsOpen';
 // The rail is always icons now; this hides it altogether (a new key, so the old "collapsed" setting doesn't hide it).
 // A new key: the old one meant the rail was hidden, which no longer exists.
-const LS_SIDEBAR = 'cbot.sidebarExpanded';
+const LS_SIDEBAR = 'dispatch.sidebarExpanded';
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 
@@ -154,8 +154,8 @@ export const useStore = create<State>((set, get) => ({
     set({ needsSetup: false });
   },
 
-  async resetCbot() {
-    await configApi.resetCbot();
+  async resetDispatch() {
+    await configApi.resetDispatch();
     // Every bot is down; the server now erases its data and restarts (server/src/reset.ts). Until the
     // new one asks for an account, a 401 is part of the reset, not a session running out.
     resetting = true;
@@ -164,7 +164,7 @@ export const useStore = create<State>((set, get) => ({
       await new Promise((r) => setTimeout(r, 1000));
       const r = await api.me().catch(() => null);
       if (r?.needsAccount) break;
-      if (Date.now() > giveUp) { resetting = false; throw new Error('cbot hasn’t started again yet. Check that its service is running, then reload this page.'); }
+      if (Date.now() > giveUp) { resetting = false; throw new Error('Dispatch hasn’t started again yet. Check that its service is running, then reload this page.'); }
     }
     // A fresh page: nothing loaded for the old bots stays behind. Until it goes, the dialog stays as it is.
     window.location.reload();
@@ -349,4 +349,4 @@ onSignedOut(() => {
 });
 
 // Dev builds expose the store so states can be staged in the browser while checking the UI.
-if (import.meta.env.DEV) (globalThis as { __cbotStore?: unknown }).__cbotStore = useStore;
+if (import.meta.env.DEV) (globalThis as { __dispatchStore?: unknown }).__dispatchStore = useStore;

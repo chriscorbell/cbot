@@ -1,13 +1,13 @@
-// Signs the end-to-end scripts in as CBOT_USER / CBOT_PASSWORD. On a server with no account yet (a
+// Signs the end-to-end scripts in as DISPATCH_USER / DISPATCH_PASSWORD. On a server with no account yet (a
 // fresh container) it creates that account first, as the first-run screen would, and then does what
 // the setup wizard would: makes the primary bot, named "Main", unless one is there, and finishes setup
 // without a greeting. That bot runs on whatever model the server's keys give it.
 
-/** Returns the session cookie, "cbot_session=…", for fetch headers and WebSockets. */
+/** Returns the session cookie, "dispatch_session=…", for fetch headers and WebSockets. */
 export async function signIn(base) {
-  const username = process.env.CBOT_USER;
-  const password = process.env.CBOT_PASSWORD;
-  if (!username || !password) throw new Error('Set CBOT_USER and CBOT_PASSWORD to the account to sign in as (a server with no account gets this one)');
+  const username = process.env.DISPATCH_USER;
+  const password = process.env.DISPATCH_PASSWORD;
+  if (!username || !password) throw new Error('Set DISPATCH_USER and DISPATCH_PASSWORD to the account to sign in as (a server with no account gets this one)');
   const me = await fetch(`${base}/api/auth/me`);
   if (!me.ok) throw new Error(`sign-in check failed: ${me.status}`);
   const { needsAccount } = await me.json();

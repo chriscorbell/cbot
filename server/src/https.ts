@@ -12,7 +12,7 @@ import { getRequestListener } from '@hono/node-server';
 import { env } from './env.js';
 
 /**
- * HTTPS with cbot's own certificate, on with HTTPS=1 (the installer sets it). Browsers allow the
+ * HTTPS with Dispatch's own certificate, on with HTTPS=1 (the installer sets it). Browsers allow the
  * microphone, and so voice calls, only over HTTPS or on localhost, and no public authority signs a
  * certificate for a machine reached by its address on the local network.
  *
@@ -20,7 +20,7 @@ import { env } from './env.js';
  * constraints to exactly the names and addresses the certificate holds: localhost, the host name and
  * <host>.local, 127.0.0.1, and the address the machine reaches the network from. Its key lives on the
  * machine, where the bots could read it, so it must not be able to vouch for any other site. A device
- * that installs the authority (Settings > General > Certificate) trusts cbot without a warning; one that
+ * that installs the authority (Settings > General > Certificate) trusts Dispatch without a warning; one that
  * doesn't warns once and then works the same. Both live in DATA_DIR/https, which a reset leaves alone.
  * When the names change (a new address), a new authority and certificate replace them, and devices need
  * the new authority; when the certificate nears its end, the same authority signs a new one. That is
@@ -82,7 +82,7 @@ const newKey = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-noenc'
 async function makeAuthority(n: Names) {
   const only = [...n.dns.map((d) => `permitted;DNS:${d}`), ...n.ips.map((ip) => `permitted;IP:${ip}/255.255.255.255`)].join(',');
   await run('openssl', ['req', '-x509', ...newKey, '-keyout', file('caKey', '.new'), '-out', file('caCert', '.new'),
-    '-days', String(AUTHORITY_DAYS), '-subj', `/O=cbot/CN=cbot on ${subjectName(n)}`,
+    '-days', String(AUTHORITY_DAYS), '-subj', `/O=Dispatch/CN=Dispatch on ${subjectName(n)}`,
     '-addext', 'basicConstraints=critical,CA:TRUE,pathlen:0', '-addext', 'keyUsage=critical,keyCertSign,cRLSign',
     '-addext', `nameConstraints=critical,${only}`]);
 }
@@ -120,7 +120,7 @@ async function certificate(): Promise<{ key: Buffer; cert: Buffer; changed: bool
   return { key: fs.readFileSync(file('key')), cert: fs.readFileSync(file('cert')), changed: step !== 'keep' };
 }
 
-/** The authority a device installs to trust cbot's certificate, while HTTPS is on and it exists. */
+/** The authority a device installs to trust Dispatch's certificate, while HTTPS is on and it exists. */
 export function authorityPem(): Buffer | null {
   if (!env.https) return null;
   try { return fs.readFileSync(file('caCert')); } catch { return null; }
@@ -170,7 +170,7 @@ export async function serveHttps(fetch: Parameters<typeof getRequestListener>[0]
       process.nextTick(() => socket.resume());
     });
   });
-  front.listen(env.port, env.host, () => console.log(`[cbot] server on https://${env.host ?? 'localhost'}:${env.port} (and http from this machine)`));
+  front.listen(env.port, env.host, () => console.log(`[dispatch] server on https://${env.host ?? 'localhost'}:${env.port} (and http from this machine)`));
 
   setInterval(() => {
     certificate()

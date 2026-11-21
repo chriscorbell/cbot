@@ -6,9 +6,9 @@ import { vi } from 'vitest';
 
 // A throwaway data directory and the settings env.ts requires, so importing server modules opens a
 // fresh database and touches nothing real.
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'cbot-test-'));
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-test-'));
 process.env.TZ ??= 'UTC';
-process.env.CBOT_NO_SCHEDULER = '1';
+process.env.DISPATCH_NO_SCHEDULER = '1';
 
 // Tests run on a developer's machine, which must never get a bot's display, Chrome or gateway. Any
 // child process other than Node itself fails the test; mock the module that wanted one instead.

@@ -38,12 +38,12 @@ const listSkills = (botId: string) => db.prepare<[string], SkillRecord>('SELECT 
 // ---------- HTTPS (https.ts) ----------
 
 /**
- * cbot's own HTTPS certificate. Mounted at /api/https in app.ts ahead of routes.ts, whose sign-in
+ * Dispatch's own HTTPS certificate. Mounted at /api/https in app.ts ahead of routes.ts, whose sign-in
  * check covers everything it is mounted under, because the certificate is open.
  */
 export const httpsApi = new Hono<AuthVars>();
 
-// Whether this page came over cbot's own certificate. Through Tailscale Serve it arrives as plain
+// Whether this page came over Dispatch's own certificate. Through Tailscale Serve it arrives as plain
 // HTTP from this machine, with a certificate the browser already trusts.
 httpsApi.get('/', (c) => {
   const incoming = (c.env as Partial<HttpBindings> | undefined)?.incoming;
@@ -54,7 +54,7 @@ httpsApi.get('/', (c) => {
 httpsApi.get('/certificate', (c) => {
   const pem = authorityPem();
   if (!pem) return c.json({ error: 'not found' }, 404);
-  return c.body(new Uint8Array(pem), 200, { 'content-type': 'application/x-x509-ca-cert', 'content-disposition': 'attachment; filename="cbot.crt"' });
+  return c.body(new Uint8Array(pem), 200, { 'content-type': 'application/x-x509-ca-cert', 'content-disposition': 'attachment; filename="dispatch.crt"' });
 });
 
 // ---------- updates (updates.ts) ----------
@@ -270,7 +270,7 @@ configApi.post('/bots/:id/handback', (c) => {
   return c.json({ ok: true } satisfies Ok);
 });
 
-// ---------- library: files under /root/cbot/files/<botId> on the computer ----------
+// ---------- library: files under /root/dispatch/files/<botId> on the computer ----------
 
 const LIB_ROOT = LIBRARY_ROOT;
 

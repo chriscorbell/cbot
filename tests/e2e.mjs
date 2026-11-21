@@ -1,5 +1,5 @@
 // End-to-end smoke test (real server, real Hermes engines, the bots' real screens in the container).
-// Usage: CBOT_USER=… CBOT_PASSWORD=… node tests/e2e.mjs [baseUrl]   (default http://localhost:8787)
+// Usage: DISPATCH_USER=… DISPATCH_PASSWORD=… node tests/e2e.mjs [baseUrl]   (default http://localhost:8787)
 // Signs in with tests/signin.mjs (creating the account on a server with none). Creates a
 // throwaway "QA" bot, which gets its own Hermes engine and screen, exercises the core flows, then deletes it.
 import { chromium } from 'playwright';
@@ -90,8 +90,8 @@ await step('chat reply streams', async () => {
 });
 
 await step('bot uses its own computer (shell on its screen)', async () => {
-  await send('Use your shell tool to run `echo cbot-$((40+2))-e2e` and reply with only the output.');
-  await waitReply(/cbot-42-e2e/, 240000);
+  await send('Use your shell tool to run `echo dispatch-$((40+2))-e2e` and reply with only the output.');
+  await waitReply(/dispatch-42-e2e/, 240000);
   const comp = await (await api('/api/computer')).json();
   if (!comp.computer.screens.some((s) => s.botId === botId)) throw new Error('no screen leased for QA bot');
   await shot('04-computer-tool');

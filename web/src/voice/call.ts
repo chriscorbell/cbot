@@ -1,5 +1,5 @@
 // Voice calls in the browser. A call is the bot itself on the phone: every utterance becomes a turn of
-// the bot's own agent. The call runs over cbot's relay (server/src/voice-relay.ts), which speaks a subset
+// the bot's own agent. The call runs over Dispatch's relay (server/src/voice-relay.ts), which speaks a subset
 // of the OpenAI Realtime events: microphone audio goes up; recognised speech, the bot's speech, what it
 // is doing and when it hangs up come down. While the bot works on a reply and nothing is playing, a
 // quiet loop says it is still thinking.
@@ -44,7 +44,7 @@ export const useVoice = create<VoiceState>(() => ({
   activity: null, captions: [], error: null, startedAt: null,
 }));
 // Dev builds expose the call state so a call's UI can be checked without a microphone.
-if (import.meta.env.DEV) (globalThis as { __cbotVoice?: unknown }).__cbotVoice = useVoice;
+if (import.meta.env.DEV) (globalThis as { __dispatchVoice?: unknown }).__dispatchVoice = useVoice;
 
 const setV = (p: Partial<VoiceState>) => useVoice.setState(p);
 
@@ -283,7 +283,7 @@ class VoiceCall {
       case 'input_audio_buffer.speech_started':
         this.userSpeaking = true;
         setV({ listening: true });
-        // Pause and listen. Once the relay has the words, it says whether to play on or stop (cbot.playback).
+        // Pause and listen. Once the relay has the words, it says whether to play on or stop (dispatch.playback).
         this.player.pause();
         this.updateLoop();
         return;
@@ -331,10 +331,10 @@ class VoiceCall {
         this.updateLoop();
         return;
 
-      case 'cbot.activity':
+      case 'dispatch.activity':
         setV({ activity: ev.label || null });
         return;
-      case 'cbot.playback':
+      case 'dispatch.playback':
         if (ev.action === 'resume') {
           this.player.resume();
         } else {
@@ -344,7 +344,7 @@ class VoiceCall {
         }
         this.updateLoop();
         return;
-      case 'cbot.hangup': // the bot said goodbye: let it finish playing, then hang up
+      case 'dispatch.hangup': // the bot said goodbye: let it finish playing, then hang up
         this.hangingUp = true;
         this.updateLoop();
         void this.player.whenIdle().then(() => this.end());

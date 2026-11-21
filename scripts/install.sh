@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Installs cbot on a machine of its own, or updates it:
+# Installs Dispatch on a machine of its own, or updates it:
 #
-#   curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 #
 # It checks the machine (Ubuntu or Debian on x86-64, with systemd), asks three things (the bots' time
 # zone, how many bots at most, and whether to set up Tailscale too), then downloads a commit from
-# GitHub into /srv/cbot/releases and runs that commit's scripts/release.sh, the same step
+# GitHub into /srv/dispatch/releases and runs that commit's scripts/release.sh, the same step
 # scripts/deploy.sh runs: it provisions the machine, builds the release and the speech image, and
-# starts the cbot service. cbot serves HTTPS on the local network with a certificate of its own
+# starts the dispatch service. Dispatch serves HTTPS on the local network with a certificate of its own
 # (server/src/https.ts), which browsers warn about once per device; Tailscale adds an address with a
-# certificate they trust. The answers go to /etc/cbot/env. Run it again to update to the newest
+# certificate they trust. The answers go to /etc/dispatch/env. Run it again to update to the newest
 # commit; the settings stay as they are. The app does that itself from Settings > General: it runs
-# this script unattended (server/src/updates.ts), and /etc/cbot/source tells it the repository and
+# this script unattended (server/src/updates.ts), and /etc/dispatch/source tells it the repository and
 # branch to follow.
 #
 # At a terminal it takes the whole screen, as an editor does: a screen for each question, with gum's
@@ -21,9 +21,9 @@
 # Without gum, on a terminal smaller than 64 by 20, or with nobody at it, it prints its steps line by
 # line instead.
 #
-# Unattended, the answers come from the environment, CBOT_TZ, CBOT_MAX_BOTS and CBOT_TAILSCALE (1 or
-# 0), with the defaults for any left out. CBOT_YES=1 takes them without asking even at a terminal.
-# CBOT_REF installs a branch, tag or commit other than main, CBOT_REPO a fork, and GITHUB_TOKEN reads
+# Unattended, the answers come from the environment, DISPATCH_TZ, DISPATCH_MAX_BOTS and DISPATCH_TAILSCALE (1 or
+# 0), with the defaults for any left out. DISPATCH_YES=1 takes them without asking even at a terminal.
+# DISPATCH_REF installs a branch, tag or commit other than main, DISPATCH_REPO a fork, and GITHUB_TOKEN reads
 # a private one.
 #
 # Everything is in functions and main runs on the last line, so a download cut short runs nothing.
@@ -156,9 +156,9 @@ tui_end() {
   fi
 }
 
-# The top of every screen, into $head (six rows): cbot, what it's doing and where, and the stages.
+# The top of every screen, into $head (six rows): Dispatch, what it's doing and where, and the stages.
 tui_head() {
-  local i plain="  cbot  $doing" right=$machine gap stepper='' rule
+  local i plain="  Dispatch  $doing" right=$machine gap stepper='' rule
   gap=$((cols - ${#plain} - ${#right} - 2))
   if [ "$gap" -lt 4 ]; then right='' gap=0; fi
   for i in "${!stages[@]}"; do
@@ -168,7 +168,7 @@ tui_head() {
     else stepper+="$D$LATER ${stages[i]}$R"; fi
   done
   printf -v rule '%*s' $((cols - 4)) ''
-  printf -v head '\e[K\n  %s%scbot%s  %s%*s%s%s%s\e[K\n\e[K\n  %s\e[K\n  %s%s%s\e[K\n\e[K\n' \
+  printf -v head '\e[K\n  %s%sDispatch%s  %s%*s%s%s%s\e[K\n\e[K\n  %s\e[K\n  %s%s%s\e[K\n\e[K\n' \
     "$A" "$B" "$R" "$doing" "$gap" '' "$D" "$right" "$R" "$stepper" "$D" "${rule// /$LINE}" "$R"
 }
 
@@ -258,7 +258,7 @@ pick_bots() {
 
 pick_tailscale() {
   tui_screen "Tailscale" \
-    "cbot serves HTTPS with a certificate of its own, which browsers warn about once on each device." "" \
+    "Dispatch serves HTTPS with a certificate of its own, which browsers warn about once on each device." "" \
     "Tailscale adds an address with no warning that works from anywhere on your tailnet. It needs a free Tailscale account."
   if gum_ask "Set up Tailscale too?" "Set it up" "Skip" "$([ "$tailscale_too" = 1 ] && echo true || echo false)"; then
     tailscale_too=1
@@ -275,8 +275,8 @@ review() {
     "${D}Time zone$R   ${tz//_/ } ($now there now)" \
     "${D}Bots$R        up to $max_bots" \
     "${D}Tailscale$R   $([ "$tailscale_too" = 1 ] && echo yes || echo no)" "" \
-    "This installs Chrome, Node.js, Docker, Hermes Agent and cbot's speech service, and runs cbot as a service. It takes 15 to 30 minutes, and can be left to finish."
-  gum_ask "Install cbot now?" Install Change true
+    "This installs Chrome, Node.js, Docker, Hermes Agent and Dispatch's speech service, and runs Dispatch as a service. It takes 15 to 30 minutes, and can be left to finish."
+  gum_ask "Install Dispatch now?" Install Change true
 }
 
 # tui_progress <offset> <note> <key>...: the install screen, from the log after <offset>, until TERM
@@ -421,7 +421,7 @@ work_begin() {
   if [ "${tailscale_too:-0}" = 1 ]; then keys+=(tailscale); fi
   if $installed; then
     keys+=(download build start)
-    note="cbot keeps running until the new version is ready."
+    note="Dispatch keeps running until the new version is ready."
   else
     keys+=(download provision packages hermes build speech start)
     note="This takes 15 to 30 minutes, and can be left to finish."
@@ -461,7 +461,7 @@ become_root() {
   local self v status=0
   self="$(mktemp)"
   {
-    for v in CBOT_YES CBOT_TZ CBOT_MAX_BOTS CBOT_TAILSCALE CBOT_REF CBOT_REPO GITHUB_TOKEN LANG LC_ALL LC_CTYPE; do
+    for v in DISPATCH_YES DISPATCH_TZ DISPATCH_MAX_BOTS DISPATCH_TAILSCALE DISPATCH_REF DISPATCH_REPO GITHUB_TOKEN LANG LC_ALL LC_CTYPE; do
       [ -z "${!v:-}" ] || printf 'export %s=%q\n' "$v" "${!v}"
     done
     declare -f
@@ -486,12 +486,12 @@ check_machine() {
   # Chrome, Node.js and Docker, so their derivatives may work too, with a warning. (Inside the
   # function: become_root carries functions only.)
   local tested='ubuntu 26.04|ubuntu 24.04|ubuntu 22.04|debian 13|debian 12'
-  [ "$(uname -s)" = Linux ] || die "cbot installs on Ubuntu or Debian."
-  [ "$(uname -m)" = x86_64 ] || die "cbot needs an x86-64 (amd64) machine; this one is $(uname -m)."
+  [ "$(uname -s)" = Linux ] || die "Dispatch installs on Ubuntu or Debian."
+  [ "$(uname -m)" = x86_64 ] || die "Dispatch needs an x86-64 (amd64) machine; this one is $(uname -m)."
   # shellcheck disable=SC1091
   [ -r /etc/os-release ] && { id="$(. /etc/os-release && echo "${ID:-}")"; like="$(. /etc/os-release && echo "${ID_LIKE:-}")"; version="$(. /etc/os-release && echo "${VERSION_ID:-}")"; name="$(. /etc/os-release && echo "${PRETTY_NAME:-}")"; }
-  case " $id $like " in *" ubuntu "* | *" debian "*) ;; *) die "cbot installs on Ubuntu or Debian, and this is ${name:-another system}." ;; esac
-  [ -d /run/systemd/system ] || die "cbot runs as a systemd service, and systemd isn't running here. Install it on a machine or VM of its own, not in a container."
+  case " $id $like " in *" ubuntu "* | *" debian "*) ;; *) die "Dispatch installs on Ubuntu or Debian, and this is ${name:-another system}." ;; esac
+  [ -d /run/systemd/system ] || die "Dispatch runs as a systemd service, and systemd isn't running here. Install it on a machine or VM of its own, not in a container."
   local tool
   for tool in curl tar gzip; do
     command -v "$tool" >/dev/null || die "This needs $tool: apt-get install $tool"
@@ -504,11 +504,11 @@ check_machine() {
   machine="$name $DOT $cpus CPUs $DOT $ram_gb GB"
   $tui || info "$name, $cpus CPUs, $ram_gb GB of memory, $disk_gb GB free"
 
-  case "|$tested|" in *"|$id $version|"*) ;; *) problems+=("cbot is made for Ubuntu 26.04 and tested on Ubuntu 22.04 and 24.04 and Debian 12 and 13. ${name:-This system} may work, but isn't tested.") ;; esac
-  [ "$ram_gb" -ge 4 ] || problems+=("cbot wants about 2 GB of memory for voice and 1 GB per bot, and this machine has $ram_gb GB.")
-  [ "$disk_gb" -ge 25 ] || problems+=("cbot needs about 25 GB of disk for Chrome, Hermes Agent and the speech service, and $disk_gb GB is free.")
+  case "|$tested|" in *"|$id $version|"*) ;; *) problems+=("Dispatch is made for Ubuntu 26.04 and tested on Ubuntu 22.04 and 24.04 and Debian 12 and 13. ${name:-This system} may work, but isn't tested.") ;; esac
+  [ "$ram_gb" -ge 4 ] || problems+=("Dispatch wants about 2 GB of memory for voice and 1 GB per bot, and this machine has $ram_gb GB.")
+  [ "$disk_gb" -ge 25 ] || problems+=("Dispatch needs about 25 GB of disk for Chrome, Hermes Agent and the speech service, and $disk_gb GB is free.")
   if ! $installed && ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q .; then
-    die "Something else is using port $PORT, which cbot needs: $(ss -Hltnp "sport = :$PORT" | grep -o 'users:.*' | head -1)"
+    die "Something else is using port $PORT, which Dispatch needs: $(ss -Hltnp "sport = :$PORT" | grep -o 'users:.*' | head -1)"
   fi
   [ ${#problems[@]} -gt 0 ] || return 0
   if $tui; then
@@ -540,25 +540,25 @@ ask_settings() {
     return
   fi
 
-  tz="$(ask "Time zone for the bots' clocks and routines, like America/New_York" "$tz_default" "${CBOT_TZ:-}")"
+  tz="$(ask "Time zone for the bots' clocks and routines, like America/New_York" "$tz_default" "${DISPATCH_TZ:-}")"
   while ! valid_tz "$tz"; do
-    { $interactive && [ -z "${CBOT_TZ:-}" ]; } || die "$tz is not a time zone. Use a name like Europe/London or America/New_York."
+    { $interactive && [ -z "${DISPATCH_TZ:-}" ]; } || die "$tz is not a time zone. Use a name like Europe/London or America/New_York."
     warn "$tz is not a time zone. Use a name like Europe/London or America/New_York."
     tz="$(ask "Time zone" "$tz_default")"
   done
 
-  max_bots="$(ask "How many bots at most (about 1 GB of memory each)" "$suggested" "${CBOT_MAX_BOTS:-}")"
+  max_bots="$(ask "How many bots at most (about 1 GB of memory each)" "$suggested" "${DISPATCH_MAX_BOTS:-}")"
   while ! [[ "$max_bots" =~ ^[1-9][0-9]?$ ]]; do
-    { $interactive && [ -z "${CBOT_MAX_BOTS:-}" ]; } || die "The number of bots has to be a number from 1 to 99."
+    { $interactive && [ -z "${DISPATCH_MAX_BOTS:-}" ]; } || die "The number of bots has to be a number from 1 to 99."
     warn "Type a number from 1 to 99."
     max_bots="$(ask "How many bots at most" "$suggested")"
   done
 
-  if [ -n "${CBOT_TAILSCALE:-}" ]; then
-    tailscale_too="$CBOT_TAILSCALE"
+  if [ -n "${DISPATCH_TAILSCALE:-}" ]; then
+    tailscale_too="$DISPATCH_TAILSCALE"
     info "Set up Tailscale too: $([ "$tailscale_too" = 1 ] && echo yes || echo no)"
   elif $interactive; then
-    info "cbot uses HTTPS with a certificate of its own, which browsers warn about once per device."
+    info "Dispatch uses HTTPS with a certificate of its own, which browsers warn about once per device."
     info "Tailscale adds an address that has no warning and works from anywhere (free account)."
     if confirm "Set up Tailscale too?"; then tailscale_too=1; else tailscale_too=0; fi
   else
@@ -568,45 +568,45 @@ ask_settings() {
 
 # At full screen: a screen per question, skipping those the environment answers, then the review.
 ask_settings_tui() {
-  tz=${CBOT_TZ:-$1} max_bots=${CBOT_MAX_BOTS:-$2} tailscale_too=${CBOT_TAILSCALE:-0}
+  tz=${DISPATCH_TZ:-$1} max_bots=${DISPATCH_MAX_BOTS:-$2} tailscale_too=${DISPATCH_TAILSCALE:-0}
   valid_tz "$tz" || die "$tz is not a time zone. Use a name like Europe/London or America/New_York."
   [[ "$max_bots" =~ ^[1-9][0-9]?$ ]] || die "The number of bots has to be a number from 1 to 99."
   while :; do
-    [ -n "${CBOT_TZ:-}" ] || pick_tz
-    [ -n "${CBOT_MAX_BOTS:-}" ] || pick_bots
-    [ -n "${CBOT_TAILSCALE:-}" ] || pick_tailscale
+    [ -n "${DISPATCH_TZ:-}" ] || pick_tz
+    [ -n "${DISPATCH_MAX_BOTS:-}" ] || pick_bots
+    [ -n "${DISPATCH_TAILSCALE:-}" ] || pick_tailscale
     review && break
     # Change: every question again, the environment's answers too.
-    CBOT_TZ='' CBOT_MAX_BOTS='' CBOT_TAILSCALE=''
+    DISPATCH_TZ='' DISPATCH_MAX_BOTS='' DISPATCH_TAILSCALE=''
   done
 }
 
 write_settings() {
-  install -d -m 0700 /etc/cbot
+  install -d -m 0700 /etc/dispatch
   (
     umask 077
-    cat >/etc/cbot/env.new <<EOF
-# cbot's settings, read by its systemd service. After changing one: systemctl restart cbot
-# .env.example in cbot's source lists the others.
+    cat >/etc/dispatch/env.new <<EOF
+# Dispatch's settings, read by its systemd service. After changing one: systemctl restart dispatch
+# .env.example in Dispatch's source lists the others.
 MAX_BOTS=$max_bots
 TZ=$tz
-# Every address, so cbot is on the local network. 127.0.0.1 keeps it to this machine (and to
+# Every address, so Dispatch is on the local network. 127.0.0.1 keeps it to this machine (and to
 # Tailscale Serve, if that is set up).
 HOST=0.0.0.0
-# HTTPS with cbot's own certificate, on the same port, for voice calls: browsers allow the
+# HTTPS with Dispatch's own certificate, on the same port, for voice calls: browsers allow the
 # microphone only over HTTPS.
 HTTPS=1
 EOF
   )
-  mv /etc/cbot/env.new /etc/cbot/env
+  mv /etc/dispatch/env.new /etc/dispatch/env
 }
 
 # Where this install comes from, which the app checks for updates (server/src/updates.ts). Written on
 # every run, so updates follow the branch installed last.
 write_source() {
-  install -d -m 0700 /etc/cbot
-  printf '# Where scripts/install.sh installed cbot from. The app checks it for updates.\nCBOT_REPO=%s\nCBOT_REF=%s\n' "$repo" "$ref" >/etc/cbot/source.new
-  mv /etc/cbot/source.new /etc/cbot/source
+  install -d -m 0700 /etc/dispatch
+  printf '# Where scripts/install.sh installed Dispatch from. The app checks it for updates.\nDISPATCH_REPO=%s\nDISPATCH_REF=%s\n' "$repo" "$ref" >/etc/dispatch/source.new
+  mv /etc/dispatch/source.new /etc/dispatch/source
 }
 
 # ---------------------------------------------------------------- Tailscale
@@ -628,14 +628,14 @@ setup_tailscale() {
   if [ -z "$(tailscale_url)" ]; then
     tailscale serve --bg --https=443 "http://127.0.0.1:$PORT" 2>&1 | sed -u 's/^/   /' || die "Tailscale Serve didn't start."
   fi
-  info "$G$OK$R cbot will also be at $(tailscale_url)"
+  info "$G$OK$R Dispatch will also be at $(tailscale_url)"
 }
 
 # ---------------------------------------------------------------- the release
 
 # Sets commit and script (the release.sh to run), or up_to_date when that commit already runs.
 fetch_release() {
-  local api="https://api.github.com/repos/$repo" auth=() sha releases=/srv/cbot/releases
+  local api="https://api.github.com/repos/$repo" auth=() sha releases=/srv/dispatch/releases
   [ -z "${GITHUB_TOKEN:-}" ] || auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
   sha="$(curl -fsSL "${auth[@]}" -H 'Accept: application/vnd.github.sha' "$api/commits/$ref")" ||
     die "Couldn't find $ref in github.com/$repo."
@@ -643,7 +643,7 @@ fetch_release() {
   # Twelve characters, as scripts/deploy.sh names releases, so both reuse the same ones.
   commit="${sha:0:12}"
   up_to_date=false
-  if [ "$(readlink /srv/cbot/current 2>/dev/null)" = "releases/$commit" ] && systemctl is-active --quiet cbot; then
+  if [ "$(readlink /srv/dispatch/current 2>/dev/null)" = "releases/$commit" ] && systemctl is-active --quiet dispatch; then
     up_to_date=true
     info "$ref is $commit, which is running already"
     return
@@ -701,15 +701,15 @@ progress() {
 describe() {
   case "$1" in
     tailscale) echo 'tailscale|Setting up Tailscale' ;;
-    download) echo 'download|Downloading cbot' ;;
+    download) echo 'download|Downloading Dispatch' ;;
     'provisioning the host' | provision) echo 'provision|Setting up the machine' ;;
     packages) echo 'packages|Installing Chrome, Node, Docker and the desktop packages' ;;
     'Hermes Agent '*) echo "hermes|Installing $1" ;;
     hermes) echo 'hermes|Installing Hermes Agent' ;;
-    done | 'cbot runs '*) ;;
-    'building cbot-speech'* | speech) echo 'speech|Building the speech service (about ten minutes)' ;;
-    'building '* | build) echo 'build|Building cbot' ;;
-    'starting '* | start) echo 'start|Starting cbot' ;;
+    done | 'Dispatch runs '*) ;;
+    'building dispatch-speech'* | speech) echo 'speech|Building the speech service (about ten minutes)' ;;
+    'building '* | build) echo 'build|Building Dispatch' ;;
+    'starting '* | start) echo 'start|Starting Dispatch' ;;
     *) echo "other|$1" ;;
   esac
 }
@@ -732,7 +732,7 @@ run_release() {
     tui_end
     printf '\n%sThe last lines of %s:%s\n' "$D" "$LOG" "$R" >&2
     tail -n 30 "$LOG" | sed 's/^/   /' >&2
-    die "cbot didn't install. Fix what the log says and run the installer again; it picks up where it stopped."
+    die "Dispatch didn't install. Fix what the log says and run the installer again; it picks up where it stopped."
   fi
 }
 
@@ -753,7 +753,7 @@ private_address() {
   esac
 }
 
-# The HTTPS address Tailscale Serve gives cbot, once someone has set that up.
+# The HTTPS address Tailscale Serve gives Dispatch, once someone has set that up.
 tailscale_url() {
   local status
   command -v tailscale >/dev/null || return 0
@@ -764,11 +764,11 @@ tailscale_url() {
 finish() {
   local url address listening lan=false scheme=http
   if $up_to_date; then
-    printf '\n%s%s cbot is up to date%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
+    printf '\n%s%s Dispatch is up to date%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
   else
-    printf '\n%s%s cbot is running%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
+    printf '\n%s%s Dispatch is running%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
   fi
-  # An install can keep the server to 127.0.0.1 (HOST in /etc/cbot/env), or to plain HTTP (HTTPS).
+  # An install can keep the server to 127.0.0.1 (HOST in /etc/dispatch/env), or to plain HTTP (HTTPS).
   listening="$(ss -Hltn "sport = :$PORT" | awk '{ print $4 }')"
   case "$listening" in '' | 127.0.0.1:*) ;; *) lan=true ;; esac
   curl -fsk --max-time 5 -o /dev/null "https://127.0.0.1:$PORT/api/health" && scheme=https
@@ -778,34 +778,34 @@ finish() {
     info "Open $B$scheme://$address:$PORT$R"
     [ -z "$url" ] || info "or $B$url$R from anywhere on your tailnet"
     if [ "$scheme" = https ]; then
-      info "The browser warns that the connection isn't private, because cbot signs its own certificate."
+      info "The browser warns that the connection isn't private, because Dispatch signs its own certificate."
       info "Continue past it once per device, or install the certificate from Settings > General."
     fi
   elif [ -n "$url" ]; then
     info "Open $B$url$R"
   else
-    info "cbot listens on this machine only (HOST in /etc/cbot/env). Reach it with"
+    info "Dispatch listens on this machine only (HOST in /etc/dispatch/env). Reach it with"
     info "  $B""ssh -N -L $PORT:127.0.0.1:$PORT ${SUDO_USER:-root}@$address$R"
     info "then open $B""http://127.0.0.1:$PORT$R"
   fi
   if curl -fsS --max-time 5 "http://127.0.0.1:$PORT/api/auth/me" 2>/dev/null | grep -q '"needsAccount":true'; then
-    info "Make your account there now: until one exists, anyone who can reach cbot can make it."
+    info "Make your account there now: until one exists, anyone who can reach Dispatch can make it."
   fi
   if $lan && ! private_address "$address"; then
-    warn "$address is a public address, so cbot is open to the internet. Block port $PORT in a firewall and reach cbot through Tailscale instead."
+    warn "$address is a public address, so Dispatch is open to the internet. Block port $PORT in a firewall and reach Dispatch through Tailscale instead."
   elif $lan && command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
-    warn "The firewall (ufw) is on. Let the local network reach cbot with: ufw allow $PORT/tcp"
+    warn "The firewall (ufw) is on. Let the local network reach Dispatch with: ufw allow $PORT/tcp"
   fi
   echo
   if [ -z "$url" ] && [ "$scheme" = http ]; then
     note "Voice calls need HTTPS, since browsers allow the microphone only there. Set HTTPS=1 in"
-    note "/etc/cbot/env, or put Tailscale on this machine and run:"
+    note "/etc/dispatch/env, or put Tailscale on this machine and run:"
     note "  tailscale serve --bg --https=443 http://127.0.0.1:$PORT"
     echo
   fi
-  note "Logs: journalctl -u cbot -f"
-  note "Settings: /etc/cbot/env, then systemctl restart cbot"
-  note "Update: Settings > General in cbot, or run the installer again"
+  note "Logs: journalctl -u dispatch -f"
+  note "Settings: /etc/dispatch/env, then systemctl restart dispatch"
+  note "Update: Settings > General in Dispatch, or run the installer again"
 }
 
 # ---------------------------------------------------------------- main
@@ -816,17 +816,17 @@ main() {
   ui_init
   [ "$(id -u)" -eq 0 ] || become_root
 
-  repo="${CBOT_REPO:-chriscorbell/cbot}" ref="${CBOT_REF:-main}"
+  repo="${DISPATCH_REPO:-chriscorbell/dispatch}" ref="${DISPATCH_REF:-main}"
   interactive=false
-  if [ -z "${CBOT_YES:-}" ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
+  if [ -z "${DISPATCH_YES:-}" ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
   installed=false
-  [ -e /srv/cbot/current ] && installed=true
+  [ -e /srv/dispatch/current ] && installed=true
 
   # One install at a time.
-  exec 9>/run/cbot-install.lock
+  exec 9>/run/dispatch-install.lock
   flock -n 9 || die "The installer is running already."
-  install -d -m 0755 /var/log/cbot
-  LOG=/var/log/cbot/install.log
+  install -d -m 0755 /var/log/dispatch
+  LOG=/var/log/dispatch/install.log
   : >"$LOG"
   trap on_exit EXIT
   # Ctrl+C and hang-ups end it through on_exit too, with their status: untrapped, on_exit would see 0.
@@ -838,10 +838,10 @@ main() {
   host="$(hostname)"
   if $installed; then
     doing="Updating on $host" stages=(Machine Update Done)
-    printf '%sUpdating cbot%s on %s\n' "$B" "$R" "$host"
+    printf '%sUpdating Dispatch%s on %s\n' "$B" "$R" "$host"
   else
     doing="Installing on $host" stages=(Machine Settings Install Done)
-    printf '%sInstalling cbot%s on %s\n' "$B" "$R" "$host"
+    printf '%sInstalling Dispatch%s on %s\n' "$B" "$R" "$host"
   fi
   tui_start
 
@@ -860,7 +860,7 @@ main() {
     mark tailscale "Tailscale"
     quietly setup_tailscale
   fi
-  mark download "Downloading cbot"
+  mark download "Downloading Dispatch"
   quietly fetch_release
   write_source
   if $up_to_date; then
@@ -868,7 +868,7 @@ main() {
     finish
     return
   fi
-  if ! $installed || [ ! -s /etc/cbot/env ]; then
+  if ! $installed || [ ! -s /etc/dispatch/env ]; then
     : "${tz:=UTC}" "${max_bots:=4}"
     write_settings
   fi

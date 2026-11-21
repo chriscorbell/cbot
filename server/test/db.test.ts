@@ -23,8 +23,8 @@ test('a fresh database gets the whole schema and records its version', () => {
 });
 
 test('a database from before migrations is brought up to date without losing rows', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cbot-legacy-'));
-  const old = new Database(path.join(dir, 'cbot.db'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-legacy-'));
+  const old = new Database(path.join(dir, 'dispatch.db'));
   // The shape of a production database from before migrations: no group-chat or subagent columns yet,
   // and tables nothing reads any more.
   old.exec(`
@@ -47,7 +47,7 @@ test('a database from before migrations is brought up to date without losing row
     env: { ...process.env, DATA_DIR: dir },
   });
 
-  const after = new Database(path.join(dir, 'cbot.db'));
+  const after = new Database(path.join(dir, 'dispatch.db'));
   assert.equal(after.pragma('user_version', { simple: true }), 9);
   assert.ok(columns(after, 'bots').includes('kind'));
   assert.ok(columns(after, 'bots').includes('hidden'));
@@ -65,8 +65,8 @@ test('a database from before migrations is brought up to date without losing row
 });
 
 test('rebuilding the users table keeps every row that refers to it', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cbot-v2-'));
-  const old = new Database(path.join(dir, 'cbot.db'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-v2-'));
+  const old = new Database(path.join(dir, 'dispatch.db'));
   // A database at version 2: users still has email and name, and other tables delete with their user.
   old.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, avatar_url TEXT, created_at INTEGER NOT NULL, username TEXT, password_hash TEXT);
@@ -85,7 +85,7 @@ test('rebuilding the users table keeps every row that refers to it', () => {
     env: { ...process.env, DATA_DIR: dir },
   });
 
-  const after = new Database(path.join(dir, 'cbot.db'));
+  const after = new Database(path.join(dir, 'dispatch.db'));
   assert.equal(after.pragma('user_version', { simple: true }), 9);
   assert.deepEqual(columns(after, 'users'), ['id', 'username', 'password_hash', 'avatar_url', 'created_at', 'approval_mode', 'approval_deny', 'setup_at']);
   // An account that existed before the setup wizard is past it.
@@ -101,8 +101,8 @@ test('rebuilding the users table keeps every row that refers to it', () => {
 });
 
 test("a group's generated About is cleared, and one the user wrote is kept", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cbot-v6-'));
-  const old = new Database(path.join(dir, 'cbot.db'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-v6-'));
+  const old = new Database(path.join(dir, 'dispatch.db'));
   old.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, password_hash TEXT, created_at INTEGER NOT NULL);
     CREATE TABLE bots (id TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', next_seq INTEGER NOT NULL DEFAULT 1);
@@ -116,7 +116,7 @@ test("a group's generated About is cleared, and one the user wrote is kept", () 
     env: { ...process.env, DATA_DIR: dir },
   });
 
-  const after = new Database(path.join(dir, 'cbot.db'));
+  const after = new Database(path.join(dir, 'dispatch.db'));
   assert.equal(after.pragma('user_version', { simple: true }), 9);
   assert.deepEqual(after.prepare('SELECT id, description FROM bots ORDER BY id').all(), [
     { id: 'bot_1', description: 'Group chat with 3 Bots' },

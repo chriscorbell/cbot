@@ -1,8 +1,8 @@
 {
-  "name": "cbot",
+  "name": "dispatch",
   "private": true,
   "license": "GPL-3.0-or-later",
-  "description": "cbot: a team of Hermes agents, each with its own screen on one computer.",
+  "description": "Dispatch: a team of Hermes agents, each with its own screen on one computer.",
   "workspaces": [
     "server",
     "web"

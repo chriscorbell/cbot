@@ -28,12 +28,12 @@ export interface ComputerResponse { computer: ComputerState }
 export interface PermissionsResponse { mode: ApprovalMode; allowed: string[]; deny: string[] }
 
 /**
- * `ownCertificate`: this request came over HTTPS with cbot's own certificate (https.ts), which a
+ * `ownCertificate`: this request came over HTTPS with Dispatch's own certificate (https.ts), which a
  * browser warns about until the device trusts it. Settings > General then offers the certificate.
  */
 export interface HttpsResponse { ownCertificate: boolean }
 
-/** Settings > General > Updates. Null when this cbot can't update itself (updates.ts says when). */
+/** Settings > General > Updates. Null when this install can't update itself (updates.ts says when). */
 export interface UpdateResponse { update: UpdateState | null }
 
 /** The secrets Settings > Providers holds: API keys, subscription tokens, the self-hosted endpoint's key. */

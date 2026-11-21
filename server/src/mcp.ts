@@ -90,7 +90,7 @@ async function handle(msg: any, botId: string): Promise<object | null> {
         result: {
           protocolVersion: SUPPORTED.includes(asked) ? asked : SUPPORTED[0],
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'cbot', title: 'Team app', version: '1.0.0' },
+          serverInfo: { name: 'dispatch', title: 'Team app', version: '1.0.0' },
           instructions: 'Tools of the team app: files for the user, routines, other agents on the team.',
         },
       };

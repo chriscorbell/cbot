@@ -1,7 +1,7 @@
-"""Shared helpers for the cbot desk scripts (cbot-screen.py, cbot-home.py, cbot-shell.py).
+"""Shared helpers for the Dispatch desk scripts (dispatch-screen.py, dispatch-home.py, dispatch-shell.py).
 
 Everything here is per X display: display :N is "screen N". Whatever we start for a screen carries
-CBOT_SCREEN=N in its environment, which is how we find it again later.
+DISPATCH_SCREEN=N in its environment, which is how we find it again later.
 """
 import configparser
 import contextlib
@@ -16,20 +16,20 @@ import subprocess
 import time
 import urllib.request
 
-ROOT = '/opt/cbot'
+ROOT = '/opt/dispatch'
 SCREENS = ROOT + '/screens'
 JOBS = ROOT + '/jobs'
 EXT = ROOT + '/ext'
-LOGS = '/var/log/cbot'
+LOGS = '/var/log/dispatch'
 # The bots' Chrome profiles and Libraries. server/src/machine.ts has the same paths (test/machine.test.ts checks).
-PROFILES = '/root/cbot/profiles'
-LIBRARY = '/root/cbot/files'
+PROFILES = '/root/dispatch/profiles'
+LIBRARY = '/root/dispatch/files'
 HOME_PORT = 7391
 HOME_URL = 'http://127.0.0.1:%d' % HOME_PORT
-BROWSER_CLASS = 'CbotBrowser'
-SCREEN_FLAG = '--cbot-screen'
-SHELL_CLASS = 'CbotShell'
-DESKTOP_CLASSES = ('xfce4-panel', 'xfdesktop', 'cbot-shell', 'cbotshell')
+BROWSER_CLASS = 'DispatchBrowser'
+SCREEN_FLAG = '--dispatch-screen'
+SHELL_CLASS = 'DispatchShell'
+DESKTOP_CLASSES = ('xfce4-panel', 'xfdesktop', 'dispatch-shell', 'dispatchshell')
 APP_DIRS = (
     '/usr/share/applications',
     '/usr/local/share/applications',
@@ -83,7 +83,7 @@ def held_lock(path, timeout=None):
 
 
 def dress_lock(n):
-    """The lock a dressing job for display :n holds while it runs (cbot-screen.py run_job)."""
+    """The lock a dressing job for display :n holds while it runs (dispatch-screen.py run_job)."""
     return '%s/dress-%d.lock' % (JOBS, n)
 
 
@@ -196,9 +196,9 @@ def display_procs(n, names):
 
 
 def marked_pids(n):
-    """Everything we started for screen n (carries CBOT_SCREEN=n)."""
+    """Everything we started for screen n (carries DISPATCH_SCREEN=n)."""
     me = os.getpid()
-    return [pid for pid in all_pids() if pid != me and environ_of(pid).get('CBOT_SCREEN') == str(int(n))]
+    return [pid for pid in all_pids() if pid != me and environ_of(pid).get('DISPATCH_SCREEN') == str(int(n))]
 
 
 def stop_pids(pids, grace=4.0):
@@ -309,7 +309,7 @@ def base_env(n):
         'LANG': os.environ.get('LANG') or 'C.UTF-8',
         'TZ': os.environ.get('TZ') or 'UTC',
         'DISPLAY': ':%d' % int(n),
-        'CBOT_SCREEN': str(int(n)),
+        'DISPATCH_SCREEN': str(int(n)),
         'GTK_THEME': light_theme(),
         'XDG_CURRENT_DESKTOP': 'XFCE',
         'NO_AT_BRIDGE': '1',

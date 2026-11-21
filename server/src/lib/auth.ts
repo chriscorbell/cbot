@@ -14,7 +14,7 @@ import type { User } from '../types.js';
  * is all any request carries after that, WebSocket upgrades included.
  */
 
-const COOKIE = 'cbot_session';
+const COOKIE = 'dispatch_session';
 const TTL_MS = 30 * 24 * 3600 * 1000;
 export const MIN_PASSWORD = 8;
 
@@ -35,7 +35,7 @@ export function initAuth(u: User) {
   db.prepare('DELETE FROM auth_sessions WHERE expires_at<=?').run(now());
   // Sessions from before there was an account (the old environment credentials) must not outlive it.
   if (!hasAccount()) db.prepare('DELETE FROM auth_sessions').run();
-  if (process.env.CBOT_USER || process.env.CBOT_PASSWORD) console.warn('[auth] CBOT_USER and CBOT_PASSWORD are no longer read: the account is created in the app on the first visit');
+  if (process.env.DISPATCH_USER || process.env.DISPATCH_PASSWORD) console.warn('[auth] DISPATCH_USER and DISPATCH_PASSWORD are no longer read: the account is created in the app on the first visit');
 }
 
 // ---------- passwords ----------

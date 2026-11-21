@@ -35,14 +35,14 @@ test('the health check needs no sign-in; the rest of the API does', async () => 
   expect((await app.request('/api/bots', { headers: auth() })).status).toBe(200);
 });
 
-test('a cbot the installer did not set up offers no updates', async () => {
+test('a machine the installer did not set up offers no updates', async () => {
   expect(await (await app.request('/api/update', { headers: auth() })).json()).toEqual({ update: null });
   const r = await app.request('/api/update', json({}));
   expect(r.status).toBe(409);
-  expect(await r.json()).toEqual({ error: 'This cbot can’t update itself. Run the installer again on its machine.' });
+  expect(await r.json()).toEqual({ error: 'This install of Dispatch can’t update itself. Run the installer again on its machine.' });
 });
 
-test('the HTTPS certificate is offered only while cbot serves its own', async () => {
+test('the HTTPS certificate is offered only while Dispatch serves its own', async () => {
   const { env } = await import('../src/env.js');
   expect((await app.request('/api/https/certificate')).status).toBe(404);
   expect(await (await app.request('/api/https', { headers: auth() })).json()).toEqual({ ownCertificate: false });
@@ -55,7 +55,7 @@ test('the HTTPS certificate is offered only while cbot serves its own', async ()
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/x-x509-ca-cert');
     expect(await res.text()).toContain('BEGIN CERTIFICATE');
-    // A request that didn't come over cbot's own TLS (here none did) isn't offered it.
+    // A request that didn't come over Dispatch's own TLS (here none did) isn't offered it.
     expect(await (await app.request('/api/https', { headers: auth() })).json()).toEqual({ ownCertificate: false });
     expect((await app.request('/api/https')).status).toBe(401);
   } finally {

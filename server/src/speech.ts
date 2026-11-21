@@ -1,5 +1,5 @@
 // The speech service (speech/README.md): its voices (Phonon's) and text-to-speech, dictation, and
-// the address of its live recognition socket for calls. It runs beside cbot in a container on an internal network.
+// the address of its live recognition socket for calls. It runs beside Dispatch in a container on an internal network.
 import { env } from './env.js';
 import type { VoiceOption } from './types.js';
 

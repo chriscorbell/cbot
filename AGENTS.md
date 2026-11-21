@@ -1,6 +1,6 @@
-# Working on cbot
+# Working on Dispatch
 
-cbot is a Node server (`server/`) and a React app (`web/`) that run a small team of Hermes agents, each with its own screen, Chrome and gateway on one machine. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how it runs; this file says how the code is organised and how to change it without breaking it.
+Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small team of Hermes agents, each with its own screen, Chrome and gateway on one machine. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how it runs; this file says how the code is organised and how to change it without breaking it.
 
 ## Commands
 
@@ -9,7 +9,7 @@ cbot is a Node server (`server/`) and a React app (`web/`) that run a small team
 | `npm run check` | Typecheck both workspaces, lint, and run every unit test. Run it before every commit; `scripts/deploy.sh` refuses a commit that fails it |
 | `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`) and the speech service's text fixes (`npm run test:speech`), both stdlib only. Seconds, no services needed |
 | `npm run lint` | ESLint: floating promises and non-exhaustive switches on the server, hooks rules on the web app |
-| `CBOT_PORT=8788 docker compose -p cbot-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
+| `DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
 | `node tests/e2e.mjs`, `tests/voice-*.mjs` | End-to-end scripts against a running app (real gateways, screens and speech). See their headers |
 
 ## Where things are
@@ -29,12 +29,12 @@ cbot is a Node server (`server/`) and a React app (`web/`) that run a small team
 | `server/src/agent/rooms.ts`, `routines.ts`, `proactive.ts` | Group chats, routines, check-ins |
 | `server/src/agent/approvals.ts` | Hermes' approval prompts as chat cards, and the answers sent back to the run |
 | `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order), and the first-run setup that makes the first one |
-| `server/src/reset.ts` | Resetting cbot to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
-| `server/src/updates.ts` | Updating cbot from GitHub: checking the branch the installer used, and running the installer again in a unit of its own |
+| `server/src/reset.ts` | Resetting Dispatch to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
+| `server/src/updates.ts` | Updating Dispatch from GitHub: checking the branch the installer used, and running the installer again in a unit of its own |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |
-| `server/src/https.ts` | HTTPS=1: cbot's own certificate and the port that serves HTTPS and plain HTTP together |
+| `server/src/https.ts` | HTTPS=1: Dispatch's own certificate and the port that serves HTTPS and plain HTTP together |
 | `server/src/computer.ts`, `displays.ts`, `desk.ts`, `vnc.ts`, `server/box/` | Screens: leases, X displays, dressing, the viewer relay, the Python desk scripts |
 | `server/src/voice-relay.ts`, `speech.ts`, `speech/` | Voice calls: the realtime relay, the speech service client, the speech service |
 | `server/src/machine.ts` | Paths, ports and display numbers on the computer |
@@ -57,12 +57,12 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A conversation | `store.ts` | generation N, then N+1 on New chat. Rows are addressed by bot, generation and seq |
 | A bot's gateway | `engine.ts` | none, starting, ready, error (diagram in the file header) |
 | A provider sign-in | `signin.ts` | starting, waiting (link and code shown), then done, failed or cancelled once. One per bot, one for Copilot; in memory |
-| A bot's screen | `computer.ts` | lease, display (`displays.ts`), dressed (`desk.ts`). A detached dressing job holds the display's lock (`held_lock` in `cbotlib.py`); undressing waits for it |
+| A bot's screen | `computer.ts` | lease, display (`displays.ts`), dressed (`desk.ts`). A detached dressing job holds the display's lock (`held_lock` in `dispatchlib.py`); undressing waits for it |
 | A voice call (server) | `voice.ts` | created, relayed once, ended |
 | A voice reply | `voice-relay.ts` | `planAnswer` decides barge-in; a Reply's flags are listed in the header |
 | A voice call (browser) | `web/src/voice/call.ts` | idle, connecting, live, error |
 | A question card | `routes.ts` (answer route) | pending, then answered once |
-| An update of cbot | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle |
+| An update of Dispatch | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle |
 | A Hermes approval prompt | `agent/approvals.ts` | pending, then allowed, always, denied or expired once. Pending ones live in memory beside their run |
 | First-run setup | `bots.ts` (`setupPending`, `finishSetup`) | no account, then pending (`users.setup_at` null) while `web/src/components/SetupWizard.tsx` makes the first bot, then done once. The first bot is primary and greets when setup finishes |
 
@@ -78,7 +78,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 - **Contracts are shared, not restated.** A route's response type lives in `contract.ts` and the handler returns `{ ... } satisfies ThatType`; the web call names the same type. Server events are `ServerEvent` in `types.ts`; voice messages are in `voice-protocol.ts`. `types.ts`, `contract.ts` and `voice-protocol.ts` import nothing from the server, because the web app bundles them.
 - **Exhaustive switches.** A switch over a union ends with `default: { const x: never = ev; ... }` where it must handle every case (`lib/events.ts`, `voice/call.ts`). Lint enforces it on the server.
 - **No floating promises.** Await it, `.catch` it, or write `void` when it is deliberate and cannot reject. An unhandled rejection stops the server.
-- **Constants in one place.** Paths, ports and display numbers are in `machine.ts`. The box scripts keep copies in `server/box/cbotlib.py`; `test/machine.test.ts` checks them, so change both.
+- **Constants in one place.** Paths, ports and display numbers are in `machine.ts`. The box scripts keep copies in `server/box/dispatchlib.py`; `test/machine.test.ts` checks them, so change both.
 - **The MCP tool list is a contract with every bot's model.** `test/fixtures/mcp-tools.json` records what Hermes is offered. Changing a tool's name, description or parameters changes that file on purpose. Renaming or adding a tool restarts every gateway on the next deploy (the settings hash covers tool names).
 - **Nothing starts at import.** Modules may prepare statements and define things; timers, processes and network calls start from `index.ts` (the `init*` functions) or from a request.
 - **Comments explain why.** Keep the existing voice: plain sentences about what the code is for and what would break.
@@ -101,7 +101,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 
 **Add web state.** Data from the server goes in `web/src/store.ts` with a named action; view-only state stays in the component or `configStore.ts`. An optimistic change keeps the previous value and rolls back only if nothing newer replaced it (see `patchRow`). A request from one part of the UI to another with no shared parent ("put this in the composer") goes through `web/src/lib/uiEvents.ts`, typed. An async answer that may arrive after the user switched bots, or after the panel closed, goes through `guarded()` (`web/src/lib/guarded.ts`) or checks it is still about the bot shown (see `Composer.tsx`, `EngineSettings.tsx`). A reply in the composer names its row by generation too (`web/src/lib/reply.ts`).
 
-**Change behaviour the user sees.** Update `README.md` (what cbot is and how to install it), `docs/RUNNING.md` (how to run it) and `docs/ARCHITECTURE.md` in the same commit, and say in the commit message what changed for the user. Don't invent new UI patterns without asking.
+**Change behaviour the user sees.** Update `README.md` (what Dispatch is and how to install it), `docs/RUNNING.md` (how to run it) and `docs/ARCHITECTURE.md` in the same commit, and say in the commit message what changed for the user. Don't invent new UI patterns without asking.
 
 ## Tests
 
@@ -114,7 +114,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 
 These exist for old data or old screens. Don't build on them without deciding with Chris first.
 
-- Policies and draft cards (the `policies` table, `DraftCard`), from when cbot asked before tools itself. Approvals are Hermes' prompts now (`agent/approvals.ts`).
+- Policies and draft cards (the `policies` table, `DraftCard`), from when Dispatch asked before tools itself. Approvals are Hermes' prompts now (`agent/approvals.ts`).
 - Hidden bots (`bots.hidden`, `parent_bot_id`) from an earlier subagent feature: they stay out of the roster and the team.
 - ZONOS3-Mini (`zonos3/`, `speech/app/zonos3.py`, `FROM_ZONOS3` in `server/src/speech.ts`): turned off for Phonon; `speech/README.md` says how to turn it back on.
 - Tables nothing reads in older databases (`llm_items`, `pending_turns`, `memories`, `memory_jobs`, `compactions`) and the `proactivity.silent_streak`, `bots.pinned` and `bots.mode` columns.

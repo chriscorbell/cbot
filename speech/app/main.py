@@ -1,4 +1,4 @@
-"""cbot's speech service. README.md documents every endpoint."""
+"""Dispatch's speech service. README.md documents every endpoint."""
 import asyncio
 import json
 import logging
@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
         await zonos.close()
 
 
-app = FastAPI(title="cbot speech", lifespan=lifespan, docs_url=None, redoc_url=None)
+app = FastAPI(title="Dispatch speech", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 
 @app.get("/health")

@@ -1,49 +1,49 @@
-# Running cbot
+# Running Dispatch
 
-How to look after a cbot machine once the [installer](../README.md#install) has set it up: updates, settings, HTTPS, models, approvals, and getting back in. [ARCHITECTURE.md](ARCHITECTURE.md) explains how it all works underneath.
+How to look after a Dispatch machine once the [installer](../README.md#install) has set it up: updates, settings, HTTPS, models, approvals, and getting back in. [ARCHITECTURE.md](ARCHITECTURE.md) explains how it all works underneath.
 
 ## Updating
 
-cbot checks GitHub for a newer version a minute after it starts and every six hours after that. When there is one, **Update available** shows above your account in the sidebar. It opens **Settings** > **General** > **Updates**, where **Update** installs it and **What's new** lists the changes. The page shows each step and reloads on the new version when it's done. **Check Now** asks GitHub straight away.
+Dispatch checks GitHub for a newer version a minute after it starts and every six hours after that. When there is one, **Update available** shows above your account in the sidebar. It opens **Settings** > **General** > **Updates**, where **Update** installs it and **What's new** lists the changes. The page shows each step and reloads on the new version when it's done. **Check Now** asks GitHub straight away.
 
 The button runs the installer again for you. Running it yourself does the same: it downloads the newest commit, builds it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. The settings, bots and chats stay.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 ```
 
-Updates follow the repository and branch the installer last installed from, which it writes to `/etc/cbot/source`. When an update started from the app fails, cbot keeps running the version it had, and `journalctl -u cbot-update` says why.
+Updates follow the repository and branch the installer last installed from, which it writes to `/etc/dispatch/source`. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why.
 
-The server runs as the systemd service `cbot`: `journalctl -u cbot -f` follows its log, and the installer's own log is `/var/log/cbot/install.log`.
+The server runs as the systemd service `dispatch`: `journalctl -u dispatch -f` follows its log, and the installer's own log is `/var/log/dispatch/install.log`.
 
 ## Settings
 
-The installer writes `/etc/cbot/env`. After changing it, run `systemctl restart cbot`.
+The installer writes `/etc/dispatch/env`. After changing it, run `systemctl restart dispatch`.
 
 | Variable | Default | Effect |
 |---|---|---|
 | `MAX_BOTS` | 4 | Most bots the app will create. Each one runs a screen, a Chrome and an agent, about 1 GB of memory |
 | `TZ` | UTC | The bots' time zone: their clocks, and routines and check-ins without a zone of their own |
-| `HOST` | every address | The address the server listens on. `127.0.0.1` keeps cbot to the machine itself and to Tailscale Serve |
-| `HTTPS` | unset | `1` serves HTTPS with cbot's own certificate, and plain HTTP only to the machine itself. The installer sets it |
-| `CBOT_NO_SCHEDULER` | unset | `1` turns off routines and check-ins, for a copy of another machine's data |
+| `HOST` | every address | The address the server listens on. `127.0.0.1` keeps Dispatch to the machine itself and to Tailscale Serve |
+| `HTTPS` | unset | `1` serves HTTPS with Dispatch's own certificate, and plain HTTP only to the machine itself. The installer sets it |
+| `DISPATCH_NO_SCHEDULER` | unset | `1` turns off routines and check-ins, for a copy of another machine's data |
 
-For an unattended install, set `CBOT_TZ`, `CBOT_MAX_BOTS` and `CBOT_TAILSCALE` (`1` or `0`) for the installer; [its header](../scripts/install.sh) lists the rest. [.env.example](../.env.example) lists the ports and paths.
+For an unattended install, set `DISPATCH_TZ`, `DISPATCH_MAX_BOTS` and `DISPATCH_TAILSCALE` (`1` or `0`) for the installer; [its header](../scripts/install.sh) lists the rest. [.env.example](../.env.example) lists the ports and paths.
 
 Model keys, subscription tokens, the self-hosted model and the SearXNG address are set in the app, under **Settings** > **Providers**. Without a SearXNG address the bots search the web in Chrome.
 
 ## HTTPS
 
-Voice calls need HTTPS, because browsers allow the microphone only there. No public authority signs a certificate for an address on a local network, so cbot signs its own, for the machine's name and address, and browsers warn that the connection isn't private. Continue past the warning once on each device, or stop it by installing the certificate from **Settings** > **General** > **Certificate** and trusting it:
+Voice calls need HTTPS, because browsers allow the microphone only there. No public authority signs a certificate for an address on a local network, so Dispatch signs its own, for the machine's name and address, and browsers warn that the connection isn't private. Continue past the warning once on each device, or stop it by installing the certificate from **Settings** > **General** > **Certificate** and trusting it:
 
 - iPhone and iPad: install the downloaded profile in Settings, then turn it on under General > About > Certificate Trust Settings
 - Android: install it as a CA certificate, under Settings > Security (the path varies by phone)
 - macOS: add it in Keychain Access and set it to Always Trust
 - Windows: open it, choose Install Certificate, and place it in Trusted Root Certification Authorities
 
-The certificate vouches for this machine only. When the machine's address changes, cbot makes a new one, and devices that trusted the old one need the new one.
+The certificate vouches for this machine only. When the machine's address changes, Dispatch makes a new one, and devices that trusted the old one need the new one.
 
-Tailscale, which the installer offers, adds an address that browsers trust without a warning and that works from anywhere on your tailnet: `https://<machine>.<tailnet>.ts.net`. To add it later, put Tailscale on the machine and run `tailscale serve --bg --https=443 http://127.0.0.1:8787`. To keep cbot off the local network then, set `HOST=127.0.0.1` in `/etc/cbot/env`.
+Tailscale, which the installer offers, adds an address that browsers trust without a warning and that works from anywhere on your tailnet: `https://<machine>.<tailnet>.ts.net`. To add it later, put Tailscale on the machine and run `tailscale serve --bg --https=443 http://127.0.0.1:8787`. To keep Dispatch off the local network then, set `HOST=127.0.0.1` in `/etc/dispatch/env`.
 
 ## Models
 
@@ -64,7 +64,7 @@ Signing in to ChatGPT, Grok or Copilot shows a link and a short code. Open the l
 
 ## On a phone
 
-cbot works in a phone's browser, and **Add to Home Screen** (Safari's Share menu, or Chrome's menu) gives it an icon and a window of its own. The sidebar opens from the button at the top left. Hold a message to react, reply or copy its text, and hold a bot in the sidebar for its menu (mark as unread, copy, hide, delete). The chat stays above the keyboard while you type.
+Dispatch works in a phone's browser, and **Add to Home Screen** (Safari's Share menu, or Chrome's menu) gives it an icon and a window of its own. The sidebar opens from the button at the top left. Hold a message to react, reply or copy its text, and hold a bot in the sidebar for its menu (mark as unread, copy, hide, delete). The chat stays above the keyboard while you type.
 
 ## Approvals
 
@@ -75,26 +75,26 @@ cbot works in a phone's browser, and **Add to Home Screen** (Safari's Share menu
 On the machine, run:
 
 ```bash
-sudo DATA_DIR=/var/lib/cbot node /srv/cbot/current/server/dist/reset-account.js
+sudo DATA_DIR=/var/lib/dispatch node /srv/dispatch/current/server/dist/reset-account.js
 ```
 
-The next visit creates a new account, and the bots and chats stay. In the development container, it's `docker exec cbot-dev-cbot-1 node server/dist/reset-account.js`.
+The next visit creates a new account, and the bots and chats stay. In the development container, it's `docker exec dispatch-dev-dispatch-1 node server/dist/reset-account.js`.
 
 ## Starting over
 
-**Settings** > **General** > **Reset cbot** asks twice, then erases every bot, chat, file, provider key and setting and the account, and cbot restarts as a fresh install. Programs the bots installed on the machine stay. To remove cbot altogether, use the [uninstaller](../README.md#uninstall).
+**Settings** > **General** > **Reset Dispatch** asks twice, then erases every bot, chat, file, provider key and setting and the account, and Dispatch restarts as a fresh install. Programs the bots installed on the machine stay. To remove Dispatch altogether, use the [uninstaller](../README.md#uninstall).
 
 ## Deploying from a checkout
 
 To put your own commits on the machine instead of the newest on GitHub, deploy them over SSH:
 
 ```bash
-cp .env.example .env.prod   # set CBOT_HOST in it; every deploy copies it to /etc/cbot/env
-scripts/deploy.sh           # deploy the committed main branch to CBOT_HOST
+cp .env.example .env.prod   # set DISPATCH_HOST in it; every deploy copies it to /etc/dispatch/env
+scripts/deploy.sh           # deploy the committed main branch to DISPATCH_HOST
 scripts/deploy.sh <commit>  # deploy that commit, or roll back to it
 ```
 
-A commit has to pass `npm run check` before it deploys. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/cbot/env`, so set `HOST` and `HTTPS` there if you want them.
+A commit has to pass `npm run check` before it deploys. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
 
 ## Development
 
@@ -102,10 +102,10 @@ Development runs in Docker, because the server starts real X displays, Chrome an
 
 ```bash
 cp .env.example .env
-CBOT_PORT=8788 docker compose -p cbot-dev up -d --build   # then open http://127.0.0.1:8788
+DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build   # then open http://127.0.0.1:8788
 npm ci
 npm run check                                       # typecheck, lint and unit tests
-CBOT_API=http://127.0.0.1:8788 npm run dev -w web   # Vite against the dev container; add ?fixtures for sample rows
+DISPATCH_API=http://127.0.0.1:8788 npm run dev -w web   # Vite against the dev container; add ?fixtures for sample rows
 ```
 
 Rebuild the dev container to try server changes. The Playwright scripts in `tests/` run against a live app, and each one's header says how.

@@ -92,7 +92,7 @@ function writePrivate(file: string, content: string) {
 
 /** Replace a file a running gateway may read at any moment: it sees the old file or the new one, never half. */
 function replacePrivate(file: string, content: string) {
-  const tmp = `${file}.cbot-${process.pid}`;
+  const tmp = `${file}.dispatch-${process.pid}`;
   writePrivate(tmp, content);
   fs.renameSync(tmp, file);
 }
@@ -172,7 +172,7 @@ const searxngUrl = () => getSetting('searxng-url');
 const ANTHROPIC_API = 'https://api.anthropic.com';
 
 /**
- * Endpoints cbot declares in every home's `providers:` (Hermes' named custom providers), each present
+ * Endpoints Dispatch declares in every home's `providers:` (Hermes' named custom providers), each present
  * while Settings > Providers has what it needs. Runs name one by its key, as `provider`.
  *
  *   anthropic-api  the Anthropic API on a key, apart from the `anthropic` provider: Hermes would use an
@@ -239,7 +239,7 @@ function applyManagedConfig(cfg: any, o: { bot: BotRecord; cwd: string; display:
   cfg.browser = { ...(cfg.browser ?? {}), cloud_provider: 'local', ...(o.cdp ? { cdp_url: o.cdp } : {}) };
   cfg.mcp_servers = {
     ...(cfg.mcp_servers ?? {}),
-    cbot: { url: `${mcpBaseUrl()}/mcp/${o.bot.id}`, headers: { Authorization: `Bearer ${mcpToken(o.bot.id)}` }, timeout: 1800, connect_timeout: 30 },
+    dispatch: { url: `${mcpBaseUrl()}/mcp/${o.bot.id}`, headers: { Authorization: `Bearer ${mcpToken(o.bot.id)}` }, timeout: 1800, connect_timeout: 30 },
   };
 
   cfg.nous = { ...(cfg.nous ?? {}), guest: false };
@@ -426,7 +426,7 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
 }
 
 /** Where a home records the settings hash its gateway started with. */
-const SETTINGS_FILE = 'cbot-settings';
+const SETTINGS_FILE = 'dispatch-settings';
 
 /**
  * A hash of what a gateway reads when it starts and this app decides: the config keys this app owns
@@ -436,7 +436,7 @@ const SETTINGS_FILE = 'cbot-settings';
  */
 function settingsHash(managed: unknown, vars: Record<string, string>): string {
   let pin = '';
-  try { pin = fs.readFileSync(path.join(HERMES_ROOT, '.cbot-pin'), 'utf8').trim(); } catch { /* not installed by provision.sh */ }
+  try { pin = fs.readFileSync(path.join(HERMES_ROOT, '.dispatch-pin'), 'utf8').trim(); } catch { /* not installed by provision.sh */ }
   const tools = TOOLS.map((t) => t.name);
   return crypto.createHash('sha256').update(JSON.stringify({ managed, vars, pin, tools })).digest('hex').slice(0, 20);
 }
@@ -787,7 +787,7 @@ export function initEngines() {
  * home, Copilot into the token in Settings > Providers that every bot shares. Claude runs only on the
  * token from `claude setup-token` in Settings > Providers: a sign-in for each bot gave every bot a
  * refresh token of its own to keep alive. API keys and the self-hosted address are set in Settings >
- * Providers too. `endpoint` marks the two cbot declares itself (applyEndpoints).
+ * Providers too. `endpoint` marks the two Dispatch declares itself (applyEndpoints).
  */
 const PROVIDERS: { id: string; name: string; kind: EngineProvider['kind']; signIn?: boolean; endpoint?: Endpoint }[] = [
   { id: 'anthropic', name: 'Claude', kind: 'subscription' },
@@ -808,7 +808,7 @@ type Endpoint = 'anthropic-api' | 'self-hosted';
 const endpointCache = new Map<Endpoint, { at: number; models: string[]; error: string | null }>();
 
 /**
- * The models one of cbot's endpoints lists, asked directly: Hermes only asks the endpoint a bot is on
+ * The models one of Dispatch's endpoints lists, asked directly: Hermes only asks the endpoint a bot is on
  * now. Kept for a minute. Nothing to ask (no address or key) is no models and no error.
  */
 export async function endpointModels(id: Endpoint): Promise<{ models: string[]; error: string | null }> {
@@ -863,7 +863,7 @@ async function modelOptions(botId: string, e: { url: string; key: string }): Pro
 
 /**
  * Our providers with what the bot's Hermes reports about them (signed in, the models it suggests); one
- * Hermes leaves out counts as not connected. cbot's own endpoints list the models their server lists.
+ * Hermes leaves out counts as not connected. Dispatch's own endpoints list the models their server lists.
  */
 async function toProviders(data: any): Promise<EngineProvider[]> {
   const list: any[] = Array.isArray(data?.providers) ? data.providers : [];

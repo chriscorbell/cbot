@@ -20,7 +20,7 @@ const me = async (cookie?: string) => (await app.request('/api/auth/me', { heade
 const signedIn = async (cookie: string) => (await app.request('/api/bots', { headers: { cookie } })).status === 200;
 
 test('an upgraded install drops sessions from the environment-credentials days when it starts', async () => {
-  const old = `cbot_session=${startSession(owner.id)}`;
+  const old = `dispatch_session=${startSession(owner.id)}`;
   expect(await signedIn(old)).toBe(true);
   initAuth(owner);
   expect(await signedIn(old)).toBe(false);
@@ -72,7 +72,7 @@ test('signing out ends that session only', async () => {
   const b = cookieOf(await login('ada', 'correct horse'));
   const out = await post('/api/auth/logout', {}, a);
   expect(out.status).toBe(200);
-  expect(out.headers.get('set-cookie')).toMatch(/^cbot_session=;.*Max-Age=0/);
+  expect(out.headers.get('set-cookie')).toMatch(/^dispatch_session=;.*Max-Age=0/);
   expect(await signedIn(a)).toBe(false);
   expect(await signedIn(b)).toBe(true);
   expect((await post('/api/auth/logout', {})).status).toBe(200);

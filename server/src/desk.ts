@@ -10,20 +10,20 @@ import { BOX_ROOT, displayNumber } from './machine.js';
  * home screen (the bot's avatar, a clock, the computer's apps) as Chrome's new tab page.
  *
  * The work on the computer is done by the scripts in server/box/, which this file installs under
- * /opt/cbot and then calls with one short command per action. The display itself is started by
+ * /opt/dispatch and then calls with one short command per action. The display itself is started by
  * displays.ts; everything the scripts need on it is installed by scripts/provision.sh.
  */
 
 export interface DeskBot { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
 const ROOT = BOX_ROOT;
-const SCRIPT = `${ROOT}/cbot-screen.py`;
-/** Source file under server/box/ -> where it lives under /opt/cbot on the computer. */
+const SCRIPT = `${ROOT}/dispatch-screen.py`;
+/** Source file under server/box/ -> where it lives under /opt/dispatch on the computer. */
 const BOX_FILES: Record<string, string> = {
-  'cbotlib.py': 'cbotlib.py',
-  'cbot-screen.py': 'cbot-screen.py',
-  'cbot-shell.py': 'cbot-shell.py',
-  'cbot-home.py': 'cbot-home.py',
+  'dispatchlib.py': 'dispatchlib.py',
+  'dispatch-screen.py': 'dispatch-screen.py',
+  'dispatch-shell.py': 'dispatch-shell.py',
+  'dispatch-home.py': 'dispatch-home.py',
   'home.html': 'home.html',
   'ext/manifest.json': 'ext/src/manifest.json',
   'ext/newtab.html': 'ext/src/newtab.html',
@@ -60,15 +60,15 @@ interface Reply { kind: 'OK' | 'DONE' | 'RUNNING' | 'NOBASE' | 'BASE_OK' | 'NONE
 function parseReply(output: string): Reply {
   const lines = output.split('\n').map((l) => l.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^CBOT_(OK|DONE|RUNNING|NOBASE|BASE_OK)\b ?(.*)$/.exec(lines[i]);
+    const m = /^DISPATCH_(OK|DONE|RUNNING|NOBASE|BASE_OK)\b ?(.*)$/.exec(lines[i]);
     if (m) return { kind: m[1] as Reply['kind'], rest: m[2], raw: output };
   }
   return { kind: 'NONE', rest: '', raw: output };
 }
 
-/** One call to cbot-screen.py. A missing or failing script answers NOBASE so the caller can install it. */
+/** One call to dispatch-screen.py. A missing or failing script answers NOBASE so the caller can install it. */
 async function script(args: string[], screenId?: string, timeoutSec = 60): Promise<Reply> {
-  const cmd = `[ -f ${SCRIPT} ] && python3 ${SCRIPT} ${args.map(box.quote).join(' ')} 2>&1 || echo CBOT_NOBASE`;
+  const cmd = `[ -f ${SCRIPT} ] && python3 ${SCRIPT} ${args.map(box.quote).join(' ')} 2>&1 || echo DISPATCH_NOBASE`;
   const r = await box.bash(cmd, timeoutSec, screenId);
   return parseReply(r.output);
 }
@@ -119,10 +119,10 @@ async function setupBase(): Promise<void> {
     "    if 'ext/src/' + name not in files:",
     '        os.unlink(os.path.join(src, name))',
     "os.unlink(root + '/bundle.json.gz')",
-    "print('CBOT_UNPACKED')",
+    "print('DISPATCH_UNPACKED')",
   ].join('\n');
   const r = await box.bash(`python3 -c ${box.quote(unpack)} 2>&1`, 60);
-  if (!r.output.includes('CBOT_UNPACKED')) {
+  if (!r.output.includes('DISPATCH_UNPACKED')) {
     throw new Error(`could not install the desktop scripts on the computer (python3 is needed): ${r.output.trim().slice(-300)}`);
   }
   // Package installs can take a while on a fresh computer.

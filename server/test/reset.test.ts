@@ -38,7 +38,7 @@ test('a reset takes every bot down, then erases the data and exits for a fresh s
   const team = seedBot(user.id, { kind: 'room', name: 'Team', members: [ada, bea.id] });
   const data = (name: string) => path.join(env.dataDir, name);
   fs.mkdirSync(data('engines/old'), { recursive: true });
-  fs.writeFileSync(data('cbot.db.before-something'), '');
+  fs.writeFileSync(data('dispatch.db.before-something'), '');
   fs.writeFileSync(data('notes.txt'), 'not ours');
 
   const res = await reset({ confirm: 'reset' });

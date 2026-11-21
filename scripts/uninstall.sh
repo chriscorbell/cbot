@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Removes cbot from a machine that scripts/install.sh set up, with all its data:
+# Removes Dispatch from a machine that scripts/install.sh set up, with all its data:
 #
-#   curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/uninstall.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/uninstall.sh | bash
 #
 # It stops the service and everything it started (the bots' screens, Chromes and Hermes gateways),
 # then deletes the releases, the database and the bots' homes, Chrome profiles and Library files,
 # Hermes Agent, the speech service's containers and images and Docker's build cache, the settings,
 # the logs, what the screens leave in root's home (window manager and GTK settings, Chrome's crash
-# reports, the build caches), the Chrome policy, and the Tailscale Serve address for cbot. There is no
+# reports, the build caches), the Chrome policy, and the Tailscale Serve address for Dispatch. There is no
 # undo. The programs provisioning installed for everyone (Google Chrome, Node.js, Docker and the
 # desktop packages), Tailscale, and whatever the bots installed themselves stay on the machine.
 #
-# It asks before deleting anything; CBOT_YES=1 deletes without asking, for a machine nobody is at.
+# It asks before deleting anything; DISPATCH_YES=1 deletes without asking, for a machine nobody is at.
 # At a terminal it takes the whole screen, as install.sh does: the question with two buttons, then
 # each step with a spinner and its time. When it ends, the terminal gets its screen back with the
 # steps printed there. On a terminal smaller than 64 by 20 it prints its steps line by line instead.
@@ -90,7 +90,7 @@ tui_end() {
 
 # The top of every screen, into $head (six rows), as install.sh draws it.
 tui_head() {
-  local i plain="  cbot  $doing" right=$machine gap stepper='' rule
+  local i plain="  Dispatch  $doing" right=$machine gap stepper='' rule
   gap=$((cols - ${#plain} - ${#right} - 2))
   if [ "$gap" -lt 4 ]; then right='' gap=0; fi
   for i in "${!stages[@]}"; do
@@ -100,7 +100,7 @@ tui_head() {
     else stepper+="$D$LATER ${stages[i]}$R"; fi
   done
   printf -v rule '%*s' $((cols - 4)) ''
-  printf -v head '\e[K\n  %s%scbot%s  %s%*s%s%s%s\e[K\n\e[K\n  %s\e[K\n  %s%s%s\e[K\n\e[K\n' \
+  printf -v head '\e[K\n  %s%sDispatch%s  %s%*s%s%s%s\e[K\n\e[K\n  %s\e[K\n  %s%s%s\e[K\n\e[K\n' \
     "$A" "$B" "$R" "$doing" "$gap" '' "$D" "$right" "$R" "$stepper" "$D" "${rule// /$LINE}" "$R"
 }
 
@@ -237,7 +237,7 @@ become_root() {
   local self v status=0
   self="$(mktemp)"
   {
-    for v in CBOT_YES LANG LC_ALL LC_CTYPE; do
+    for v in DISPATCH_YES LANG LC_ALL LC_CTYPE; do
       [ -z "${!v:-}" ] || printf 'export %s=%q\n' "$v" "${!v}"
     done
     declare -f
@@ -263,14 +263,14 @@ installed() {
 }
 
 # The service, then whatever it started. Its screens, Chromes and gateways outlive the server on
-# purpose (KillMode=process in deploy/cbot.service), but they stay in the service's control group,
+# purpose (KillMode=process in deploy/dispatch.service), but they stay in the service's control group,
 # which holds every process started from it, the bots' own included.
 stop_everything() {
   local group pids _
-  group="$(systemctl show -p ControlGroup --value cbot.service 2>/dev/null || true)"
-  group="/sys/fs/cgroup${group:-/system.slice/cbot.service}"
+  group="$(systemctl show -p ControlGroup --value dispatch.service 2>/dev/null || true)"
+  group="/sys/fs/cgroup${group:-/system.slice/dispatch.service}"
   if [ -e "$UNIT" ]; then
-    systemctl disable --now cbot.service >/dev/null 2>&1 || true
+    systemctl disable --now dispatch.service >/dev/null 2>&1 || true
   fi
   if [ -r "$group/cgroup.procs" ]; then
     pids="$(cat "$group/cgroup.procs")"
@@ -287,8 +287,8 @@ stop_everything() {
   fi
   rm -f "$UNIT"
   systemctl daemon-reload
-  systemctl reset-failed cbot.service >/dev/null 2>&1 || true
-  done_ "Stopped cbot, the bots' screens and their agents"
+  systemctl reset-failed dispatch.service >/dev/null 2>&1 || true
+  done_ "Stopped Dispatch, the bots' screens and their agents"
 }
 
 speech_here() { command -v docker >/dev/null && docker info >/dev/null 2>&1; }
@@ -297,13 +297,13 @@ speech_here() { command -v docker >/dev/null && docker info >/dev/null 2>&1; }
 remove_speech() {
   local ids images
   speech_here || return 0
-  ids="$(docker ps -aq --filter label=com.docker.compose.project=cbot-speech)"
+  ids="$(docker ps -aq --filter label=com.docker.compose.project=dispatch-speech)"
   # shellcheck disable=SC2086 # one container id per word
   [ -z "$ids" ] || docker rm -f $ids >/dev/null
-  ids="$(docker network ls -q --filter label=com.docker.compose.project=cbot-speech)"
+  ids="$(docker network ls -q --filter label=com.docker.compose.project=dispatch-speech)"
   # shellcheck disable=SC2086 # one network id per word
   [ -z "$ids" ] || docker network rm $ids >/dev/null
-  images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^cbot-(speech|zonos3):' || true)"
+  images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^dispatch-(speech|zonos3):' || true)"
   # shellcheck disable=SC2086 # one image per word
   [ -z "$images" ] || docker image rm -f $images >/dev/null
   # Building the speech image leaves gigabytes of build cache; any other project's is only a cache.
@@ -311,7 +311,7 @@ remove_speech() {
   done_ "Removed the speech service"
 }
 
-# The ports Tailscale Serve serves cbot on (install.sh serves it on 443, provision.sh on 8787).
+# The ports Tailscale Serve serves Dispatch on (install.sh serves it on 443, provision.sh on 8787).
 serve_ports() {
   command -v tailscale >/dev/null || return 0
   tailscale serve status 2>/dev/null | awk '
@@ -319,7 +319,7 @@ serve_ports() {
     /127\.0\.0\.1:8787/ { print port }' | sort -u
 }
 
-# Tailscale Serve's address for cbot. Tailscale itself stays: it may do more than reach cbot.
+# Tailscale Serve's address for Dispatch. Tailscale itself stays: it may do more than reach Dispatch.
 remove_tailscale_serve() {
   local ports port
   ports="$(serve_ports)"
@@ -327,12 +327,12 @@ remove_tailscale_serve() {
   for port in $ports; do
     tailscale serve --https="$port" off >/dev/null 2>&1 || warn "Couldn't turn off Tailscale Serve on port $port: tailscale serve --https=$port off"
   done
-  done_ "Turned off cbot's Tailscale address"
+  done_ "Turned off Dispatch's Tailscale address"
 }
 
 remove_files() {
   local gtk=/root/.config/gtk-3.0/settings.ini f
-  rm -rf "${FOLDERS[@]}" /opt/hermes /opt/hermes.[0-9]* /run/cbot-install.lock
+  rm -rf "${FOLDERS[@]}" /opt/hermes /opt/hermes.[0-9]* /run/dispatch-install.lock
   # Hermes' launchers: provision.sh's copy, and the ones its installer puts in root's ~/.local/bin.
   [ "$(readlink /usr/local/bin/hermes 2>/dev/null)" != /opt/hermes/launcher/hermes ] || rm -f /usr/local/bin/hermes
   for f in /root/.local/bin/hermes*; do
@@ -342,10 +342,10 @@ remove_files() {
   # reports, and caches (npm, node-gyp, uv, shaders), which are safe to delete by definition.
   rm -rf /root/.config/xfce4 "/root/.config/google-chrome/Crash Reports" /root/.cache /root/.npm
   rmdir /root/.config/google-chrome 2>/dev/null || true
-  # The policy that gave each bot's Chrome its home screen (server/box/cbot-screen.py).
-  rm -f /etc/opt/chrome/policies/managed/cbot.json /etc/chromium/policies/managed/cbot.json
+  # The policy that gave each bot's Chrome its home screen (server/box/dispatch-screen.py).
+  rm -f /etc/opt/chrome/policies/managed/dispatch.json /etc/chromium/policies/managed/dispatch.json
   # The light theme the screens set for root's GTK apps, put back as it was.
-  if [ -e "$gtk.before-cbot" ]; then mv -f "$gtk.before-cbot" "$gtk"; else rm -f "$gtk"; fi
+  if [ -e "$gtk.before-dispatch" ]; then mv -f "$gtk.before-dispatch" "$gtk"; else rm -f "$gtk"; fi
   rmdir "$(dirname "$gtk")" /root/.local/bin 2>/dev/null || true
   done_ "Deleted the bots, chats, files, settings and Hermes Agent"
 }
@@ -356,19 +356,19 @@ main() {
   set -euo pipefail
   ui_init
   [ "$(id -u)" -eq 0 ] || become_root
-  # Set here, not at the top: become_root carries functions only. The folders cbot keeps are in
+  # Set here, not at the top: become_root carries functions only. The folders Dispatch keeps are in
   # server/src/machine.ts, scripts/provision.sh and scripts/release.sh.
-  FOLDERS=(/srv/cbot /var/lib/cbot /root/cbot /opt/cbot /etc/cbot /var/log/cbot)
-  UNIT=/etc/systemd/system/cbot.service
+  FOLDERS=(/srv/dispatch /var/lib/dispatch /root/dispatch /opt/dispatch /etc/dispatch /var/log/dispatch)
+  UNIT=/etc/systemd/system/dispatch.service
   local reply='' host
   interactive=false
-  if [ -z "${CBOT_YES:-}" ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
+  if [ -z "${DISPATCH_YES:-}" ] && (exec </dev/tty) 2>/dev/null; then interactive=true; fi
   host="$(hostname)"
 
-  printf '%sRemoving cbot%s from %s\n' "$B" "$R" "$host"
-  installed || { printf '\n'; info "cbot isn't installed here."; return; }
-  if ! $interactive && [ -z "${CBOT_YES:-}" ]; then
-    die "Nobody is at a terminal to confirm. Run it with CBOT_YES=1 to remove cbot and all its data."
+  printf '%sRemoving Dispatch%s from %s\n' "$B" "$R" "$host"
+  installed || { printf '\n'; info "Dispatch isn't installed here."; return; }
+  if ! $interactive && [ -z "${DISPATCH_YES:-}" ]; then
+    die "Nobody is at a terminal to confirm. Run it with DISPATCH_YES=1 to remove Dispatch and all its data."
   fi
   trap on_exit EXIT
   # Ctrl+C and hang-ups end it through on_exit too, with their status: untrapped, on_exit would see 0.
@@ -377,9 +377,9 @@ main() {
   trap 'exit 143' TERM
 
   # The steps, in order; the full screen lists them before they run, so only those with work to do.
-  words=("Stopping cbot, the bots' screens and their agents") steps=(stop_everything)
+  words=("Stopping Dispatch, the bots' screens and their agents") steps=(stop_everything)
   if speech_here; then words+=("Removing the speech service") steps+=(remove_speech); fi
-  if [ -n "$(serve_ports)" ]; then words+=("Turning off cbot's Tailscale address") steps+=(remove_tailscale_serve); fi
+  if [ -n "$(serve_ports)" ]; then words+=("Turning off Dispatch's Tailscale address") steps+=(remove_tailscale_serve); fi
   words+=("Deleting the bots, chats, files, settings and Hermes Agent") steps+=(remove_files)
 
   # shellcheck disable=SC1091
@@ -387,10 +387,10 @@ main() {
   doing="Removing from $host" stages=(Confirm Remove Done) stage=0
   tui_start
   if $tui; then
-    tui_screen "Remove cbot?" \
+    tui_screen "Remove Dispatch?" \
       "This deletes every bot, chat and file, the account, the provider keys and settings, Hermes Agent and the speech service. It can't be undone." "" \
       "Google Chrome, Node.js, Docker, the desktop packages, Tailscale and whatever the bots installed stay on the machine."
-    tui_confirm "Remove cbot and all its data?" Remove "Keep cbot" || { tui_end; printf '\nStopped; nothing was removed.\n'; reported=true; exit 1; }
+    tui_confirm "Remove Dispatch and all its data?" Remove "Keep Dispatch" || { tui_end; printf '\nStopped; nothing was removed.\n'; reported=true; exit 1; }
     removing=true
     LOG="$(mktemp)"
     remove_tui
@@ -401,7 +401,7 @@ main() {
     info "packages and whatever the bots installed stay."
     echo
     if $interactive; then
-      printf '   Remove cbot and all its data? %s[y/N]%s ' "$D" "$R" >/dev/tty
+      printf '   Remove Dispatch and all its data? %s[y/N]%s ' "$D" "$R" >/dev/tty
       IFS= read -r reply </dev/tty || true
       [[ "$reply" == [yY]* ]] || die "Stopped; nothing was removed."
     fi
@@ -413,7 +413,7 @@ main() {
     remove_files
   fi
   removing=false
-  printf '\n%s%s cbot is gone.%s\n' "$G$B" "$OK" "$R"
+  printf '\n%s%s Dispatch is gone.%s\n' "$G$B" "$OK" "$R"
 }
 
 main

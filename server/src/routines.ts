@@ -41,7 +41,7 @@ export function unscheduleRoutine(id: string) {
 /**
  * Start a run of the routine, on its schedule or from "Run now". 'busy' when its last run is still going
  * or waiting: a routine that fires faster than it finishes skips a run instead of stacking turns ahead of
- * the user's messages. 'off' when this server runs no routines (CBOT_NO_SCHEDULER=1) or it's gone.
+ * the user's messages. 'off' when this server runs no routines (DISPATCH_NO_SCHEDULER=1) or it's gone.
  */
 export function runRoutine(id: string): 'queued' | 'busy' | 'off' {
   const r = db.prepare<[string], RoutineRecord>('SELECT * FROM routines WHERE id=?').get(id);

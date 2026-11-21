@@ -11,7 +11,7 @@ import { vncPortFor } from './machine.js';
  * and down.
  *
  * Everything is started detached, the way engine.ts starts the Hermes gateways, and carries
- * CBOT_DISPLAY=<n> in its environment. That tag is how a display that already runs is found again
+ * DISPATCH_DISPLAY=<n> in its environment. That tag is how a display that already runs is found again
  * and used as it is, and how stopping a display finds its pieces.
  */
 
@@ -19,8 +19,8 @@ import { vncPortFor } from './machine.js';
 export const SCREEN_SIZE = { width: 1440, height: 900 };
 
 
-const LOGS = '/var/log/cbot';
-const busDir = (n: number) => `/run/cbot/display-${n}`;
+const LOGS = '/var/log/dispatch';
+const busDir = (n: number) => `/run/dispatch/display-${n}`;
 const busAddress = (n: number) => `unix:path=${busDir(n)}/bus`;
 const xLock = (n: number) => `/tmp/.X${n}-lock`;
 const X_SOCKETS = '/tmp/.X11-unix';
@@ -57,7 +57,7 @@ const allPids = () => fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d)).map
 function pieces(n: number): Map<number, string> {
   const found = new Map<number, string>();
   for (const pid of allPids()) {
-    if (environ(pid).get('CBOT_DISPLAY') === String(n) && alive(pid)) found.set(pid, comm(pid));
+    if (environ(pid).get('DISPATCH_DISPLAY') === String(n) && alive(pid)) found.set(pid, comm(pid));
   }
   return found;
 }
@@ -117,7 +117,7 @@ function displayEnv(n: number): NodeJS.ProcessEnv {
 }
 
 /** The pieces of display :n carry its tag. */
-const pieceEnv = (n: number): NodeJS.ProcessEnv => ({ ...displayEnv(n), CBOT_DISPLAY: String(n) });
+const pieceEnv = (n: number): NodeJS.ProcessEnv => ({ ...displayEnv(n), DISPATCH_DISPLAY: String(n) });
 
 /** Start a long-lived piece of display :n, detached. `exited` says why it stopped, once it has. */
 function start(n: number, name: string, argv: string[], env: NodeJS.ProcessEnv): { exited: () => string | null } {
@@ -153,7 +153,7 @@ async function startXvnc(n: number) {
     // Only the relay connects, over loopback; it does its own sign-in check. Every connection comes
     // from 127.0.0.1, so a blacklist of hosts that fail to sign in could only lock the relay out.
     '-SecurityTypes', 'None', '-UseBlacklist=0', '-AlwaysShared', '-AcceptSetDesktopSize=0',
-    '-nolisten', 'tcp', '-s', '0', '-dpms', '-desktop', `cbot :${n}`,
+    '-nolisten', 'tcp', '-s', '0', '-dpms', '-desktop', `dispatch :${n}`,
   ], pieceEnv(n));
   for (let i = 0; i < 150; i++) {
     await sleep(100);

@@ -273,8 +273,8 @@ export interface EngineInfo {
 }
 
 /**
- * Updating cbot from GitHub (server/src/updates.ts). `current` is the running release's commit and
- * `available` the newest one on the branch cbot was installed from, when that is another commit, with
+ * Updating Dispatch from GitHub (server/src/updates.ts). `current` is the running release's commit and
+ * `available` the newest one on the branch Dispatch was installed from, when that is another commit, with
  * GitHub's page of what changed between them. `checkedAt` is when GitHub last answered.
  */
 export type UpdateState = {

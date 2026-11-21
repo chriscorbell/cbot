@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Sets a machine up as cbot's computer: what the bots' screens and the server run on, Node, Google
-# Chrome and Hermes Agent, and on the production host also Docker (for the speech service), cbot's
+# Sets a machine up as Dispatch's computer: what the bots' screens and the server run on, Node, Google
+# Chrome and Hermes Agent, and on the production host also Docker (for the speech service), Dispatch's
 # systemd unit and Tailscale Serve. Safe to run again: it installs only what is missing or changed.
 # scripts/release.sh runs it on the host whenever it or deploy/ changed; the dev image runs it at
 # build time.
@@ -121,7 +121,7 @@ HERMES_VERSION=v0.23.1
 HERMES_COMMIT=3b421578588243f920886e6fe79a6faa87ea026e
 COPILOT_PLUGIN_COMMIT=df8f1321941125d45dde71ab20196fbeea093191
 pin="$HERMES_VERSION $HERMES_COMMIT $COPILOT_PLUGIN_COMMIT"
-if [ "$(cat /opt/hermes/.cbot-pin 2>/dev/null)" != "$pin" ] || ! HERMES_HOME=/opt/hermes hermes --version >/dev/null 2>&1; then
+if [ "$(cat /opt/hermes/.dispatch-pin 2>/dev/null)" != "$pin" ] || ! HERMES_HOME=/opt/hermes hermes --version >/dev/null 2>&1; then
   say "Hermes Agent $HERMES_VERSION"
   [ -e /opt/hermes ] && mv /opt/hermes "/opt/hermes.$(date +%Y%m%d%H%M%S)"
   tmp="$(mktemp -d)"
@@ -134,7 +134,7 @@ if [ "$(cat /opt/hermes/.cbot-pin 2>/dev/null)" != "$pin" ] || ! HERMES_HOME=/op
   ln -sfn /opt/hermes/launcher/hermes /usr/local/bin/hermes
   HERMES_HOME=/opt/hermes hermes plugins install github-copilot --ref "$COPILOT_PLUGIN_COMMIT" --enable --yes-deps
   rm -rf /opt/hermes/cache
-  echo "$pin" > /opt/hermes/.cbot-pin
+  echo "$pin" > /opt/hermes/.dispatch-pin
 fi
 HERMES_HOME=/opt/hermes hermes --version | head -1
 
@@ -148,16 +148,16 @@ fi
 
 # ---------------------------------------------------------------- the production host
 
-# /srv/cbot: releases/<commit> and `current`, the one running (scripts/release.sh).
-# /var/lib/cbot: DATA_DIR (database, generated secret, the bots' Hermes homes).
-# /etc/cbot/env: the settings, from .env.prod on the dev machine (scripts/deploy.sh).
-# /root/cbot: the bots' Chrome profiles and Library files. /opt/cbot: the box scripts (desk.ts).
-install -d -m 0755 /srv/cbot /srv/cbot/releases /var/log/cbot
-install -d -m 0700 /var/lib/cbot /etc/cbot /root/cbot
+# /srv/dispatch: releases/<commit> and `current`, the one running (scripts/release.sh).
+# /var/lib/dispatch: DATA_DIR (database, generated secret, the bots' Hermes homes).
+# /etc/dispatch/env: the settings, from .env.prod on the dev machine (scripts/deploy.sh).
+# /root/dispatch: the bots' Chrome profiles and Library files. /opt/dispatch: the box scripts (desk.ts).
+install -d -m 0755 /srv/dispatch /srv/dispatch/releases /var/log/dispatch
+install -d -m 0700 /var/lib/dispatch /etc/dispatch /root/dispatch
 
-install -m 0644 "$here/deploy/cbot.service" /etc/systemd/system/cbot.service
+install -m 0644 "$here/deploy/dispatch.service" /etc/systemd/system/dispatch.service
 systemctl daemon-reload
-systemctl enable cbot.service >/dev/null 2>&1
+systemctl enable dispatch.service >/dev/null 2>&1
 systemctl enable --now docker.service >/dev/null 2>&1
 
 # Where Tailscale is installed, Tailscale Serve gives the app an HTTPS address on the tailnet, on the

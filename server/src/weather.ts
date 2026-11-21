@@ -8,7 +8,7 @@ const GEO = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST = 'https://api.open-meteo.com/v1/forecast';
 
 async function getJson(url: string): Promise<any> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { 'User-Agent': 'cbot' } });
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { 'User-Agent': 'dispatch' } });
   if (!res.ok) throw new Error(`weather service: HTTP ${res.status}`);
   return res.json();
 }
