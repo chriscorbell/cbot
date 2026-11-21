@@ -1,0 +1,66 @@
+# The bots' units, for real: builds the dev image, boots it with systemd as on a host (compose.yaml),
+# and runs tests/supervision.mjs against it. A bot answers through tests/fake-llm.mjs, so no keys are
+# needed. On pull requests that touch how the bots run, every night, and by hand.
+name: supervision
+
+on:
+  pull_request:
+    paths:
+      - deploy/**
+      - server/src/units.ts
+      - server/src/displays.ts
+      - server/src/engine.ts
+      - server/src/computer.ts
+      - server/src/desk.ts
+      - server/box/**
+      - Dockerfile
+      - .dockerignore
+      - compose.yaml
+      - scripts/provision.sh
+      - scripts/install-units.sh
+      - scripts/build-release.sh
+      - scripts/node.sha256
+      - .node-version
+      - package-lock.json
+      - tests/supervision.mjs
+      - tests/fake-llm.mjs
+      - .github/workflows/supervision.yml
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supervision-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  supervision:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # The image compose.yaml names, built as app-image.yml builds it (scripts/build-release.sh inside
+      # the Dockerfile), with its cache.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: dispatch:dev
+          cache-from: type=gha,scope=app
+      - run: cp .env.example .env
+      - run: docker compose -p dispatch-supervision up -d --no-build dispatch
+        env:
+          DISPATCH_PORT: '8792'
+      - run: node tests/supervision.mjs http://127.0.0.1:8792 dispatch-supervision-dispatch-1
+      - name: What the server and the bots' units logged
+        if: failure()
+        run: docker exec dispatch-supervision-dispatch-1 journalctl --no-pager -n 400 -u dispatch -u 'dispatch-gateway@*' -u 'dispatch-xvnc@*' -u 'dispatch-chrome-*' -u dispatch-test-llm
+      - if: always()
+        run: docker compose -p dispatch-supervision down -v
