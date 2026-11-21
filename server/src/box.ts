@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -36,6 +37,22 @@ const forBots = (file: string) => path.resolve(file).startsWith(`${path.resolve(
 /** A path safe to put inside single quotes in a shell command. */
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
+/**
+ * Why a box script gave no answer. `missing`: the script isn't where the release put it, or there is
+ * no python3, so the install is broken. `crashed`: it ran and failed (a traceback, a non-zero exit or
+ * a timeout), which is a bug to report, never a reason to set anything up again. `garbled`: it exited
+ * 0 but didn't print the one JSON object it answers with.
+ */
+export class BoxScriptError extends Error {
+  constructor(readonly kind: 'missing' | 'crashed' | 'garbled', message: string) {
+    super(message);
+    this.name = 'BoxScriptError';
+  }
+}
+
+/** The last lines of what a script printed, which is where a Python traceback says what went wrong. */
+const tail = (text: string, lines = 12) => text.trim().split('\n').slice(-lines).join('\n');
+
 export const box = {
   /** Run a bash command. `screenId` picks which screen's DISPLAY it sees. */
   bash(command: string, timeoutSec = 60, screenId?: string | null): Promise<BashResult> {
@@ -45,6 +62,31 @@ export const box = {
         const exit = errorField(err, 'code');
         const code = err ? (typeof exit === 'number' ? exit : 1) : 0;
         resolve({ output: `${stdout ?? ''}${stderr ?? ''}`, exit_code: code });
+      });
+    });
+  },
+
+  /**
+   * Run one of the Python box scripts (server/box/) with its arguments, as the server's own user, and
+   * return the JSON object it prints. Anything else throws a BoxScriptError that says which way it failed.
+   */
+  script(file: string, args: string[], timeoutSec: number): Promise<unknown> {
+    const name = `${path.basename(file)} ${args[0] ?? ''}`.trim();
+    if (!existsSync(file)) return Promise.reject(new BoxScriptError('missing', `${file} is missing: this install of Dispatch is incomplete`));
+    return new Promise((resolve, reject) => {
+      execFile('python3', [file, ...args], { timeout: timeoutSec * 1000, maxBuffer: 8 * 1024 * 1024, env: shellEnv() }, (err, stdout, stderr) => {
+        if (err) {
+          const code = errorField(err, 'code');
+          if (code === 'ENOENT') { reject(new BoxScriptError('missing', `python3 is not installed, so ${name} cannot run`)); return; }
+          const how = errorField(err, 'killed') ? `was stopped after ${timeoutSec}s` : `crashed (exit ${String(code ?? errorField(err, 'signal'))})`;
+          reject(new BoxScriptError('crashed', `${name} ${how}:\n${tail(`${stderr}`) || '(no output)'}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout) as unknown);
+        } catch {
+          reject(new BoxScriptError('garbled', `${name} didn't answer with JSON: ${stdout.trim().slice(0, 200) || '(nothing)'}`));
+        }
       });
     });
   },

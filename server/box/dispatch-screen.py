@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """dispatch-screen: makes X display :N look like one bot's own computer, and undoes it.
 
-Called by the server (server/src/desk.ts) with one short command per action. Slow work runs in a
-detached job; the caller gets `DISPATCH_DONE {json}` when the job finishes within the wait, else
-`DISPATCH_RUNNING <job>` and asks again with `wait`.
+The server (server/src/desk.ts) runs it from where the release put it, beside the other box scripts,
+with one command per action:
 
-  go N BASE STAMP FLAGS LOOK     dress screen N (FLAGS: letters r=restart Chrome, x=reset windows)
-  wait JOB SECONDS               keep waiting for a job
-  base-check BASE                is the one-time machine setup current?
-  base BASE                      run the one-time machine setup (as a job)
-  undress N BOT                  stop what we run on screen N
-  launch N APP                   start an app on screen N (also: browser, terminal, files)
+  base                 the one-time machine setup, again whenever these scripts change
+  dress N FLAGS LOOK   dress screen N (FLAGS: letters r=restart Chrome, x=reset windows, or -)
+  undress N BOT        stop what we run on screen N
+
+Each answers one JSON object on stdout and exits 0: {"done": RESULT} when the work is finished, or
+{"job": ID, "pid": PID, "result": FILE} when it goes on in a job of its own, which writes RESULT to
+FILE when it ends. RESULT is {"ok": true|false, "error": ..., "warnings": [...], ...}. Anything else
+(a traceback on stderr and a non-zero exit) is a bug in these scripts, and the server says so.
 """
 import base64
 import gzip
@@ -50,7 +51,13 @@ def log(*parts):
 
 # ---------------------------------------------------------------- jobs
 
+def answer(obj):
+    """The one JSON line the server reads (see the docstring above)."""
+    sys.stdout.write(json.dumps(obj) + '\n')
+
+
 def start_job(name, argv):
+    """Start `name` as a detached job. Returns the answer that tells the server where to find its result."""
     os.makedirs(JOBS, exist_ok=True)
     now = time.time()
     for old in os.listdir(JOBS):
@@ -61,24 +68,15 @@ def start_job(name, argv):
         except OSError:
             pass
     job = '%s-%d-%d' % (name, int(now * 1000), os.getpid())
-    # In a scope of its own, so a restart of the server doesn't cut a dressing or a package install short.
-    # It stays root: dressing writes Chrome's policies under /etc, and setting up installs packages.
-    dispatchlib.spawn([sys.executable, os.path.abspath(__file__), '_job', job, name] + argv, dict(os.environ), 'jobs',
-                      'dispatch-job-%s.scope' % job, dispatchlib.MACHINE_SLICE, cwd='/', account=False)
-    return job
+    # In a scope of its own, so a restart of the server doesn't cut a dressing short. It stays root:
+    # setting up writes Chrome's policies under /etc, and dressing starts units in a bot's slice.
+    pid = dispatchlib.spawn([sys.executable, os.path.abspath(__file__), '_job', job, name] + argv, dict(os.environ), 'jobs',
+                            'dispatch-job-%s.scope' % job, dispatchlib.MACHINE_SLICE, cwd='/', account=False)
+    return {'job': job, 'pid': pid, 'result': job_result(job)}
 
 
-def wait_job(job, seconds):
-    path = '%s/%s.json' % (JOBS, job)
-    end = time.time() + seconds
-    while True:
-        if os.path.exists(path):
-            print('DISPATCH_DONE ' + (dispatchlib.read_text(path) or '{}').strip())
-            return
-        if time.time() >= end:
-            print('DISPATCH_RUNNING ' + job)
-            return
-        time.sleep(0.15)
+def job_result(job):
+    return '%s/%s.json' % (JOBS, job)
 
 
 def run_job(job, name, argv):
@@ -88,20 +86,21 @@ def run_job(job, name, argv):
     try:
         with dispatchlib.held_lock('%s/%s.lock' % (JOBS, name)):
             if name == 'base':
-                result.update(do_base(argv[0], result['warnings']))
+                result.update(do_base(result['warnings']))
             elif name.startswith('dress-'):
                 result.update(do_dress(int(argv[0]), argv[1], argv[2], result['warnings']))
             else:
                 raise Fatal('unknown job %s' % name)
     except Fatal as e:
         result.update(ok=False, error=str(e))
-    except Exception as e:  # a bug or an odd machine: report it as a failure with the trace in the log
-        log('job %s crashed:\n%s' % (job, traceback.format_exc()))
-        result.update(ok=False, error='%s: %s' % (type(e).__name__, e))
+    except Exception as e:  # a bug or an odd machine: a failure the server reports with its trace
+        trace = traceback.format_exc()
+        log('job %s crashed:\n%s' % (job, trace))
+        result.update(ok=False, error='%s: %s' % (type(e).__name__, e), crashed=True, trace=trace[-4000:])
     result['seconds'] = round(time.time() - started, 2)
     log('job %s finished: ok=%s %.1fs warnings=%s %s' % (job, result['ok'], result['seconds'], result['warnings'],
                                                       result.get('error', '')))
-    dispatchlib.write_atomic('%s/%s.json' % (JOBS, job), json.dumps(result))
+    dispatchlib.write_atomic(job_result(job), json.dumps(result))
 
 
 # ---------------------------------------------------------------- one-time machine setup
@@ -122,7 +121,7 @@ def start_home(restart=False):
     for key in ('DISPLAY', 'GTK_THEME'):
         env.pop(key, None)
     try:
-        dispatchlib.start_service(dispatchlib.HOME_UNIT, dispatchlib.MACHINE_SLICE, [sys.executable, ROOT + '/dispatch-home.py'], env,
+        dispatchlib.start_service(dispatchlib.HOME_UNIT, dispatchlib.MACHINE_SLICE, [sys.executable, os.path.join(HERE, 'dispatch-home.py')], env,
                                   cwd='/', account=False)
     except RuntimeError as e:
         log(str(e))
@@ -171,10 +170,10 @@ def _field(number, data):
 def build_extension(warnings):
     """Pack the new-tab extension as a signed CRX3 with a key that never leaves this computer.
 
-    The key is Dispatch's, so it stays root's, beside the box scripts; a computer set up again makes a
-    new one, and Chrome takes the new extension from the policy.
+    The key is Dispatch's, so it stays root's, in the scripts' state folder; a computer set up again makes
+    a new one, and Chrome takes the new extension from the policy.
     """
-    src = EXT + '/src'
+    src = os.path.join(HERE, 'ext')
     key = os.path.join(ROOT, 'home-extension.pem')
     os.makedirs(os.path.dirname(key), exist_ok=True)
     state_path = EXT + '/state.json'
@@ -293,7 +292,24 @@ def write_gtk_settings(warnings):
         warnings.append('could not write %s: %s' % (GTK_SETTINGS, e))
 
 
-def do_base(base_hash, warnings):
+# What earlier versions copied into ROOT to run from there. The scripts now run from the release.
+OLD_COPIES = ('dispatchlib.py', 'dispatch-screen.py', 'dispatch-shell.py', 'dispatch-home.py', 'home.html', 'machine.json',
+              'bundle.json.gz', 'ext/src', '__pycache__')
+
+
+def forget_old_copies():
+    if os.path.realpath(ROOT) == os.path.realpath(HERE):
+        return
+    for name in OLD_COPIES:
+        path = os.path.join(ROOT, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+        elif os.path.lexists(path):
+            os.unlink(path)
+
+
+def do_base(warnings):
+    forget_old_copies()
     os.makedirs(ROOT + '/screens', exist_ok=True)
     os.makedirs(LOGS, exist_ok=True)
     dispatchlib.makedirs_owned(dispatchlib.PROFILES)
@@ -309,19 +325,20 @@ def do_base(base_hash, warnings):
     write_gtk_settings(warnings)
     if not start_home(restart=True):
         warnings.append('the home screen server did not start (journalctl -u %s says why)' % dispatchlib.HOME_UNIT)
-    # Desktop pieces that are already up run the old code; bring them back on the new one.
+    # Desktop pieces that are already up run the old code, from where it was; bring them back on this.
     for unit in dispatchlib.active_units('dispatch-shell-*.service'):
         n = unit[len('dispatch-shell-'):-len('.service')]
         dispatchlib.stop_units(unit)
         if shell_ok and n.isdigit() and dispatchlib.look_for(int(n)):
             start_shell(int(n))
-    dispatchlib.write_json(ROOT + '/base.json', {'hash': base_hash, 'shell': shell_ok, 'extension': state.get('id'),
-                                           'policy': policy_files, 'at': int(time.time())})
+    dispatchlib.write_json(ROOT + '/base.json', {'code': dispatchlib.code_version(), 'shell': shell_ok,
+                                                 'extension': state.get('id'), 'policy': policy_files, 'at': int(time.time())})
     return {'policy': policy_files, 'extension': state.get('id'), 'shell': shell_ok}
 
 
-def base_current(base_hash):
-    return (dispatchlib.read_json(ROOT + '/base.json') or {}).get('hash') == base_hash
+def base_current():
+    """Whether the one-time setup ran for these very scripts (this release's, as they are now)."""
+    return (dispatchlib.read_json(ROOT + '/base.json') or {}).get('code') == dispatchlib.code_version()
 
 
 # ---------------------------------------------------------------- dressing a screen
@@ -331,7 +348,7 @@ def start_shell(n):
     stays root, as Dispatch's own piece: what the dock opens goes through systemd (launch_app), as the
     bots' account, which only root may ask for. It needs no session bus, and the screen's bus answers
     the bots' account alone."""
-    dispatchlib.start_service(dispatchlib.shell_unit(n), dispatchlib.screen_slice(n), [sys.executable, ROOT + '/dispatch-shell.py', str(n)],
+    dispatchlib.start_service(dispatchlib.shell_unit(n), dispatchlib.screen_slice(n), [sys.executable, os.path.join(HERE, 'dispatch-shell.py'), str(n)],
                               dispatchlib.base_env(n, account=False), account=False)
 
 
@@ -384,8 +401,13 @@ def close_windows(n):
     return len(targets())
 
 
+def read_look(look_b64):
+    """The look the server sends: gzipped JSON in base64, which fits in one argument."""
+    return json.loads(gzip.decompress(base64.b64decode(look_b64)).decode('utf-8'))
+
+
 def do_dress(n, flags, look_b64, warnings):
-    look = json.loads(gzip.decompress(base64.b64decode(look_b64)).decode('utf-8'))
+    look = read_look(look_b64)
     stamp = look['stamp']
     bot = look['bot']
     restart, reset = 'r' in flags, 'x' in flags
@@ -433,15 +455,18 @@ def do_dress(n, flags, look_b64, warnings):
         raise Fatal(str(e))
     warnings.extend(chrome['warnings'])
     lap('chrome')
-    dispatchlib.write_json(folder + '/stamp.json', {'stamp': stamp, 'shell': shell, 'at': int(time.time())})
+    dispatchlib.write_json(folder + '/stamp.json', {'stamp': stamp, 'code': dispatchlib.code_version(), 'shell': shell,
+                                                    'at': int(time.time())})
     return {'timings': timings, 'size': list(size), 'chromeStarted': chrome['started']}
 
 
 def screen_ok(n, stamp, bot_id):
-    """Cheap check that the screen still wears this exact look and its pieces are alive."""
+    """Cheap check that the screen still wears this exact look, dressed by these scripts, and its pieces are alive."""
     folder = dispatchlib.screen_dir(n)
     applied = dispatchlib.read_json(folder + '/stamp.json') or {}
     if applied.get('stamp') != stamp or (dispatchlib.look_for(n) or {}).get('stamp') != stamp:
+        return False
+    if applied.get('code') != dispatchlib.code_version():
         return False
     if applied.get('shell'):
         state = dispatchlib.read_json(folder + '/shell.json') or {}
@@ -483,26 +508,19 @@ def main(argv):
     cmd = argv[0] if argv else ''
     if cmd == '_job':
         run_job(argv[1], argv[2], argv[3:])
-    elif cmd == 'go':
-        n, base_hash, stamp, flags, look_b64 = int(argv[1]), argv[2], argv[3], argv[4].strip('-'), argv[5]
-        if not base_current(base_hash):
-            print('DISPATCH_NOBASE')
-            return
-        look = json.loads(gzip.decompress(base64.b64decode(look_b64)).decode('utf-8'))
-        if not flags and screen_ok(n, stamp, look['bot']['id']):
-            print('DISPATCH_OK')
-            return
-        wait_job(start_job('dress-%d' % n, [str(n), flags or '-', look_b64]), 25)
-    elif cmd == 'wait':
-        wait_job(argv[1], float(argv[2]) if len(argv) > 2 else 25)
-    elif cmd == 'base-check':
-        if base_current(argv[1]) and start_home():
-            print('DISPATCH_BASE_OK ' + json.dumps(dispatchlib.read_json(ROOT + '/base.json') or {}))
+    elif cmd == 'base' and len(argv) == 1:
+        if base_current() and start_home():
+            answer({'done': {'ok': True, 'already': True, 'warnings': []}})
         else:
-            print('DISPATCH_NOBASE')
-    elif cmd == 'base':
-        wait_job(start_job('base', [argv[1]]), 25)
-    elif cmd == 'undress':
+            answer(start_job('base', []))
+    elif cmd == 'dress' and len(argv) == 4:
+        n, flags, look_b64 = int(argv[1]), argv[2].strip('-'), argv[3]
+        look = read_look(look_b64)
+        if not flags and screen_ok(n, look['stamp'], look['bot']['id']):
+            answer({'done': {'ok': True, 'already': True, 'warnings': []}})
+        else:
+            answer(start_job('dress-%d' % n, [str(n), flags or '-', look_b64]))
+    elif cmd == 'undress' and len(argv) in (2, 3):
         # A dressing job for this display may still be running (its caller gave up waiting). Let it
         # finish first, so it can't put back what undressing takes away; after a minute stop it.
         n = int(argv[1])
@@ -511,10 +529,7 @@ def main(argv):
                 log('undress :%d: a dressing job still holds the screen; stopping it' % n)
                 dispatchlib.stop_units('dispatch-job-dress-%d-*.scope' % n)
             do_undress(n, argv[2] if len(argv) > 2 else '')
-        print('DISPATCH_DONE {"ok": true}')
-    elif cmd == 'launch':
-        dispatchlib.launch_app(int(argv[1]), argv[2])
-        print('DISPATCH_DONE {"ok": true}')
+        answer({'done': {'ok': True, 'warnings': []}})
     else:
         sys.stderr.write(__doc__)
         sys.exit(2)

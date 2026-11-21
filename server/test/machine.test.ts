@@ -3,7 +3,7 @@
 import { expect, test } from 'vitest';
 import fs from 'node:fs';
 import {
-  BOX_ROOT, BOTS_DIR, BOTS_ROOT, cdpPortFor, displayFor, displayNumber, ENGINE_PORT_BASE, ENGINES_ROOT, FIRST_BOT_DISPLAY, HERMES_ROOT,
+  BOX_ROOT, BOX_SCRIPTS, BOTS_DIR, BOTS_ROOT, cdpPortFor, displayFor, displayNumber, ENGINE_PORT_BASE, ENGINES_ROOT, FIRST_BOT_DISPLAY, HERMES_ROOT,
   HOME_PORT, LIBRARY_ROOT, LOGS_ROOT, MACHINE_FILE, PROFILES_ROOT, RUN_ROOT, vncPortFor,
 } from '../src/machine.js';
 import { env } from '../src/env.js';
@@ -30,6 +30,12 @@ test('the folders and ports come from machine.json, the bots\' in their account\
   expect(FIRST_BOT_DISPLAY).toBe(machine.firstBotDisplay);
 });
 
+test('the box scripts run from beside the server, where the release put them', () => {
+  expect(BOX_SCRIPTS).toMatch(/\/server\/box$/);
+  expect(fs.existsSync(`${BOX_SCRIPTS}/dispatch-screen.py`)).toBe(true);
+  expect(new URL(MACHINE_FILE).pathname).toBe(`${BOX_SCRIPTS}/machine.json`);
+});
+
 test('screen ids name displays, and displays name ports', () => {
   expect(displayFor('default')).toBe(`:${machine.primaryDisplay}`);
   expect(displayFor(null)).toBe(':99');
@@ -37,10 +43,6 @@ test('screen ids name displays, and displays name ports', () => {
   expect(cdpPortFor('default')).toBe(9299);
   expect(cdpPortFor('screen-101')).toBe(machine.cdpPortBase + 101);
   expect(vncPortFor(101)).toBe(machine.vncPortBase + 101);
-});
-
-test('the box scripts get machine.json with them', () => {
-  expect(fs.readFileSync(new URL('../src/desk.ts', import.meta.url), 'utf8')).toMatch(/'machine\.json': 'machine\.json'/);
 });
 
 test('the unit files name the same run folder the server writes their environment to', () => {

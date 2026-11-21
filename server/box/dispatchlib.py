@@ -14,6 +14,7 @@ server leaves it running and systemd knows where it is:
 import configparser
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import pwd
@@ -25,11 +26,15 @@ import subprocess
 import time
 import urllib.request
 
+# The scripts run from where the release put them (server/box/), and keep what they make in ROOT.
+SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+
 # Where things live on the computer, and the port and display numbers: machine.json beside this file,
-# which server/src/machine.ts reads too (desk.ts installs it here with the scripts).
-with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'machine.json'), encoding='utf-8') as _f:
+# which server/src/machine.ts reads too.
+with open(os.path.join(SCRIPTS, 'machine.json'), encoding='utf-8') as _f:
     MACHINE = json.load(_f)
 
+# The scripts' state: each screen's look, the dressing jobs, the home screen extension they pack.
 ROOT = MACHINE['boxRoot']
 SCREENS = ROOT + '/screens'
 JOBS = ROOT + '/jobs'
@@ -76,6 +81,26 @@ APP_DIRS = (
 
 
 # ---------------------------------------------------------------- small file helpers
+
+_code_version = []
+
+
+def code_version():
+    """What these scripts are: their folder and every file in it. The one-time setup and each screen's
+    dressing record it, so a release with other scripts (or the same ones from another folder, which
+    the units started from the old one would keep running from) sets up and dresses again."""
+    if not _code_version:
+        h = hashlib.sha256(SCRIPTS.encode() + b'\0')
+        for folder, dirs, files in sorted(os.walk(SCRIPTS)):
+            dirs[:] = sorted(d for d in dirs if d != '__pycache__')
+            for name in sorted(files):
+                if name.endswith(('.py', '.json', '.html', '.js')) and not name.startswith('test_'):
+                    path = os.path.join(folder, name)
+                    with open(path, 'rb') as f:
+                        h.update(os.path.relpath(path, SCRIPTS).encode() + b'\0' + f.read() + b'\0')
+        _code_version.append(h.hexdigest()[:20])
+    return _code_version[0]
+
 
 def read_text(path, default=None):
     try:

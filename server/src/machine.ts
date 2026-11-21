@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { ACCOUNT } from './account.js';
 
@@ -7,8 +8,7 @@ import { ACCOUNT } from './account.js';
  * screen maps to an X display and ports. Code that needs one of these imports it from here.
  *
  * The values the box scripts need too are in server/box/machine.json, which this file and
- * server/box/dispatchlib.py both read, so the two can't drift apart. desk.ts installs it beside the
- * scripts. The bots' own files are in the home of the account they run as (account.ts), so BOTS_ROOT
+ * server/box/dispatchlib.py both read, so the two can't drift apart. The bots' own files are in the home of the account they run as (account.ts), so BOTS_ROOT
  * is found from that account when the server starts. scripts/provision.sh creates BOX_ROOT and
  * HERMES_ROOT.
  */
@@ -26,7 +26,8 @@ const Machine = z.object({
   primaryDisplay: z.number().int(),
   firstBotDisplay: z.number().int(),
 });
-/** server/box/ sits next to both src/ (tsx, vitest) and dist/ (after tsc), as desk.ts relies on too. */
+/** The box scripts (server/box/), which sit next to both src/ (tsx, vitest) and dist/ (after tsc), so a release runs its own. */
+export const BOX_SCRIPTS = fileURLToPath(new URL('../box/', import.meta.url)).replace(/\/$/, '');
 export const MACHINE_FILE = new URL('../box/machine.json', import.meta.url);
 const machine = Machine.parse(JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8')));
 
@@ -43,7 +44,7 @@ export const profileDir = (botId: string) => `${PROFILES_ROOT}/${botId}`;
 /** Each bot's Hermes home (engine.ts). */
 export const ENGINES_ROOT = `${BOTS_ROOT}/engines`;
 
-/** Where desk.ts installs the box scripts. */
+/** What the box scripts make and keep: each screen's look, the dressing jobs and their results, the home screen extension. */
 export const BOX_ROOT = machine.boxRoot;
 /** The Hermes install every bot's home links to (scripts/provision.sh). */
 export const HERMES_ROOT = machine.hermesRoot;

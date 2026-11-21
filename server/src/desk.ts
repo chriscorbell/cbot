@@ -1,143 +1,106 @@
 import { createHash } from 'node:crypto';
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { z } from 'zod';
 import { box } from './box.js';
-import { BOX_ROOT, displayNumber } from './machine.js';
+import { BOX_SCRIPTS, displayNumber, LOGS_ROOT } from './machine.js';
+import { errorField, errorText } from './lib/errors.js';
 
 /**
  * The desk: what makes one screen of the shared computer look like one bot's own tidy computer.
  * A soft wallpaper in the bot's colour, no taskbar, a small dock, a light maximized Chrome, and a
  * home screen (the bot's avatar, a clock, the computer's apps) as Chrome's new tab page.
  *
- * The work on the computer is done by the scripts in server/box/, which this file installs under
- * /opt/dispatch and then calls with one short command per action. The display itself is started by
- * displays.ts; everything the scripts need on it is installed by scripts/provision.sh.
+ * The work on the computer is done by the scripts in server/box/, which this file runs from where the
+ * release put them, one command per action (dispatch-screen.py's docstring has the commands and what
+ * they answer). The display itself is started by displays.ts; everything the scripts need on it is
+ * installed by scripts/provision.sh.
  */
 
 export interface DeskBot { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 
-const ROOT = BOX_ROOT;
-const SCRIPT = `${ROOT}/dispatch-screen.py`;
-/** Source file under server/box/ -> where it lives under /opt/dispatch on the computer. */
-const BOX_FILES: Record<string, string> = {
-  'machine.json': 'machine.json',
-  'dispatchlib.py': 'dispatchlib.py',
-  'dispatch-screen.py': 'dispatch-screen.py',
-  'dispatch-shell.py': 'dispatch-shell.py',
-  'dispatch-home.py': 'dispatch-home.py',
-  'home.html': 'home.html',
-  'ext/manifest.json': 'ext/src/manifest.json',
-  'ext/newtab.html': 'ext/src/newtab.html',
-  'ext/newtab.js': 'ext/src/newtab.js',
-};
+const SCRIPT = path.join(BOX_SCRIPTS, 'dispatch-screen.py');
 
 const warn = (message: string) => console.warn(`[desk] ${message}`);
 const sha = (s: string | Buffer) => createHash('sha256').update(s).digest('hex');
 
 
-// ---------------------------------------------------------------- the files that go on the computer
+// ---------------------------------------------------------------- talking to dispatch-screen.py
 
-interface Bundle { files: Record<string, string>; hash: string }
-let bundleCache: Bundle | null = null;
+/**
+ * What a finished piece of work reports. Its warnings are logged; ok false is a failure with its error,
+ * and `crashed` a bug in the scripts, with the Python traceback in `trace`.
+ */
+const Result = z.object({
+  ok: z.boolean(), error: z.string().optional(), warnings: z.array(z.string()).default([]),
+  crashed: z.boolean().optional(), trace: z.string().optional(),
+}).passthrough();
+type Result = z.infer<typeof Result>;
+/** Every command answers with its result, or with the detached job that will write it to `result`. */
+const Answer = z.union([
+  z.object({ done: Result }),
+  z.object({ job: z.string(), pid: z.number().int(), result: z.string() }),
+]);
 
-/** server/box/ sits next to both src/ (tsx) and dist/ (after tsc). */
-function bundle(): Bundle {
-  if (bundleCache) return bundleCache;
-  const files: Record<string, string> = {};
-  const h = createHash('sha256');
-  for (const [src, dest] of Object.entries(BOX_FILES)) {
-    const text = fs.readFileSync(new URL(`../box/${src}`, import.meta.url), 'utf8');
-    files[dest] = text;
-    h.update(`${dest}\0${sha(text)}\n`);
+/**
+ * One call to dispatch-screen.py, followed to its end within maxSec: a job's result file is read where
+ * the script said it would be, with no process started to ask. A script that is missing or crashed
+ * throws (box.script says which), and is logged here in full, since it is a bug and not a state to
+ * recover from.
+ */
+async function screenScript(args: string[], what: string, maxSec: number): Promise<Result> {
+  let answer: z.infer<typeof Answer>;
+  try {
+    answer = Answer.parse(await box.script(SCRIPT, args, maxSec));
+  } catch (e) {
+    const message = e instanceof z.ZodError ? `the answer isn't what dispatch-screen.py sends: ${e.message}` : errorText(e);
+    console.error(`[desk] ${what}: ${message}`);
+    throw new Error(`${what} failed: ${message.split('\n')[0]}`);
   }
-  bundleCache = { files, hash: h.digest('hex').slice(0, 20) };
-  return bundleCache;
-}
-
-// ---------------------------------------------------------------- talking to the box-side script
-
-interface Reply { kind: 'OK' | 'DONE' | 'RUNNING' | 'NOBASE' | 'BASE_OK' | 'NONE'; rest: string; raw: string }
-
-function parseReply(output: string): Reply {
-  const lines = output.split('\n').map((l) => l.trim()).filter(Boolean);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = /^DISPATCH_(OK|DONE|RUNNING|NOBASE|BASE_OK)\b ?(.*)$/.exec(lines[i]);
-    if (m) return { kind: m[1] as Reply['kind'], rest: m[2], raw: output };
-  }
-  return { kind: 'NONE', rest: '', raw: output };
-}
-
-/** One call to dispatch-screen.py. A missing or failing script answers NOBASE so the caller can install it. */
-async function script(args: string[], screenId?: string, timeoutSec = 60): Promise<Reply> {
-  const cmd = `[ -f ${SCRIPT} ] && python3 ${SCRIPT} ${args.map(box.quote).join(' ')} 2>&1 || echo DISPATCH_NOBASE`;
-  const r = await box.bash(cmd, timeoutSec, screenId);
-  return parseReply(r.output);
-}
-
-interface JobResult { ok?: boolean; error?: string; warnings?: string[]; [k: string]: unknown }
-
-/** Follow a detached job on the computer to its end. Its warnings are logged; a failure throws. */
-async function finish(first: Reply, what: string, maxSec: number): Promise<JobResult> {
-  let reply = first;
-  const end = Date.now() + maxSec * 1000;
-  while (reply.kind === 'RUNNING') {
-    if (Date.now() > end) throw new Error(`${what} is taking too long (still running after ${maxSec}s)`);
-    reply = await script(['wait', reply.rest.trim(), '25']);
-  }
-  if (reply.kind === 'OK') return { ok: true };
-  if (reply.kind !== 'DONE') throw new Error(`${what} failed: ${reply.raw.trim().slice(-300) || 'no answer from the computer'}`);
-  // The box script always sends JSON after DONE ('{}' at least). Anything else is an answer cut short
-  // or mixed with other output, and counting it as success would hide a job that failed.
-  let result: JobResult;
-  try { result = JSON.parse(reply.rest) as JobResult; } catch {
-    throw new Error(`${what} failed: the computer's answer isn't JSON: ${reply.rest.trim().slice(0, 200) || '(empty)'}`);
-  }
-  if (!result || typeof result !== 'object') throw new Error(`${what} failed: the computer's answer isn't a JSON object`);
-  for (const w of result.warnings ?? []) warn(w);
-  if (result.ok === false) throw new Error(`${what} failed: ${result.error ?? 'unknown error'}`);
+  const result = 'done' in answer ? answer.done : await jobResult(answer, what, maxSec);
+  for (const w of result.warnings) warn(w);
+  if (result.crashed) console.error(`[desk] ${what}: dispatch-screen.py crashed:\n${result.trace ?? result.error ?? ''}`);
+  if (!result.ok) throw new Error(`${what} failed: ${result.error ?? 'unknown error'}`);
   return result;
+}
+
+/** A job's result, once its file is there. A job that ends without writing one (killed) is a failure, not a wait until maxSec. */
+async function jobResult(job: { job: string; pid: number; result: string }, what: string, maxSec: number): Promise<Result> {
+  const end = Date.now() + maxSec * 1000;
+  for (let i = 0; ; i++) {
+    const text = await fs.readFile(job.result, 'utf8').catch(() => null);
+    if (text !== null) {
+      try { return Result.parse(JSON.parse(text)); } catch (e) {
+        throw new Error(`${what} failed: its result (${job.result}) isn't what dispatch-screen.py writes: ${errorText(e)}`);
+      }
+    }
+    // Every two seconds, whether the job is still there; it writes its result before it exits.
+    if (i % 10 === 9 && !alive(job.pid) && (await fs.access(job.result).then(() => false, () => true))) {
+      throw new Error(`${what} failed: job ${job.job} ended without a result (${LOGS_ROOT}/jobs.log has its output)`);
+    }
+    if (Date.now() > end) throw new Error(`${what} is taking too long (job ${job.job} still running after ${maxSec}s)`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+/** Whether a process is there. Signal 0 only asks; EPERM means it is, but isn't ours to signal. */
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (e) { return errorField(e, 'code') === 'EPERM'; }
 }
 
 // ---------------------------------------------------------------- one-time machine setup
 
 let basePromise: Promise<void> | null = null;
 
-async function setupBase(): Promise<void> {
-  const b = bundle();
-  const check = await script(['base-check', b.hash]);
-  if (check.kind === 'BASE_OK') return;
-  // The scripts are missing or changed: send them over in one piece and unpack.
-  const packed = gzipSync(Buffer.from(JSON.stringify({ files: b.files }), 'utf8'));
-  await box.writeFile(`${ROOT}/bundle.json.gz`, packed);
-  const unpack = [
-    'import gzip, json, os',
-    `root = ${JSON.stringify(ROOT)}`,
-    "files = json.load(gzip.open(root + '/bundle.json.gz', 'rt', encoding='utf-8'))['files']",
-    'for rel, text in files.items():',
-    '    path = os.path.join(root, rel)',
-    '    os.makedirs(os.path.dirname(path), exist_ok=True)',
-    "    with open(path + '.new', 'w', encoding='utf-8') as f:",
-    '        f.write(text)',
-    "    os.chmod(path + '.new', 0o755 if rel.endswith('.py') else 0o644)",
-    "    os.replace(path + '.new', path)",
-    "src = root + '/ext/src'",
-    'for name in os.listdir(src):',
-    "    if 'ext/src/' + name not in files:",
-    '        os.unlink(os.path.join(src, name))',
-    "os.unlink(root + '/bundle.json.gz')",
-    "print('DISPATCH_UNPACKED')",
-  ].join('\n');
-  const r = await box.bash(`python3 -c ${box.quote(unpack)} 2>&1`, 60);
-  if (!r.output.includes('DISPATCH_UNPACKED')) {
-    throw new Error(`could not install the desktop scripts on the computer (python3 is needed): ${r.output.trim().slice(-300)}`);
-  }
-  await finish(await script(['base', b.hash]), 'computer setup', 180);
-}
-
-/** One-time machine setup (scripts, home server, Chrome policy/extension). Idempotent, memoised per process, cheap when already done. */
+/**
+ * One-time machine setup (the home screen server, Chrome's policy and the extension, the bots' folders),
+ * again whenever the scripts change. Memoised per process, and cheap when already done.
+ */
 export function ensureDeskBase(): Promise<void> {
   if (!basePromise) {
-    basePromise = setupBase().catch((e) => { basePromise = null; throw e; });
+    basePromise = screenScript(['base'], 'computer setup', 180).then(() => undefined).catch((e: unknown) => { basePromise = null; throw e; });
   }
   return basePromise;
 }
@@ -217,7 +180,7 @@ function shapes(): Record<string, ShapeDef> {
   if (shapesCache) return shapesCache;
   shapesCache = {};
   try {
-    const text = fs.readFileSync(new URL('../../web/src/avatar/shapes.gen.ts', import.meta.url), 'utf8');
+    const text = readFileSync(new URL('../../web/src/avatar/shapes.gen.ts', import.meta.url), 'utf8');
     const start = text.indexOf('{', text.indexOf('SHAPES'));
     const end = text.lastIndexOf('}');
     if (start > 0 && end > start) shapesCache = JSON.parse(text.slice(start, end + 1)) as Record<string, ShapeDef>;
@@ -239,7 +202,8 @@ function avatarSvg(shape: string, fill: string): string {
 
 // ---------------------------------------------------------------- the look of one screen
 
-function lookFor(bot: DeskBot): { stamp: string; payload: string } {
+/** The look as dispatch-screen.py takes it, with a stamp that changes whenever the look does: gzipped JSON in base64. */
+function lookFor(bot: DeskBot): string {
   const hex = colorHex(bot.avatarColor);
   const p = paletteFor(hex);
   const look = {
@@ -248,8 +212,8 @@ function lookFor(bot: DeskBot): { stamp: string; payload: string } {
     avatarSvg: avatarSvg(bot.avatarShape, hex),
     wallSvg: wallpaperSvg(p),
   };
-  const stamp = sha(`${bundle().hash}\n${JSON.stringify(look)}`).slice(0, 20);
-  return { stamp, payload: gzipSync(Buffer.from(JSON.stringify({ stamp, ...look }), 'utf8')).toString('base64') };
+  const stamp = sha(JSON.stringify(look)).slice(0, 20);
+  return gzipSync(Buffer.from(JSON.stringify({ stamp, ...look }), 'utf8')).toString('base64');
 }
 
 /** Calls for one screen run one after another, so a rename and a reset cannot trip over each other. */
@@ -266,20 +230,12 @@ async function dress(bot: DeskBot, screenId: string, flags: string, what: string
   if (!/^[\w.-]+$/.test(bot.id)) throw new Error(`bot id ${JSON.stringify(bot.id)} cannot be used as a folder name`);
   const n = displayNumber(screenId);
   if (!Number.isInteger(n)) throw new Error(`unknown screen ${screenId}`);
-  const { stamp, payload } = lookFor(bot);
-  const args = ['go', String(n), bundle().hash, stamp, flags || '-', payload];
-  let reply = await script(args, screenId);
-  if (reply.kind === 'NOBASE' || reply.kind === 'NONE') {
-    basePromise = null;                 // whatever we knew about the computer is out of date
-    await ensureDeskBase();
-    reply = await script(args, screenId);
-    if (reply.kind === 'NOBASE') throw new Error(`${what} failed: the desktop scripts on the computer do not run (${reply.raw.trim().slice(-200)})`);
-  }
-  await finish(reply, what, 240);
+  await ensureDeskBase();
+  await screenScript(['dress', String(n), flags || '-', lookFor(bot)], what, 240);
 }
 
 /** Make `screenId` look like `bot`'s computer and start the bot's Chrome there (own profile, own DevTools port, maximized, on its home screen)
- *  if it isn't running. Idempotent and quick when nothing changed (a stamp on the box says what was applied, so a repeat call is ~1 bash call).
+ *  if it isn't running. Idempotent and quick when nothing changed (a stamp on the box says what was applied, so a repeat call is one short script run).
  *  restartChrome restarts that Chrome so it picks up a new look. */
 export function dressScreen(bot: DeskBot, screenId: string, opts?: { restartChrome?: boolean }): Promise<void> {
   return inTurn(screenId, () => dress(bot, screenId, opts?.restartChrome ? 'r' : '', `dressing screen ${screenId}`));
@@ -294,10 +250,6 @@ export function resetScreen(bot: DeskBot, screenId: string): Promise<void> {
 export function undressScreen(botId: string, screenId: string): Promise<void> {
   return inTurn(screenId, async () => {
     if (botId && !/^[\w.-]+$/.test(botId)) throw new Error(`bot id ${JSON.stringify(botId)} cannot be used as a folder name`);
-    const reply = await script(['undress', String(displayNumber(screenId)), botId], screenId, 90);
-    // No scripts on the computer means nothing of ours runs there either.
-    if (reply.kind === 'NOBASE' && !reply.raw.includes('Traceback')) return;
-    if (reply.kind !== 'DONE') throw new Error(`undressing screen ${screenId} failed: ${reply.raw.trim().slice(-300)}`);
+    await screenScript(['undress', String(displayNumber(screenId)), botId], `undressing screen ${screenId}`, 240);
   });
 }
-
