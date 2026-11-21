@@ -24,17 +24,33 @@ say() { echo "[provision] $*"; }
 
 # ---------------------------------------------------------------- vendor apt repositories
 
-# keyring <file> <url>: a vendor's signing key, dearmored when it comes as ASCII.
+# key_of <file>: the fingerprint of each primary key in a key file, armored or not.
+key_of() { gpg --show-keys --with-colons "$1" 2>/dev/null | awk -F: '$1 == "pub" { p = 1 } $1 == "fpr" && p { print $10; p = 0 }'; }
+
+# keyring <file> <url> <fingerprint>: a vendor's apt signing key, trusted only when it is exactly the
+# key with that fingerprint, so a changed key at the URL (or on the machine) stops provisioning
+# rather than being trusted for every package after it. Kept unarmored, as apt reads a .gpg file.
 keyring() {
-  [ -s "$1" ] && return 0
+  local tmp
+  [ -s "$1" ] && [ "$(key_of "$1")" = "$3" ] && return 0
+  tmp="$(mktemp)"
+  curl -fsSL "$2" -o "$tmp"
+  if [ "$(key_of "$tmp")" != "$3" ]; then
+    echo "The signing key at $2 isn't the one expected ($3), so it isn't trusted. It has: $(key_of "$tmp" | tr '\n' ' ')" >&2
+    rm -f "$tmp"
+    exit 1
+  fi
   mkdir -p "$(dirname "$1")"
-  curl -fsSL "$2" | gpg --dearmor --yes -o "$1"
+  if grep -q -- '-----BEGIN PGP PUBLIC KEY BLOCK-----' "$tmp"; then gpg --dearmor --yes -o "$1" "$tmp"; else install -m 0644 "$tmp" "$1"; fi
+  rm -f "$tmp"
 }
 
 apt-get update -qq
 apt_install ca-certificates curl gnupg
 
-keyring /usr/share/keyrings/google-chrome.gpg https://dl.google.com/linux/linux_signing_key.pub
+# Chrome follows the stable channel on purpose: apt upgrades bring its security fixes.
+# Fingerprint: https://www.google.com/linuxrepositories/ (the current signing key).
+keyring /usr/share/keyrings/google-chrome.gpg https://dl.google.com/linux/linux_signing_key.pub EB4C1BFD4F042F6DDDCCEC917721F63BD38B4796
 # The same file Chrome's package writes for itself, so its own setup leaves it as it is.
 cat > /etc/apt/sources.list.d/google-chrome.sources <<'EOF'
 ### THIS FILE IS AUTOMATICALLY CONFIGURED ###
@@ -49,8 +65,10 @@ Architectures: amd64
 Signed-By: /usr/share/keyrings/google-chrome.gpg
 EOF
 
-# Node 24 from NodeSource; apt keeps it patched within 24.x.
-keyring /usr/share/keyrings/nodesource.gpg https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+# Node 24 from NodeSource; apt keeps it patched within 24.x. NodeSource doesn't publish its key's
+# fingerprint; this is the key its setup script (nodesource/distributions, scripts/deb/setup_24.x)
+# downloads, on keyserver.ubuntu.com since 2016 as "NSolid <nsolid-gpg@nodesource.com>".
+keyring /usr/share/keyrings/nodesource.gpg https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
 cat > /etc/apt/sources.list.d/nodesource.sources <<'EOF'
 Types: deb
 URIs: https://deb.nodesource.com/node_24.x
@@ -64,14 +82,17 @@ if ! $container; then
   # Docker Engine and Compose from Docker's repository, not the distribution's docker.io. Docker
   # keeps one repository for Debian and one for Ubuntu; Ubuntu's derivatives name their Ubuntu base.
   docker_os="$(. /etc/os-release && case " $ID ${ID_LIKE:-} " in *" ubuntu "*) echo ubuntu ;; *) echo debian ;; esac)"
+  # Fingerprint: Docker's install guide, which listed it in 2020
+  # (https://github.com/docker/docs/blob/777c5d23dafd4b640016f24f92fe416f246ec848/engine/install/ubuntu.md);
+  # the same key signs both repositories.
   install -d -m 0755 /etc/apt/keyrings
-  [ -s /etc/apt/keyrings/docker.asc ] || curl -fsSL "https://download.docker.com/linux/$docker_os/gpg" -o /etc/apt/keyrings/docker.asc
+  keyring /etc/apt/keyrings/docker.gpg "https://download.docker.com/linux/$docker_os/gpg" 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
   cat > /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/$docker_os
 Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
+Signed-By: /etc/apt/keyrings/docker.gpg
 EOF
 fi
 
