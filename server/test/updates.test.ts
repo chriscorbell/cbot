@@ -27,7 +27,12 @@ hub.subscribe('usr_any', (ev: ServerEvent) => { if (ev.type === 'update') events
 let github: () => Response;
 const fetches = vi.fn(async (_url: string) => github());
 const commitAnswer = (short: string) => () => Response.json({ sha: `${short}${'0'.repeat(28)}`, commit: { message: 'x' } });
-const tagsAnswer = (...tags: string[]) => () => Response.json(tags.map((t) => ({ ref: `refs/tags/${t}`, object: { sha: '0'.repeat(40), type: 'tag' } })));
+/** GitHub's list of releases: each tag published with its signed checksums, unless `draft` or `unsigned` names it. */
+const releasesAnswer = (tags: string[], { draft = [] as string[], unsigned = [] as string[] } = {}) => () => Response.json(tags.map((t) => ({
+  tag_name: t, draft: draft.includes(t), prerelease: false,
+  assets: unsigned.includes(t) ? [] : [{ name: `dispatch-${t}-linux-amd64.tar.gz` }, { name: 'SHA256SUMS' }, { name: 'SHA256SUMS.sig' }],
+})));
+const tagsAnswer = (...tags: string[]) => releasesAnswer(tags);
 
 /**
  * Starts over as a machine the installer set up from `source`, running RUNNING, which is `release`
@@ -160,7 +165,7 @@ test('a machine on the releases is offered a later release, by number, and only 
 
   github = tagsAnswer('v0.8.0', 'v0.9.0', 'v1.0.0-rc1', 'vnext');
   expect(await checkForUpdate()).toMatchObject({ available: null, error: null });
-  expect(fetches.mock.calls[0][0]).toBe('https://api.github.com/repos/chriscorbell/dispatch/git/matching-refs/tags/v');
+  expect(fetches.mock.calls[0][0]).toBe('https://api.github.com/repos/chriscorbell/dispatch/releases?per_page=30');
 
   github = tagsAnswer('v0.9.0', 'v0.10.0', 'v0.9.5');
   expect(await checkForUpdate()).toMatchObject({
@@ -170,7 +175,16 @@ test('a machine on the releases is offered a later release, by number, and only 
   github = tagsAnswer('v0.8.0');
   expect(await checkForUpdate()).toMatchObject({ available: null, error: null });
   github = tagsAnswer();
-  expect(await checkForUpdate()).toMatchObject({ available: null, error: 'chriscorbell/dispatch has no release yet.' });
+  expect(await checkForUpdate()).toMatchObject({ available: null, error: 'chriscorbell/dispatch has no published release yet.' });
+});
+
+test('a release still being built, or with no signed checksums, is not offered', async () => {
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n', 'v0.9.0');
+  // publish.sh pushed v0.11.0 and GitHub Actions is building it: a draft, which the installer can't download.
+  github = releasesAnswer(['v0.11.0', 'v0.10.0', 'v0.9.0'], { draft: ['v0.11.0'] });
+  expect(await checkForUpdate()).toMatchObject({ error: null, available: { version: 'v0.10.0' } });
+  github = releasesAnswer(['v0.12.0', 'v0.9.0'], { unsigned: ['v0.12.0'] });
+  expect(await checkForUpdate()).toMatchObject({ available: null, error: null });
 });
 
 test('updating to a release runs the installer with no branch, so it installs the newest signed one', async () => {

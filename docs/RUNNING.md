@@ -104,7 +104,7 @@ Until an account exists, making one takes a one-time setup code, so that nobody 
 
 ## Publishing a release
 
-Installs and updates take the newest signed `vX.Y.Z` tag, and the build GitHub Actions made from it. To publish one from a checkout, on Linux (it builds in Docker on anything but x86-64):
+Installs and updates take the newest signed `vX.Y.Z` tag whose release is published, and the build GitHub Actions made from it. To publish one from a checkout, on Linux (it builds in Docker on anything but x86-64):
 
 ```bash
 scripts/publish.sh v1.2.0
@@ -114,7 +114,7 @@ scripts/publish.sh v1.2.0
 2. The pushed tag starts `.github/workflows/release.yml`, which builds the release once with `scripts/build-release.sh`, builds the speech image and pushes it to `ghcr.io/chriscorbell/dispatch-speech`, and attaches the tarball, `install.sh`, `uninstall.sh`, `manifest.json` (the version, commit and speech image by digest) and `SHA256SUMS` of them to a draft release. `publish.sh` waits for it.
 3. It builds the same commit itself and stops unless the result is the same as the tarball, file for file. Then it signs `SHA256SUMS` with the same key, checks the files the way the installer will, attaches the signature and publishes the release, whose notes list the commits since the last release.
 
-If it stops after pushing the tag, the tag and the draft release stay; fix what it says, delete both, and publish again. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
+If it stops after pushing the tag, the tag and the draft release stay; fix what it says, delete both, and publish again. Machines go on installing and updating to the last published release meanwhile, since a tag whose release is still a draft is passed over. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
 
 The first time the workflow pushes the speech image, GitHub makes the `dispatch-speech` package. It is linked to this repository and should be public like it; if **Packages** on GitHub shows it private, make it public in its settings, or machines can't download it.
 

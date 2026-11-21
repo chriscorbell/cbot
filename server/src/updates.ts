@@ -20,7 +20,7 @@ import { errorField, errorText } from './lib/errors.js';
  * (updateState() is null).
  *
  * The update's states, one per machine and in memory:
- *   idle      A check asks GitHub for the newest release, the highest vX.Y.Z tag, or for the branch's
+ *   idle      A check asks GitHub for the newest published release (latestRelease), or for the branch's
  *             newest commit, a minute after starting, every six hours after that, and when Settings
  *             asks. `available` is a release after this one, or a commit that isn't the running one.
  *   updating  startUpdate runs this release's own installer again, unattended, in a systemd unit of its
@@ -161,8 +161,13 @@ async function askGitHub(path: string, missing: string): Promise<unknown> {
 
 // What GitHub answers for GET /repos/{repo}/commits/{ref}; only the commit's id is used.
 const GitHubCommit = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
-// And for GET /repos/{repo}/git/matching-refs/tags/v: every tag whose name starts with v, in one answer.
-const GitHubRefs = z.array(z.object({ ref: z.string() }));
+// And for GET /repos/{repo}/releases: the newest releases, each with its tag and the names of its files.
+const GitHubReleases = z.array(z.object({
+  tag_name: z.string(),
+  draft: z.boolean(),
+  prerelease: z.boolean(),
+  assets: z.array(z.object({ name: z.string() })),
+}));
 
 /** The newest commit on the branch, as twelve characters. */
 async function latestCommit(repo: string, ref: string): Promise<string> {
@@ -171,12 +176,19 @@ async function latestCommit(repo: string, ref: string): Promise<string> {
   return body.data.sha.slice(0, 12);
 }
 
-/** The newest release, picked as install.sh's newest_release picks it. Whether it is signed is for the installer to check. */
+/**
+ * The newest published release, picked as install.sh's newest_release picks it: the highest vX.Y.Z
+ * whose signed checksums are attached. A tag whose release is still a draft (publish.sh pushes the
+ * tag before GitHub Actions builds it) or has none isn't offered, since the installer would pass it
+ * over. Whether it is really signed is for the installer to check.
+ */
 async function latestRelease(repo: string): Promise<string> {
-  const body = GitHubRefs.safeParse(await askGitHub(`repos/${repo}/git/matching-refs/tags/v`, `GitHub has no ${repo}.`));
+  const body = GitHubReleases.safeParse(await askGitHub(`repos/${repo}/releases?per_page=30`, `GitHub has no ${repo}.`));
   if (!body.success) throw new Error('GitHub’s answer didn’t list the releases.');
-  const versions = body.data.map((r) => r.ref.replace(/^refs\/tags\//, '')).filter((t) => VERSION.test(t));
-  if (!versions.length) throw new Error(`${repo} has no release yet.`);
+  const versions = body.data
+    .filter((r) => !r.draft && !r.prerelease && VERSION.test(r.tag_name) && r.assets.some((a) => a.name === 'SHA256SUMS.sig'))
+    .map((r) => r.tag_name);
+  if (!versions.length) throw new Error(`${repo} has no published release yet.`);
   return versions.reduce((a, b) => (laterRelease(b, a) ? b : a));
 }
 

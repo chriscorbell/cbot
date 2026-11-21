@@ -84,15 +84,33 @@ class ReleaseCheckTest(unittest.TestCase):
         into = tempfile.mkdtemp(dir=self.dir)
         return self.bash('fetch_signed "$1" "$2" "$3"; echo "$sha"', self.repo, tag, into)
 
-    def test_the_newest_release_is_the_highest_version_number(self):
-        r = self.bash('newest_release "$1"', self.repo)
+    def published(self, *tags):
+        """A releases folder where each of `tags` has its signed checksums, as a published release has."""
+        d = tempfile.mkdtemp(dir=self.dir)
+        for tag in tags:
+            os.makedirs(os.path.join(d, tag))
+            open(os.path.join(d, tag, "SHA256SUMS.sig"), "w").close()
+        return f"file://{d}"
+
+    def test_the_newest_release_is_the_highest_published_version_number(self):
+        r = self.bash('newest_release "$1" "$2"', self.repo, self.published("v0.9.0", "v0.10.0", "v0.14.0"))
         self.assertEqual(r.returncode, 0, r.stderr)
         # v0.14.0 is the highest; whether it's really a release is for fetch_signed.
         self.assertEqual(r.stdout.strip(), "v0.14.0")
         empty = os.path.join(self.dir, "empty")
         self.git("init", "-q", empty, cwd=self.dir)
-        self.assertEqual(self.bash('newest_release "$1"', empty).stdout, "")
-        self.assertNotEqual(self.bash('newest_release "$1"', os.path.join(self.dir, "missing")).returncode, 0)
+        self.assertEqual(self.bash('newest_release "$1" "$2"', empty, self.published()).stdout, "")
+        self.assertNotEqual(self.bash('newest_release "$1" "$2"', os.path.join(self.dir, "missing"), self.published()).returncode, 0)
+
+    def test_a_tag_whose_release_is_not_published_is_passed_over(self):
+        # v0.11.0 to v0.14.0 are tags whose release is a draft being built, or was never made.
+        r = self.bash('newest_release "$1" "$2"', self.repo, self.published("v0.9.0", "v0.10.0"))
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "v0.10.0"), r.stderr)
+        self.assertEqual(self.bash('newest_release "$1" "$2"', self.repo, self.published()).stdout, "")
+
+    def test_releases_that_cannot_be_reached_fail_the_check(self):
+        r = self.bash('newest_release "$1" "$2"', self.repo, "http://127.0.0.1:9/releases")
+        self.assertNotEqual(r.returncode, 0)
 
     def test_older_compares_version_numbers(self):
         def older(a, b):

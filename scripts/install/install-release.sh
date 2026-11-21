@@ -33,12 +33,24 @@ release_tools() {
     die "${missing[*]} didn't install. The log is $LOG."
 }
 
-# newest_release <repository url>: the highest vX.Y.Z tag there, or nothing when it has none. Other
-# tags, such as v2.0.0-rc1, aren't releases.
+# newest_release <repository url> <releases url>: the highest vX.Y.Z tag in the repository whose
+# release is published, which is when its signed checksums download from <releases url>/<tag>. Nothing
+# when there is none. scripts/publish.sh pushes a tag before GitHub Actions builds its release, which
+# stays a draft nobody else can download until it is signed, and a tag can be pushed by mistake: both
+# are passed over, so neither stops installs and updates. Only the ten highest tags are tried. Other
+# tags, such as v2.0.0-rc1, aren't releases. Fails when GitHub can't be reached.
 newest_release() {
-  local refs
+  local refs tag rc
   refs="$(github_git ls-remote --tags --refs "$1")" || return 1
-  sed -nE 's#^[0-9a-f]{40}\trefs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$#\1#p' <<<"$refs" | sort -V | tail -n 1
+  for tag in $(sed -nE 's#^[0-9a-f]{40}\trefs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$#\1#p' <<<"$refs" | sort -rV | head -n 10); do
+    rc=0
+    curl -fsSL --max-time 30 -o /dev/null "$2/$tag/SHA256SUMS.sig" || rc=$?
+    case $rc in
+      0) echo "$tag"; return 0 ;;
+      22 | 37) ;; # not there (an HTTP error, or a missing file for scripts/test_install.py)
+      *) return 1 ;;
+    esac
+  done
 }
 
 # older <a> <b>: whether version a comes before version b.
@@ -102,19 +114,20 @@ fetch_assets() {
 }
 
 # Sets commit and script (the release.sh to run), or up_to_date when that commit already runs. With no
-# DISPATCH_REF, the newest release (and tag, its version), checked as fetch_signed says, even when
+# DISPATCH_REF, the newest published release (and tag, its version), checked as fetch_signed says, even when
 # its commit runs already, so an unsigned tag can't be written down as the version this machine runs;
 # what is unpacked is its built tarball, checked as fetch_assets says. DISPATCH_RELEASES_URL sets
 # where the releases' files are (scripts/test_install.py). With DISPATCH_REF, the source of the newest
 # commit of that branch, tag or commit, which only GitHub vouches for, and which release.sh builds.
 fetch_release() {
   local api="https://api.github.com/repos/$repo" url="https://github.com/$repo.git" auth=() sha what had
+  local assets="${DISPATCH_RELEASES_URL:-https://github.com/$repo/releases/download}"
   local releases=/srv/dispatch/releases
   [ -z "${GITHUB_TOKEN:-}" ] || auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
   if [ -z "$ref" ]; then
     release_tools
-    tag="$(newest_release "$url")" || die "Couldn't reach $url."
-    [ -n "$tag" ] || die "$url has no release yet."
+    tag="$(newest_release "$url" "$assets")" || die "Couldn't reach $url."
+    [ -n "$tag" ] || die "$url has no published release yet."
     had="$(installed_version)"
     if [ -n "$had" ] && older "$tag" "$had"; then
       die "The newest release in $url is $tag, older than $had, which this machine runs. The installer doesn't go back a version."
@@ -141,7 +154,7 @@ fetch_release() {
     rm -rf "$releases/$commit.new"
     mkdir -p "$releases/$commit.new"
     if [ -n "$fetch_dir" ]; then
-      fetch_assets "${DISPATCH_RELEASES_URL:-https://github.com/$repo/releases/download}/$tag" "$tag" "$sha" "$fetch_dir"
+      fetch_assets "$assets/$tag" "$tag" "$sha" "$fetch_dir"
       tar -xzf "$fetch_dir/dispatch.tar.gz" -C "$releases/$commit.new" && [ -x "$releases/$commit.new/node/bin/node" ] ||
         die "Unpacking $tag failed."
       # release.sh pulls the speech image the manifest names.
