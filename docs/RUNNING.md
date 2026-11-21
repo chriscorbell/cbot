@@ -4,15 +4,17 @@ How to look after a Dispatch machine once the [installer](../README.md#install) 
 
 ## Updating
 
-Dispatch checks GitHub for a newer version a minute after it starts and every six hours after that. When there is one, **Update available** shows above your account in the sidebar. It opens **Settings** > **General** > **Updates**, where **Update** installs it and **What's new** lists the changes. The page shows each step and reloads on the new version when it's done. **Check Now** asks GitHub straight away.
+Dispatch checks GitHub for a new release a minute after it starts and every six hours after that. When there is one, **Update available** shows above your account in the sidebar. It opens **Settings** > **General** > **Updates**, where **Update** installs it and **What's new** lists the changes. The page shows each step and reloads on the new version when it's done. **Check Now** asks GitHub straight away.
 
-The button runs the installer again for you. Running it yourself does the same: it downloads the newest commit, builds it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. The settings, bots and chats stay.
+The button runs the installer of the version you have again. Running the installer yourself does the same: it downloads the newest release, checks that one of Dispatch's release keys signed it ([SECURITY.md](../SECURITY.md#how-releases-are-checked)), builds it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. The settings, bots and chats stay. A release that isn't signed, or is older than the one running, isn't installed.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 ```
 
-Updates follow the repository and branch the installer last installed from, which it writes to `/etc/dispatch/source`. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why.
+The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why.
+
+Dispatch's updates don't update the machine's other packages, Chrome among them. Keep them current with `sudo apt update && sudo apt upgrade`.
 
 The server runs as the systemd service `dispatch`: `journalctl -u dispatch -f` follows its log, and the installer's own log is `/var/log/dispatch/install.log`.
 
@@ -88,9 +90,19 @@ Until an account exists, making one takes a one-time setup code, so that nobody 
 
 **Settings** > **General** > **Reset Dispatch** asks twice, then erases every bot, chat, file, provider key and setting and the account, and Dispatch restarts as a fresh install. The page reloads into the first-run form with the new setup code already filled in. Programs the bots installed on the machine stay. To remove Dispatch altogether, use the [uninstaller](../README.md#uninstall).
 
+## Publishing a release
+
+Installs and updates take the newest signed `vX.Y.Z` tag. To publish one from a checkout:
+
+```bash
+scripts/publish.sh v1.2.0
+```
+
+It tags `main` as GitHub has it, after `npm run check` passes on that commit, and signs the tag with whichever key in `release_signers` (in `scripts/install.sh`) your ssh-agent holds (`ssh-add -L` lists them). Before pushing, it checks the tag with this commit's installer and with the last release's, since machines updating run the last release's. It then pushes the tag and makes the GitHub release, whose notes list the commits since the last release. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
+
 ## Deploying from a checkout
 
-To put your own commits on the machine instead of the newest on GitHub, deploy them over SSH:
+To put your own commits on the machine instead of the newest release, deploy them over SSH:
 
 ```bash
 cp .env.example .env.prod   # set DISPATCH_HOST in it; every deploy copies it to /etc/dispatch/env

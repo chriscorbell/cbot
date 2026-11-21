@@ -12,18 +12,21 @@ import type { UpdateState } from './types.js';
  *
  * Only a machine the installer set up updates itself. It runs a release under /srv/dispatch/releases,
  * named by its commit, and has /etc/dispatch/source, where scripts/install.sh writes the repository and
- * branch it installed from. A host that scripts/deploy.sh looks after has no such file, and the dev
- * container runs no release, so neither checks or offers anything (updateState() is null).
+ * either the release it installed (DISPATCH_VERSION) or, when it was told to, the branch it follows
+ * (DISPATCH_REF). A host that scripts/deploy.sh looks after has no such file, and the dev container
+ * runs no release, so neither checks or offers anything (updateState() is null).
  *
  * The update's states, one per machine and in memory:
- *   idle      A check asks GitHub for the branch's newest commit, a minute after starting, every six
- *             hours after that, and when Settings asks. `available` is that commit when it isn't the
- *             running one.
- *   updating  startUpdate runs the installer again, unattended, in a systemd unit of its own
- *             (dispatch-update), so it outlives this process. The installer builds the new release beside
- *             this one, and its release.sh restarts the `dispatch` service on it: this process ends there,
- *             and the new one starts idle. A page that saw `updating` reloads when the server it
- *             reconnects to names another commit (the `hello` event).
+ *   idle      A check asks GitHub for the newest release, the highest vX.Y.Z tag, or for the branch's
+ *             newest commit, a minute after starting, every six hours after that, and when Settings
+ *             asks. `available` is a release after this one, or a commit that isn't the running one.
+ *   updating  startUpdate runs this release's own installer again, unattended, in a systemd unit of its
+ *             own (dispatch-update), so it outlives this process. The installer downloads the new
+ *             release and runs none of it unless one of the keys this release trusts signed its tag
+ *             (release_signers in install.sh); nothing fetched from GitHub runs before that. It builds
+ *             the new release beside this one, and its release.sh restarts the `dispatch` service on
+ *             it: this process ends there, and the new one starts idle. A page that saw `updating`
+ *             reloads when the server it reconnects to names another commit (the `hello` event).
  *   failed    The unit failed while this process still runs, so this release goes on. Update tries
  *             again.
  * The installer takes a lock, so an update and someone running it in a terminal can't both build.
@@ -40,21 +43,35 @@ const WATCH_MS = 2_000;
 /** Under Settings' "The update didn’t finish". */
 const FAILED = 'Dispatch stays on this version. On the machine, journalctl -u dispatch-update says why.';
 
-export interface Source { repo: string; ref: string }
+/** A machine follows the releases, after the one it runs (`version`), or a branch (`ref`). */
+export type Source = { repo: string } & ({ ref: null; version: string } | { ref: string; version: null });
 
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REF = /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
+/** A release, as install.sh's newest_release takes them: v2.0.0-rc1 isn't one. */
+const VERSION = /^v\d+\.\d+\.\d+$/;
 
-/** /etc/dispatch/source, as the installer writes it (KEY=value lines). Null unless it names a repository and a branch. */
+/** /etc/dispatch/source, as the installer writes it (KEY=value lines). Null unless it names a repository, and a release or a branch. */
 export function parseSource(text: string): Source | null {
   const v = new Map<string, string>();
   for (const line of text.split('\n')) {
-    const m = /^\s*(DISPATCH_REPO|DISPATCH_REF)=(.*)$/.exec(line);
+    const m = /^\s*(DISPATCH_REPO|DISPATCH_REF|DISPATCH_VERSION)=(.*)$/.exec(line);
     if (m) v.set(m[1], m[2].trim().replace(/^(['"])(.*)\1$/, '$2'));
   }
   const repo = v.get('DISPATCH_REPO') ?? '';
   const ref = v.get('DISPATCH_REF') ?? '';
-  return REPO.test(repo) && REF.test(ref) && !ref.includes('..') ? { repo, ref } : null;
+  const version = v.get('DISPATCH_VERSION') ?? '';
+  if (!REPO.test(repo)) return null;
+  if (ref) return REF.test(ref) && !ref.includes('..') ? { repo, ref, version: null } : null;
+  return VERSION.test(version) ? { repo, ref: null, version } : null;
+}
+
+/** Whether release `a` comes after release `b` (both vX.Y.Z), by number: v0.10.0 is after v0.9.0. */
+export function laterRelease(a: string, b: string): boolean {
+  const x = a.slice(1).split('.').map(Number);
+  const y = b.slice(1).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
 }
 
 /** The commit a release directory is named for (twelve characters, as release.sh names them), or null for any other directory. */
@@ -89,24 +106,52 @@ export function stepFrom(log: string): string | null {
   return step;
 }
 
-// What GitHub answers for GET /repos/{repo}/commits/{ref}; only the commit's id is used.
-const GitHubCommit = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
-
-/** The newest commit on the branch, as twelve characters. Throws a sentence to show. */
-async function latestCommit({ repo, ref }: Source): Promise<string> {
-  const r = await fetch(`https://api.github.com/repos/${repo}/commits/${ref}`, {
+/** GET https://api.github.com/{path}, as JSON. Throws a sentence to show, `missing` for a 404. */
+async function askGitHub(path: string, missing: string): Promise<unknown> {
+  const r = await fetch(`https://api.github.com/${path}`, {
     headers: { accept: 'application/vnd.github+json', 'user-agent': 'dispatch' },
     signal: AbortSignal.timeout(15_000),
   }).catch(() => { throw new Error('Couldn’t reach GitHub.'); });
-  if (r.status === 404 || r.status === 422) throw new Error(`GitHub has no ${ref} in ${repo}.`);
+  if (r.status === 404 || r.status === 422) throw new Error(missing);
   if (r.status === 403 || r.status === 429) throw new Error('GitHub is limiting requests for now. Dispatch asks again later.');
   if (!r.ok) throw new Error(`GitHub answered ${r.status}.`);
-  const body = GitHubCommit.safeParse(await r.json().catch(() => null));
+  return r.json().catch(() => null);
+}
+
+// What GitHub answers for GET /repos/{repo}/commits/{ref}; only the commit's id is used.
+const GitHubCommit = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
+// And for GET /repos/{repo}/git/matching-refs/tags/v: every tag whose name starts with v, in one answer.
+const GitHubRefs = z.array(z.object({ ref: z.string() }));
+
+/** The newest commit on the branch, as twelve characters. */
+async function latestCommit(repo: string, ref: string): Promise<string> {
+  const body = GitHubCommit.safeParse(await askGitHub(`repos/${repo}/commits/${ref}`, `GitHub has no ${ref} in ${repo}.`));
   if (!body.success) throw new Error('GitHub’s answer didn’t name a commit.');
   return body.data.sha.slice(0, 12);
 }
 
+/** The newest release, picked as install.sh's newest_release picks it. Whether it is signed is for the installer to check. */
+async function latestRelease(repo: string): Promise<string> {
+  const body = GitHubRefs.safeParse(await askGitHub(`repos/${repo}/git/matching-refs/tags/v`, `GitHub has no ${repo}.`));
+  if (!body.success) throw new Error('GitHub’s answer didn’t list the releases.');
+  const versions = body.data.map((r) => r.ref.replace(/^refs\/tags\//, '')).filter((t) => VERSION.test(t));
+  if (!versions.length) throw new Error(`${repo} has no release yet.`);
+  return versions.reduce((a, b) => (laterRelease(b, a) ? b : a));
+}
+
+/** What to update to, or null when this is the newest. Throws a sentence to show. */
+async function findUpdate(from: Source, running: string): Promise<UpdateState['available']> {
+  if (from.ref === null) {
+    const latest = await latestRelease(from.repo);
+    return laterRelease(latest, from.version) ? { version: latest, url: `https://github.com/${from.repo}/releases/tag/${latest}` } : null;
+  }
+  const latest = await latestCommit(from.repo, from.ref);
+  return latest === running ? null : { version: latest.slice(0, 7), url: `https://github.com/${from.repo}/compare/${running}...${latest}` };
+}
+
 let source: Source | null = null;
+/** The running release's commit, twelve characters. */
+let commit = '';
 let state: UpdateState | null = null;
 let checking: Promise<UpdateState | null> | null = null;
 let checkTimer: NodeJS.Timeout | undefined;
@@ -137,7 +182,8 @@ export function initUpdates(sourceFile = INSTALL_SOURCE, current = runningCommit
     console.log('[updates] off: Dispatch was not installed by scripts/install.sh');
     return;
   }
-  state = { current, available: null, checkedAt: null, status: 'idle', error: null };
+  commit = current;
+  state = { current: source.ref === null ? source.version : current.slice(0, 7), available: null, checkedAt: null, status: 'idle', error: null };
   nextCheck(FIRST_CHECK_MS);
 }
 
@@ -146,16 +192,14 @@ export function checkForUpdate(): Promise<UpdateState | null> {
   const from = source;
   if (!state || !from) return Promise.resolve(state);
   checking ??= (async () => {
-    let latest: string | null = null;
+    let found: UpdateState['available'] | undefined;
     let error: string | null = null;
-    try { latest = await latestCommit(from); } catch (e) { error = (e as Error).message; }
+    try { found = await findUpdate(from, commit); } catch (e) { error = (e as Error).message; }
     nextCheck(CHECK_EVERY_MS);
     const s = state!;
     // A failed check keeps what the last one found; an update that started meanwhile keeps its status.
-    const available = latest === null ? s.available
-      : latest === s.current ? null
-      : { commit: latest, url: `https://github.com/${from.repo}/compare/${s.current}...${latest}` };
-    const checkedAt = latest === null ? s.checkedAt : Date.now();
+    const available = found === undefined ? s.available : found;
+    const checkedAt = found === undefined ? s.checkedAt : Date.now();
     publish(s.status === 'idle' ? { ...s, available, checkedAt, error } : { ...s, available, checkedAt });
     return state;
   })().finally(() => { checking = null; });
@@ -163,8 +207,8 @@ export function checkForUpdate(): Promise<UpdateState | null> {
 }
 
 /**
- * Runs the installer again (see the header). Answers why it won't, or null once it runs. The checks
- * and the switch to `updating` come before the first await, so two clicks start one update.
+ * Runs this release's installer again (see the header). Answers why it won't, or null once it runs.
+ * The checks and the switch to `updating` come before the first await, so two clicks start one update.
  */
 export async function startUpdate(): Promise<string | null> {
   const s = state;
@@ -176,18 +220,19 @@ export async function startUpdate(): Promise<string | null> {
   publish({ current: s.current, available: s.available, checkedAt: s.checkedAt, status: 'updating', step: null, startedAt });
   try {
     await run('systemctl', ['reset-failed', UNIT]).catch(() => { /* none failed before */ });
-    // The repository and branch go in as the unit's environment, never into the command line itself.
+    // The repository, and the branch for a machine that follows one, reach the installer as the
+    // unit's environment. With no DISPATCH_REF it installs the newest signed release.
     await run('systemd-run', [
       `--unit=${UNIT}`, '--description=Dispatch update', '--setenv=HOME=/root', '--setenv=LANG=C.UTF-8', '--setenv=DISPATCH_YES=1',
-      `--setenv=DISPATCH_REPO=${from.repo}`, `--setenv=DISPATCH_REF=${from.ref}`,
-      '/bin/bash', '-c', 'set -o pipefail; curl -fsSL "https://raw.githubusercontent.com/$DISPATCH_REPO/$DISPATCH_REF/scripts/install.sh" | bash',
+      `--setenv=DISPATCH_REPO=${from.repo}`, ...(from.ref === null ? [] : [`--setenv=DISPATCH_REF=${from.ref}`]),
+      '/bin/bash', path.join(RELEASES_ROOT, commit, 'scripts', 'install.sh'),
     ]);
   } catch (e: any) {
     console.error('[updates] could not start the installer:', e?.stderr || e?.message || e);
     publish({ current: s.current, available: s.available, checkedAt: s.checkedAt, status: 'failed', error: `It couldn’t start: ${String(e?.stderr || e?.message || e).trim().split('\n')[0]}` });
     return null;
   }
-  console.log(`[updates] updating from ${s.current} to ${s.available.commit} (${from.repo} ${from.ref})`);
+  console.log(`[updates] updating from ${s.current} to ${s.available.version} (${from.repo} ${from.ref ?? 'releases'})`);
   watch(startedAt);
   return null;
 }

@@ -179,7 +179,7 @@ function UpdatesSection() {
       .catch((e: Error) => setError(e.message || 'Couldn’t check for updates.'))
       .finally(() => setChecking(false));
   };
-  const version = <code className="cfg-code">{update.current.slice(0, 7)}</code>;
+  const version = <code className="cfg-code">{update.current}</code>;
   const whatsNew = update.available && (
     <a className="cfg-link" href={update.available.url} target="_blank" rel="noreferrer">What’s new<ArrowUpRight size={12} strokeWidth={2} aria-hidden /></a>
   );
@@ -199,7 +199,7 @@ function UpdatesSection() {
     case 'idle':
       if (update.available) {
         title = 'Update available';
-        sub = <>This is version {version}. {whatsNew}</>;
+        sub = <>Version <code className="cfg-code">{update.available.version}</code> is out, and this is {version}. {whatsNew}</>;
         action = <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setConfirming(true)}>Update</button>;
       } else {
         title = 'Dispatch is up to date';
