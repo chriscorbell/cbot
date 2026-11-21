@@ -57,6 +57,24 @@
 .rail-btn:active { transform: scale(0.94); }
 .rail-btn__icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; flex-shrink: 0; }
 
+/* "Update available" (Sidebar UpdatePill): an icon in the rail, a pill in the full sidebar. */
+.rail-update {
+  position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; width: 40px; height: 36px; margin-bottom: 4px; border-radius: 10px;
+  color: color-mix(in srgb, var(--color-switch) 82%, var(--foreground)); background: color-mix(in srgb, var(--color-switch) 13%, transparent);
+  animation: rise var(--dur-slow) var(--ease-out);
+  transition: background-color var(--dur-fast), color var(--dur-fast), transform var(--dur-fast) var(--ease-out);
+}
+.rail-update:hover { background: color-mix(in srgb, var(--color-switch) 22%, transparent); }
+.rail-update:active { transform: scale(0.95); }
+.rail-update svg { transition: transform var(--dur-med) var(--ease-out); }
+.rail-update:hover svg { transform: translateY(1.5px); }
+.rail-update.is-updating { color: var(--color-text-secondary); background: color-mix(in srgb, var(--surface) 70%, transparent); }
+.rail-update.is-exiting { animation: toast-out 180ms var(--ease-in-out) forwards; pointer-events: none; }
+.rail-update__text { display: none; }
+.sidebar.is-expanded .rail-update { width: auto; justify-content: flex-start; margin: 0 4px 6px; padding: 0 14px; border-radius: var(--radius-full); font-size: var(--text-sm); font-weight: 500; }
+.sidebar.is-expanded .rail-update__text { display: inline; white-space: nowrap; animation: fade var(--dur-slow) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .rail-update, .rail-update svg { animation: none; transition: none; } }
+
 .rail-account { position: relative; margin-top: 8px; }
 .rail-account__btn { display: flex; align-items: center; justify-content: center; gap: 10px; border-radius: var(--radius-full); transition: transform var(--dur-fast) var(--ease-out); }
 .rail-account__btn:active { transform: scale(0.95); }

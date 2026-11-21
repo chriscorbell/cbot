@@ -4,11 +4,15 @@ How to look after a cbot machine once the [installer](../README.md#install) has 
 
 ## Updating
 
-Run the installer again. It downloads the newest commit, builds it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. The settings, bots and chats stay.
+cbot checks GitHub for a newer version a minute after it starts and every six hours after that. When there is one, **Update available** shows above your account in the sidebar. It opens **Settings** > **General** > **Updates**, where **Update** installs it and **What's new** lists the changes. The page shows each step and reloads on the new version when it's done. **Check Now** asks GitHub straight away.
+
+The button runs the installer again for you. Running it yourself does the same: it downloads the newest commit, builds it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. The settings, bots and chats stay.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
 ```
+
+Updates follow the repository and branch the installer last installed from, which it writes to `/etc/cbot/source`. When an update started from the app fails, cbot keeps running the version it had, and `journalctl -u cbot-update` says why.
 
 The server runs as the systemd service `cbot`: `journalctl -u cbot -f` follows its log, and the installer's own log is `/var/log/cbot/install.log`.
 

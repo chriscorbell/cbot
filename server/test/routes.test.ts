@@ -35,6 +35,13 @@ test('the health check needs no sign-in; the rest of the API does', async () => 
   expect((await app.request('/api/bots', { headers: auth() })).status).toBe(200);
 });
 
+test('a cbot the installer did not set up offers no updates', async () => {
+  expect(await (await app.request('/api/update', { headers: auth() })).json()).toEqual({ update: null });
+  const r = await app.request('/api/update', json({}));
+  expect(r.status).toBe(409);
+  expect(await r.json()).toEqual({ error: 'This cbot can’t update itself. Run the installer again on its machine.' });
+});
+
 test('the HTTPS certificate is offered only while cbot serves its own', async () => {
   const { env } = await import('../src/env.js');
   expect((await app.request('/api/https/certificate')).status).toBe(404);

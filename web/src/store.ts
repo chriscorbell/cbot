@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Bot, ComputerState, LiveState, Routine, Row, User } from '@shared/types';
+import type { Bot, ComputerState, LiveState, Routine, Row, UpdateState, User } from '@shared/types';
 import { api, type RowPatch } from './lib/api';
 import { configApi } from './lib/configApi';
 import { onSignedOut } from './lib/http';
@@ -24,6 +24,10 @@ interface State {
   transcripts: Record<string, Transcript>;
   routines: Record<string, Routine[]>;
   computer: ComputerState | null;
+  /** Updating cbot (server/src/updates.ts); null when it can't update itself. */
+  update: UpdateState | null;
+  /** The commit the server named when this page first connected. */
+  serverVersion: string | null;
   sseConnected: boolean;
 
   detailsOpen: boolean;
@@ -61,6 +65,10 @@ interface State {
   markTranscriptsStale(): void;
   loadRoutines(id: string): Promise<void>;
   loadComputer(): Promise<void>;
+  loadUpdate(): Promise<void>;
+  applyUpdate(update: UpdateState | null): void;
+  /** Each connection's `hello`. After an update this page saw start, a new commit means the server restarted on it: the page starts over on its web app. */
+  serverHello(version: string | null): void;
   upsertRows(botId: string, generation: number, rows: Row[]): void;
   /** "New chat": the bot's transcript starts over at a new generation. */
   clearTranscript(botId: string, generation: number): void;
@@ -78,6 +86,11 @@ interface State {
 const RESET_WAIT_MS = 120_000;
 /** Set once a reset is erasing the server (resetCbot). */
 let resetting = false;
+/**
+ * An update was underway when last heard of. Kept apart from `update`, which the new server's idle
+ * state replaces on reconnect, maybe before its `hello` arrives.
+ */
+let updateSeen = false;
 
 const LS_SELECTED = 'cbot.selectedBot';
 const LS_DETAILS = 'cbot.detailsOpen';
@@ -99,6 +112,8 @@ export const useStore = create<State>((set, get) => ({
   transcripts: {},
   routines: {},
   computer: null,
+  update: null,
+  serverVersion: null,
   sseConnected: false,
   // Wide screens restore the panel; narrow ones start on the chat, where the panel would cover it.
   detailsOpen: lsGet(LS_DETAILS) !== '0' && (typeof window === 'undefined' || window.innerWidth > 700),
@@ -211,6 +226,26 @@ export const useStore = create<State>((set, get) => ({
   async loadComputer() {
     const { computer } = await api.computer();
     set({ computer });
+  },
+
+  async loadUpdate() {
+    const { update } = await configApi.update();
+    get().applyUpdate(update);
+  },
+
+  applyUpdate(update) {
+    if (update?.status === 'updating') updateSeen = true;
+    else if (update?.status === 'failed') updateSeen = false;
+    set({ update });
+  },
+
+  serverHello(version) {
+    const { serverVersion } = get();
+    if (serverVersion && version && version !== serverVersion && updateSeen) {
+      window.location.reload();
+      return;
+    }
+    set({ serverVersion: version });
   },
 
   upsertRows(botId, generation, rows) {

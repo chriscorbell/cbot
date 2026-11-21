@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { BellDot, ClipboardCopy, Copy, Eye, EyeOff, LogOut, MessagesSquare, PanelLeft, Plus, Repeat2, Search, Settings, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, BellDot, ClipboardCopy, Copy, Eye, EyeOff, LogOut, MessagesSquare, PanelLeft, Plus, Repeat2, Search, Settings, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { configApi } from '../lib/configApi';
 import { ConfirmDialog } from './modals/ConfirmDialog';
@@ -12,7 +12,7 @@ import { botVars } from '../lib/colors';
 import { displayName, useStore } from '../store';
 import { trapTabWithin } from '../lib/focus';
 import { Menu, type MenuItem } from './Menu';
-import { Presence } from './Presence';
+import { Presence, useExiting } from './Presence';
 import { useToast } from './Toast';
 import { copyConversation } from '../lib/share';
 
@@ -135,6 +135,30 @@ function useBornIds(bots: Bot[]) {
   return born;
 }
 
+/**
+ * "Update available" above the account (server/src/updates.ts): an icon in the rail, a pill in the
+ * full sidebar. It opens Settings > General, where the Update button is, and spins while updating.
+ */
+function UpdatePill({ tips }: { tips: boolean }) {
+  const update = useStore((s) => s.update);
+  const set = useStore((s) => s.set);
+  const exiting = useExiting();
+  const updating = update?.status === 'updating';
+  const label = updating ? 'Updating cbot' : 'Update available';
+  return (
+    <button
+      type="button"
+      className={`rail-update${updating ? ' is-updating' : ''}${exiting ? ' is-exiting' : ''}`}
+      onClick={() => { showTip(null); set({ drawerOpen: false }); useConfigUI.getState().openAppSettings('general'); }}
+      aria-label={label}
+      {...(tips ? tipProps(label, updating ? update.step : null) : {})}
+    >
+      <span className="rail-btn__icon">{updating ? <span className="spinner" aria-hidden /> : <ArrowDownToLine size={16} strokeWidth={1.9} aria-hidden />}</span>
+      <span className="rail-update__text">{updating ? 'Updating…' : label}</span>
+    </button>
+  );
+}
+
 function AccountButton({ name, avatarUrl, tips }: { name: string; avatarUrl?: string | null; tips: boolean }) {
   const [open, setOpen] = useState(false);
   const set = useStore((s) => s.set);
@@ -209,6 +233,7 @@ export function Sidebar() {
   const user = useStore((s) => s.user);
   const expandedPref = useStore((s) => s.sidebarExpanded);
   const drawerOpen = useStore((s) => s.drawerOpen);
+  const update = useStore((s) => s.update);
   const set = useStore((s) => s.set);
   const selectBot = useStore((s) => s.selectBot);
   const born = useBornIds(bots);
@@ -291,6 +316,9 @@ export function Sidebar() {
       </div>
 
       <div className="rail__foot">
+        <Presence show={!!update && (!!update.available || update.status === 'updating')} ms={180}>
+          <UpdatePill tips={!expanded} />
+        </Presence>
         {!expanded && (
           <button type="button" className="rail-btn" onClick={() => openModal('create')} aria-label="New bot" {...tipProps('New bot')}>
             <span className="rail-btn__icon"><Plus size={18} strokeWidth={1.6} aria-hidden /></span>

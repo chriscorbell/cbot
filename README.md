@@ -78,6 +78,8 @@ After installation is complete, open `https://<ip-address>:8787` in your browser
 
 cbot signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, answer yes to the installer's Tailscale question.
 
+When a new version is out, **Update available** shows in the sidebar, and one click installs it.
+
 [docs/RUNNING.md](docs/RUNNING.md) covers updates, settings, HTTPS, models, a forgotten password and starting over.
 
 ### Uninstall

@@ -14,11 +14,12 @@ import { engineHome, engineInfo, hasEngine, forgetEngineOptions, restartEngine, 
 import { cancelSignIn, getSignIn, startSignIn } from './signin.js';
 import { listMemories } from './engine-memory.js';
 import { inlineType, type Attachment, type LibraryFile, type Skill } from './types.js';
-import type { BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, ProviderSignIn, SignInResponse, SkillResponse, UploadResponse, UrlResponse } from './contract.js';
+import type { BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, ProviderSignIn, SignInResponse, SkillResponse, UpdateResponse, UploadResponse, UrlResponse } from './contract.js';
 import { LIBRARY_ROOT } from './machine.js';
 import { numbered, safeName, uploadsDir } from './library.js';
 import { setRelayMode } from './vnc.js';
 import { authorityPem } from './https.js';
+import { checkForUpdate, startUpdate, updateState } from './updates.js';
 import { TLSSocket } from 'node:tls';
 import type { HttpBindings } from '@hono/node-server';
 
@@ -54,6 +55,19 @@ httpsApi.get('/certificate', (c) => {
   const pem = authorityPem();
   if (!pem) return c.json({ error: 'not found' }, 404);
   return c.body(new Uint8Array(pem), 200, { 'content-type': 'application/x-x509-ca-cert', 'content-disposition': 'attachment; filename="cbot.crt"' });
+});
+
+// ---------- updates (updates.ts) ----------
+
+configApi.get('/update', (c) => c.json({ update: updateState() } satisfies UpdateResponse));
+
+configApi.post('/update/check', async (c) => c.json({ update: await checkForUpdate() } satisfies UpdateResponse));
+
+// Runs the installer again; the server restarts on the new release when it's built.
+configApi.post('/update', async (c) => {
+  const refused = await startUpdate();
+  if (refused) return c.json({ error: refused }, 409);
+  return c.json({ update: updateState() } satisfies UpdateResponse);
 });
 
 // ---------- settings bundle ----------

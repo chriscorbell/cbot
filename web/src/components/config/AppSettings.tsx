@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Monitor, Plug, Settings, Shield } from 'lucide-react';
+import { ArrowUpRight, Monitor, Plug, Settings, Shield } from 'lucide-react';
 import { Modal } from '../modals/Modal';
 import { ChangePasswordDialog } from '../modals/ChangePasswordDialog';
 import { ConfirmDialog } from '../modals/ConfirmDialog';
@@ -156,8 +156,86 @@ function GeneralSection() {
           )}
         </div>
       </section>
+      <UpdatesSection />
       <ResetSection />
     </>
+  );
+}
+
+const ago = (ts: number) => { const r = relativeShort(ts); return r === 'now' ? 'just now' : /^\d/.test(r) ? `${r} ago` : r; };
+
+/** Settings > General > Updates (server/src/updates.ts), on a machine the installer set up. The sidebar's "Update available" opens it. */
+function UpdatesSection() {
+  const update = useStore((s) => s.update);
+  const [checking, setChecking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!update) return null;
+  const check = () => {
+    setChecking(true);
+    setError(null);
+    configApi.checkUpdate()
+      .then((r) => useStore.getState().applyUpdate(r.update))
+      .catch((e: Error) => setError(e.message || 'Couldn’t check for updates.'))
+      .finally(() => setChecking(false));
+  };
+  const version = <code className="cfg-code">{update.current.slice(0, 7)}</code>;
+  const whatsNew = update.available && (
+    <a className="cfg-link" href={update.available.url} target="_blank" rel="noreferrer">What’s new<ArrowUpRight size={12} strokeWidth={2} aria-hidden /></a>
+  );
+  let title: ReactNode;
+  let sub: ReactNode;
+  let action: ReactNode = null;
+  switch (update.status) {
+    case 'updating':
+      title = <span className="cfg-update__busy"><span className="spinner" aria-hidden />Updating…</span>;
+      sub = `${update.step ?? 'Starting'}. cbot restarts when it’s done, and this page reloads.`;
+      break;
+    case 'failed':
+      title = 'The update didn’t finish';
+      sub = update.error;
+      action = <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setConfirming(true)}>Try Again</button>;
+      break;
+    case 'idle':
+      if (update.available) {
+        title = 'Update available';
+        sub = <>This is version {version}. {whatsNew}</>;
+        action = <button type="button" className="cfg-btn cfg-btn--primary" onClick={() => setConfirming(true)}>Update</button>;
+      } else {
+        title = 'cbot is up to date';
+        sub = update.error ?? <>Version {version}{update.checkedAt ? ` · checked ${ago(update.checkedAt)}` : ''}</>;
+        action = <button type="button" className="cfg-btn cfg-btn--secondary" onClick={check} disabled={checking}>{checking ? 'Checking…' : 'Check Now'}</button>;
+      }
+      break;
+    default: {
+      const unhandled: never = update;
+      return unhandled;
+    }
+  }
+  return (
+    <section className="cfg-section">
+      <div className="cfg-section__label">Updates</div>
+      <div className="cfg-card">
+        <div className="cfg-row">
+          <div className="cfg-row__text">
+            <div className="cfg-row__title cfg-fade" key={update.status}>{title}</div>
+            <div className="cfg-row__sub cfg-fade" key={`${update.status}:${update.status === 'updating' ? update.step : ''}`}>{sub}</div>
+          </div>
+          {action}
+        </div>
+        {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
+      </div>
+      <Presence show={confirming}>
+        <ConfirmDialog
+          title="Update cbot?"
+          body="cbot downloads and builds the new version, then restarts on it. That takes a few minutes, and bots, chats and settings stay as they are."
+          confirmLabel="Update"
+          busyLabel="Starting…"
+          onConfirm={async () => useStore.getState().applyUpdate((await configApi.startUpdate()).update)}
+          onClose={() => setConfirming(false)}
+        />
+      </Presence>
+    </section>
   );
 }
 

@@ -34,3 +34,10 @@ export const displayNumber = (screenId: string) => Number(displayFor(screenId).s
 export const cdpPortFor = (screenId: string) => 9200 + displayNumber(screenId);
 /** Xvnc's VNC port for display :n. It listens on 127.0.0.1 only, and only the relay in vnc.ts connects. */
 export const vncPortFor = (n: number) => 5900 + n;
+
+/** Where scripts/install.sh and scripts/deploy.sh unpack each release, named by its commit; /srv/cbot/current points at the running one. */
+export const RELEASES_ROOT = '/srv/cbot/releases';
+/** The repository and branch scripts/install.sh installed from, which updates.ts checks for a newer commit. */
+export const INSTALL_SOURCE = '/etc/cbot/source';
+/** The installer's log: release.sh and provision.sh name each step there. */
+export const INSTALL_LOG = '/var/log/cbot/install.log';

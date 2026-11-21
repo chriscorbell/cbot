@@ -272,9 +272,28 @@ export interface EngineInfo {
   ownScreen: boolean;
 }
 
+/**
+ * Updating cbot from GitHub (server/src/updates.ts). `current` is the running release's commit and
+ * `available` the newest one on the branch cbot was installed from, when that is another commit, with
+ * GitHub's page of what changed between them. `checkedAt` is when GitHub last answered.
+ */
+export type UpdateState = {
+  current: string;
+  available: { commit: string; url: string } | null;
+  checkedAt: number | null;
+} & (
+  /** `error`: why the last check got no answer. */
+  | { status: 'idle'; error: string | null }
+  /** `step`: what the installer is doing, once it says. */
+  | { status: 'updating'; step: string | null; startedAt: number }
+  /** The update stopped, and this release goes on running. */
+  | { status: 'failed'; error: string }
+);
+
 /** Server-sent events on GET /api/events */
 export type ServerEvent =
-  | { type: 'hello'; serverTime: number }
+  /** `version`: the running release's commit (null outside a release), so a page can tell an update restarted the server. */
+  | { type: 'hello'; serverTime: number; version: string | null }
   | { type: 'rows'; botId: string; generation: number; rows: Row[] }
   | { type: 'cleared'; botId: string; generation: number }
   | { type: 'live'; state: LiveState }
@@ -283,4 +302,5 @@ export type ServerEvent =
   | { type: 'computer'; state: ComputerState }
   | { type: 'routines'; botId: string }
   | { type: 'memories'; botId: string }
+  | { type: 'update'; update: UpdateState }
   | { type: 'ping' };

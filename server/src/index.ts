@@ -20,6 +20,7 @@ import { ensureOwner } from './bots.js';
 import { initAuth } from './lib/auth.js';
 import { importEnvironment } from './settings.js';
 import { serveHttps } from './https.js';
+import { initUpdates } from './updates.js';
 
 /**
  * The server process: everything that starts something. Order matters:
@@ -32,6 +33,7 @@ import { serveHttps } from './https.js';
  *  5. Gateways, screens and the speech catalog are brought back in the background, and stale
  *     voice calls are swept every 10 minutes.
  *  6. Every bot's memory files are watched, so an open Memories tab shows what the bot saves.
+ *  7. On a machine the installer set up, GitHub is checked for a newer cbot now and then (updates.ts).
  */
 
 // Keys and addresses that used to be read from .env, now set in Settings > Providers.
@@ -75,3 +77,4 @@ initScreens();
 initSpeech();
 initVoice();
 initMemoryWatch();
+initUpdates();

@@ -30,6 +30,7 @@ cbot is a Node server (`server/`) and a React app (`web/`) that run a small team
 | `server/src/agent/approvals.ts` | Hermes' approval prompts as chat cards, and the answers sent back to the run |
 | `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order), and the first-run setup that makes the first one |
 | `server/src/reset.ts` | Resetting cbot to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
+| `server/src/updates.ts` | Updating cbot from GitHub: checking the branch the installer used, and running the installer again in a unit of its own |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |
@@ -61,6 +62,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A voice reply | `voice-relay.ts` | `planAnswer` decides barge-in; a Reply's flags are listed in the header |
 | A voice call (browser) | `web/src/voice/call.ts` | idle, connecting, live, error |
 | A question card | `routes.ts` (answer route) | pending, then answered once |
+| An update of cbot | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle |
 | A Hermes approval prompt | `agent/approvals.ts` | pending, then allowed, always, denied or expired once. Pending ones live in memory beside their run |
 | First-run setup | `bots.ts` (`setupPending`, `finishSetup`) | no account, then pending (`users.setup_at` null) while `web/src/components/SetupWizard.tsx` makes the first bot, then done once. The first bot is primary and greets when setup finishes |
 

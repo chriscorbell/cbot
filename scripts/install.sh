@@ -10,7 +10,9 @@
 # starts the cbot service. cbot serves HTTPS on the local network with a certificate of its own
 # (server/src/https.ts), which browsers warn about once per device; Tailscale adds an address with a
 # certificate they trust. The answers go to /etc/cbot/env. Run it again to update to the newest
-# commit; the settings stay as they are.
+# commit; the settings stay as they are. The app does that itself from Settings > General: it runs
+# this script unattended (server/src/updates.ts), and /etc/cbot/source tells it the repository and
+# branch to follow.
 #
 # Unattended, the answers come from the environment, CBOT_TZ, CBOT_MAX_BOTS and CBOT_TAILSCALE (1 or
 # 0), with the defaults for any left out. CBOT_YES=1 takes them without asking even at a terminal.
@@ -189,6 +191,14 @@ HTTPS=1
 EOF
   )
   mv /etc/cbot/env.new /etc/cbot/env
+}
+
+# Where this install comes from, which the app checks for updates (server/src/updates.ts). Written on
+# every run, so updates follow the branch installed last.
+write_source() {
+  install -d -m 0700 /etc/cbot
+  printf '# Where scripts/install.sh installed cbot from. The app checks it for updates.\nCBOT_REPO=%s\nCBOT_REF=%s\n' "$repo" "$ref" >/etc/cbot/source.new
+  mv /etc/cbot/source.new /etc/cbot/source
 }
 
 # ---------------------------------------------------------------- Tailscale
@@ -370,7 +380,7 @@ finish() {
   fi
   note "Logs: journalctl -u cbot -f"
   note "Settings: /etc/cbot/env, then systemctl restart cbot"
-  note "Update: run the installer again"
+  note "Update: Settings > General in cbot, or run the installer again"
 }
 
 # ---------------------------------------------------------------- main
@@ -414,6 +424,7 @@ main() {
 
   step "Downloading cbot"
   fetch_release
+  write_source
   if $up_to_date; then
     finish
     return

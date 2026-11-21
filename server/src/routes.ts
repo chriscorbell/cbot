@@ -22,6 +22,7 @@ import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
 import { filesNote } from './library.js';
 import { voiceApi } from './voice.js';
 import { eraseAndExit, takeDown } from './reset.js';
+import { runningCommit } from './updates.js';
 import { searchLibraries, searchMessages } from './search.js';
 import { mapSpeed, mapVoice, voiceCatalog } from './speech.js';
 import { AVATAR_COLORS, AVATAR_SHAPES, EFFORTS, type ServerEvent } from './types.js';
@@ -49,7 +50,7 @@ api.get('/events', (c) => {
     });
     stream.onAbort(() => wake?.());
     try {
-      await stream.writeSSE({ data: JSON.stringify({ type: 'hello', serverTime: now() } satisfies ServerEvent) });
+      await stream.writeSSE({ data: JSON.stringify({ type: 'hello', serverTime: now(), version: runningCommit() } satisfies ServerEvent) });
       while (!stream.aborted) {
         if (!queue.length) {
           let timer: NodeJS.Timeout | undefined;

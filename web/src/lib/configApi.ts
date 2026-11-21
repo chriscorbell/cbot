@@ -1,6 +1,6 @@
 import type { ApprovalMode, Bot, Skill } from '@shared/types';
 import type {
-  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UrlResponse,
+  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UpdateResponse, UrlResponse,
 } from '@shared/contract';
 import { fileStart, request as req } from './http';
 
@@ -56,6 +56,10 @@ export const configApi = {
   permissions: () => req<PermissionsResponse>('GET', '/permissions'),
   /** Whether this page came over cbot's own HTTPS certificate (server/src/https.ts). */
   https: () => req<HttpsResponse>('GET', '/https'),
+  /** Updating cbot from GitHub (server/src/updates.ts): what it knows, asking GitHub now, and running the update. */
+  update: () => req<UpdateResponse>('GET', '/update'),
+  checkUpdate: () => req<UpdateResponse>('POST', '/update/check'),
+  startUpdate: () => req<UpdateResponse>('POST', '/update'),
   /** How every bot asks before risky actions, and the commands none of them runs ("Never Allow"). */
   setPermissions: (patch: { mode?: ApprovalMode; deny?: string[] }) => req<PermissionsResponse>('PUT', '/permissions', patch),
   /** Takes an "Always allow" answer back: every bot asks about that action again. */

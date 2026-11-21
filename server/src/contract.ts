@@ -3,7 +3,7 @@
 // same type, so changing a response here breaks the build on both sides until both agree.
 // Request bodies are the zod schemas next to their routes (lib/validate.ts).
 import type {
-  ApprovalMode, Attachment, Bot, ComputerState, EngineInfo, LibraryFile, LiveState, Memory, Routine, Row, Skill, User, VoiceOption,
+  ApprovalMode, Attachment, Bot, ComputerState, EngineInfo, LibraryFile, LiveState, Memory, Routine, Row, Skill, UpdateState, User, VoiceOption,
 } from './types.js';
 
 export interface Ok { ok: true }
@@ -32,6 +32,9 @@ export interface PermissionsResponse { mode: ApprovalMode; allowed: string[]; de
  * browser warns about until the device trusts it. Settings > General then offers the certificate.
  */
 export interface HttpsResponse { ownCertificate: boolean }
+
+/** Settings > General > Updates. Null when this cbot can't update itself (updates.ts says when). */
+export interface UpdateResponse { update: UpdateState | null }
 
 /** The secrets Settings > Providers holds: API keys, subscription tokens, the self-hosted endpoint's key. */
 export type SecretId = 'anthropic-api' | 'openai-api' | 'gemini' | 'xai' | 'openrouter' | 'deepseek' | 'claude-token' | 'copilot-token' | 'self-hosted-key';

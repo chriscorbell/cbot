@@ -30,6 +30,7 @@ function Shell() {
     const st = useStore.getState();
     st.loadBots().catch(console.error);
     st.loadComputer().catch(console.error);
+    st.loadUpdate().catch(console.error);
     return startEvents();
   }, []);
 

@@ -24,6 +24,11 @@ class Hub {
     }
   }
 
+  /** To everyone signed in: news about the machine rather than one user's bots (updates.ts). */
+  emitAll(ev: ServerEvent) {
+    for (const userId of [...this.listeners.keys()]) this.emit(userId, ev);
+  }
+
   isOnline(userId: string) {
     return (this.listeners.get(userId)?.size ?? 0) > 0;
   }

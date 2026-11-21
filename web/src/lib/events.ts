@@ -9,7 +9,7 @@ import { useStore } from '../store';
 export function applyServerEvent(ev: ServerEvent) {
   const s = useStore.getState();
   switch (ev.type) {
-    case 'hello':
+    case 'hello': return s.serverHello(ev.version);
     case 'ping':
       return;
     case 'rows': return s.upsertRows(ev.botId, ev.generation, ev.rows);
@@ -20,6 +20,7 @@ export function applyServerEvent(ev: ServerEvent) {
     case 'computer': return s.set({ computer: ev.state });
     case 'routines': return s.routinesChanged(ev.botId);
     case 'memories': return useConfigUI.getState().bump(`memories:${ev.botId}`);
+    case 'update': return s.applyUpdate(ev.update);
     default: {
       const unhandled: never = ev;
       console.warn('unknown server event', unhandled);
@@ -45,6 +46,7 @@ export function startEvents(): () => void {
     st.markTranscriptsStale();
     st.loadBots().catch(() => {});
     st.loadComputer().catch(() => {});
+    st.loadUpdate().catch(() => {});
     if (st.selectedBotId) { st.loadRows(st.selectedBotId).catch(() => {}); st.loadRoutines(st.selectedBotId).catch(() => {}); }
   };
 
