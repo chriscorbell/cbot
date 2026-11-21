@@ -1,0 +1,119 @@
+# Builds a release from its signed tag, once, for every machine that installs it: the tarball
+# (scripts/build-release.sh), the speech image (pushed to GHCR and named by its digest), manifest.json
+# and SHA256SUMS, attached to a draft GitHub release. scripts/publish.sh, which pushed the tag, then
+# checks the build against its own, signs SHA256SUMS with the release key and publishes the release;
+# the installer takes nothing that key didn't sign.
+#
+# A pull request that touches the build builds the tarball, and running this by hand builds the
+# tarball and the speech image; neither publishes anything.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - scripts/build-release.sh
+      - scripts/node.sha256
+      - scripts/bundle.sh
+      - scripts/install/**
+      - .node-version
+      - package.json
+      - package-lock.json
+      - server/package.json
+      - web/package.json
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write # the draft release
+      packages: write # the speech image
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+      SPEECH: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Name it
+        id: name
+        run: |
+          if [ "$PUBLISH" = true ]; then
+            version="$GITHUB_REF_NAME"
+            [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::$version isn't a release tag (vX.Y.Z)"; exit 1; }
+          else
+            version="dev-${GITHUB_SHA:0:12}"
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          # Image names are lower case.
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/dispatch-speech" >>"$GITHUB_OUTPUT"
+
+      - name: Build the tarball
+        env:
+          VERSION: ${{ steps.name.outputs.version }}
+        run: |
+          scripts/build-release.sh "$RUNNER_TEMP/out" --version "$VERSION" --commit "$GITHUB_SHA" \
+            --tarball "dist/dispatch-$VERSION-linux-amd64.tar.gz"
+          cp "$RUNNER_TEMP/out/scripts/install.sh" "$RUNNER_TEMP/out/scripts/uninstall.sh" dist/
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: env.SPEECH == 'true'
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: env.PUBLISH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the speech image
+        id: speech
+        if: env.SPEECH == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: speech
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.name.outputs.image }}:${{ steps.name.outputs.version }}
+          # Links the package to this repository, whose visibility it then follows.
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=speech
+          cache-to: type=gha,scope=speech,mode=max
+
+      # One key a line: the installer reads version and commit with sed, before anything is unpacked.
+      - name: Write the manifest and checksums
+        env:
+          VERSION: ${{ steps.name.outputs.version }}
+          IMAGE: ${{ steps.name.outputs.image }}
+          DIGEST: ${{ steps.speech.outputs.digest }}
+        run: |
+          tarball="dispatch-$VERSION-linux-amd64.tar.gz"
+          speech=''
+          [ "$PUBLISH" != true ] || speech="$IMAGE@$DIGEST"
+          jq -n --arg version "$VERSION" --arg commit "$GITHUB_SHA" --arg tarball "$tarball" \
+            --arg sha256 "$(sha256sum "dist/$tarball" | cut -d' ' -f1)" --arg speech "$speech" \
+            '{version: $version, commit: $commit, tarball: $tarball, tarballSha256: $sha256, speechImage: $speech}' >dist/manifest.json
+          (cd dist && sha256sum "$tarball" manifest.json install.sh uninstall.sh >SHA256SUMS)
+          cat dist/manifest.json dist/SHA256SUMS
+
+      # A release that is published already keeps its files: its signature covers them.
+      - name: Attach them to a draft release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.name.outputs.version }}
+        run: |
+          if draft="$(gh release view "$VERSION" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            [ "$draft" = true ] || { echo "::error::$VERSION is published already; its files stay as they are"; exit 1; }
+            gh release upload "$VERSION" dist/* --clobber
+          else
+            gh release create "$VERSION" --draft --verify-tag --title "Dispatch $VERSION" \
+              --notes "Built by GitHub Actions. scripts/publish.sh checks it, signs it and publishes it." dist/*
+          fi
