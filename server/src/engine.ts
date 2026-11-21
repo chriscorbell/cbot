@@ -46,6 +46,13 @@ import { botLimits, botSlice, gatewayEnvFile, gatewayUnit, mainPid, restart, set
  * key, keep it when the settings hash it started with still matches (or its screen is down); otherwise
  * write its environment file, set its slice's limits, (re)start the unit and wait up to 90 s for
  * /health. Looking at the settings panel of a bot whose gateway is down starts it too.
+ *
+ * A gateway keeps the credentials it started with, so Settings > Providers restarts it (refreshEngines),
+ * but never under a run: every chat turn, voice reply and call summary holds the gateway while its run
+ * lasts (holdGateway, from agent/runs.ts), and the restart waits until none does. Hermes' own cron jobs
+ * can't be seen from here and may still be cut short. A settings version per bot, read with the
+ * secrets, says whether the gateway runs on the newest; one that changed while a start was under way
+ * gets a start of its own.
  */
 
 export interface Engine { url: string; key: string; home: string }
@@ -419,7 +426,7 @@ function linkToShared(home: string, name: string) {
 }
 
 /** Create or refresh the home. config.yaml is created once; after that only the keys we own are patched. */
-async function writeHome(botId: string): Promise<{ home: string; key: string; display: string | null; settings: string }> {
+async function writeHome(botId: string): Promise<{ home: string; key: string; display: string | null; settings: string; version: number }> {
   let b = requireBot(botId);
   const home = homeFor(botId);
   mkdirOwned(path.join(home, 'logs'));
@@ -481,6 +488,8 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   const mine = readDotenv(envFile);
   const key = mine.API_SERVER_KEY || crypto.randomBytes(24).toString('hex');
   const primaryEnv = from ? readDotenv(path.join(from, '.env')) : {};
+  // Read with the secrets below, with no await between: the settings this start puts in the home.
+  const version = wanted.get(botId) ?? 0;
   const vars: Record<string, string> = { ...mine };
   for (const { env: k, value } of secretEnv()) {
     if (value) vars[k] = value;
@@ -495,7 +504,7 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   applyManagedConfig(managed, { bot: b, cwd, display, cdp });
   // Hermes reads the default model again when config.yaml changes (syncModel), so choosing another one restarts nothing.
   delete managed.model;
-  return { home, key, display, settings: settingsHash(managed, vars) };
+  return { home, key, display, settings: settingsHash(managed, vars), version };
 }
 
 /** Where a home records the settings hash its gateway started with. */
@@ -548,8 +557,35 @@ async function stopGateway(botId: string) {
 const starting = new Map<string, Promise<void>>();
 const failures = new Map<string, string>();
 const keys = new Map<string, string>();
-/** Bots whose home changed under a running gateway (Settings > Providers): it restarts before its next run. */
-const stale = new Set<string>();
+/** Settings > Providers changes, counted per bot (refreshEngines), and the count its gateway last started on. */
+const wanted = new Map<string, number>();
+const applied = new Map<string, number>();
+const outdated = (botId: string) => (wanted.get(botId) ?? 0) !== (applied.get(botId) ?? 0);
+/** Runs using each bot's gateway right now (holdGateway). */
+const holds = new Map<string, number>();
+
+/**
+ * A run is about to use the bot's gateway (agent/runs.ts holds it from before the gateway is looked
+ * up until the run is over): no restart for new settings happens under it. Returns the release, which
+ * restarts the gateway on new settings when it was the last run holding it.
+ */
+export function holdGateway(botId: string): () => void {
+  holds.set(botId, (holds.get(botId) ?? 0) + 1);
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    const left = (holds.get(botId) ?? 1) - 1;
+    if (left > 0) {
+      holds.set(botId, left);
+      return;
+    }
+    holds.delete(botId);
+    if (outdated(botId) && hasEngine(botId)) {
+      engineFor(botId).catch((e: unknown) => console.warn(`[engine] ${botId}: restart for new provider settings failed: ${errorText(e)}`));
+    }
+  };
+}
 
 function managedUrl(botId: string): string {
   const port = requireBot(botId).engine_port;
@@ -574,7 +610,7 @@ async function startGateway(botId: string): Promise<void> {
   const unit = gatewayUnit(botId);
 
   // The home always follows this server's code and environment, even under a running gateway.
-  const { home, key, display, settings } = await writeHome(botId);
+  const { home, key, display, settings, version } = await writeHome(botId);
   keys.set(botId, key);
 
   const state = await unitState(unit);
@@ -586,7 +622,10 @@ async function startGateway(botId: string): Promise<void> {
     // settings, and so does one systemd is bringing back after a crash: it gets the time a start
     // would. So does one whose bot's screen is down right now: restarting it would only take its
     // computer away.
-    if ((startedWith(home) === settings || !display) && (await cameUp(unit, url)) && (await keyAccepted(url, key))) return;
+    if ((startedWith(home) === settings || !display) && (await cameUp(unit, url)) && (await keyAccepted(url, key))) {
+      applied.set(botId, version);
+      return;
+    }
     console.log(`[engine] ${b.name}: its gateway runs on other settings, or doesn't answer; restarting it`);
   }
 
@@ -608,6 +647,7 @@ async function startGateway(botId: string): Promise<void> {
   if (!(await cameUp(unit, url))) {
     throw new Error(`The agent ${(await unitState(unit)) === 'failed' ? 'stopped while starting' : 'did not come up within 90 seconds'}. journalctl -u ${unit} says why.`);
   }
+  applied.set(botId, version);
   console.log(`[engine] ${b.name}: gateway up on ${url} (pid ${(await mainPid(unit)) ?? '?'})`);
 }
 
@@ -640,14 +680,20 @@ function ensureManaged(botId: string): Promise<void> {
   return p;
 }
 
-/** Where to send this bot's turns. Starts its gateway if it is not running. */
-export async function engineFor(botId: string): Promise<Engine> {
+/**
+ * Where to send this bot's runs. Starts its gateway if it is not running, and restarts it on settings
+ * newer than it started on, unless another run holds it (holdGateway); `held` when the caller holds it.
+ */
+export async function engineFor(botId: string, opts: { held?: boolean } = {}): Promise<Engine> {
   const b = botRow(botId);
   if (!b) throw new Error('bot not found');
   if (b.engine !== 'managed' || !b.engine_port) throw new Error(b.kind === 'room' ? 'A group chat has no agent of its own.' : 'This bot has no agent.');
   const url = managedUrl(botId);
-  // A start under way (a restart for new settings among them) is waited for, not raced.
-  if (stale.delete(botId) || starting.has(botId) || !(await healthy(url, 1500)) || !managedKey(botId)) await ensureManaged(botId);
+  // A start under way (a restart for new settings among them) is waited for, not raced. The settings
+  // may have changed after it read them: that is checked once it is done.
+  await starting.get(botId);
+  const others = (holds.get(botId) ?? 0) - (opts.held ? 1 : 0);
+  if ((outdated(botId) && others <= 0) || !(await healthy(url, 1500)) || !managedKey(botId)) await ensureManaged(botId);
   return { url, key: managedKey(botId), home: homeFor(botId) };
 }
 
@@ -716,9 +762,9 @@ export function syncModel(botId: string) {
 
 /**
  * Settings > Providers changed. A gateway keeps the credentials it started with in its environment, so
- * every one restarts on the new settings before its next run (engineFor). A credential taken out of
- * Settings also leaves every home now, where the home still holds that same value: a bot's own sign-in
- * stays. Returns the bots with a gateway, to restart now when they are idle.
+ * every one restarts on the new settings once no run holds it (engineFor, holdGateway). A credential
+ * taken out of Settings also leaves every home now, where the home still holds that same value: a
+ * bot's own sign-in stays. Returns the bots with a gateway, for engineFor to restart now.
  */
 export function refreshEngines(removed: { env: string; value: string }[]): string[] {
   const ids = db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine='managed'").all().map((b) => b.id);
@@ -727,7 +773,7 @@ export function refreshEngines(removed: { env: string; value: string }[]): strin
     const vars = readDotenv(file);
     const kept = Object.entries(vars).filter(([k, v]) => !removed.some((r) => r.env === k && r.value === v));
     if (kept.length !== Object.keys(vars).length) replacePrivate(file, kept.map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
-    stale.add(id);
+    wanted.set(id, (wanted.get(id) ?? 0) + 1);
   }
   optionsCache.clear();
   endpointCache.clear();

@@ -1,7 +1,7 @@
 import { db, now, type RunRecord } from '../db.js';
 import { failureText, sseEvents } from '../lib/sse.js';
 import { errorText } from '../lib/errors.js';
-import { engineFor, gatewayIfRunning, runSlot, type Engine } from '../engine.js';
+import { engineFor, gatewayIfRunning, holdGateway, runSlot, type Engine } from '../engine.js';
 import type { Conversation } from '../store.js';
 import { askApproval, runEnded, runMoved, type Settled } from './approvals.js';
 import { eventName, runEvent, runState, startedRun, stoppedStatus, type ApprovalRequest, type StepEvent } from './run-events.js';
@@ -22,8 +22,10 @@ import { eventName, runEvent, runState, startedRun, stoppedStatus, type Approval
  *      └──the caller gave up before Hermes had the run: nothing to stop
  *
  * The caller's own Stop aborts `follow`'s signal, which throws. `close` is the end, however it came:
- * the gateway's warm-up slot is released, prompts still waiting expire (agent/approvals.ts) and a run
- * that hasn't ended is stopped, since nobody follows it any more.
+ * the gateway's warm-up slot is released, prompts still waiting expire (agent/approvals.ts), a run
+ * that hasn't ended is stopped, since nobody follows it any more, and the gateway is let go. From
+ * `gateway` to `close` the run holds its gateway (engine.ts holdGateway), so new provider settings
+ * don't restart it under the run.
  *
  * A run is in `runs` from when Hermes has it until it is seen to end or Hermes answers its stop. The
  * gateways outlive this server, so a restart (every deploy and update) finds there the runs nobody
@@ -124,6 +126,8 @@ export class HermesRun {
   /** Settles once the request that creates the run has been answered. */
   private creating: Promise<void> | null = null;
   private slot: ((event?: unknown) => void) | null = null;
+  /** Lets go of the gateway (engine.ts holdGateway). */
+  private release: (() => void) | null = null;
   /** Hermes said the run ended: there is nothing left to stop. */
   private ended = false;
   private stopping: Promise<string> | null = null;
@@ -138,7 +142,9 @@ export class HermesRun {
 
   /** The bot's gateway, started if it isn't running. */
   async gateway(): Promise<Engine> {
-    this.engine ??= await engineFor(this.botId);
+    if (this.engine) return this.engine;
+    if (!this.closed) this.release ??= holdGateway(this.botId);
+    this.engine = await engineFor(this.botId, { held: !!this.release });
     return this.engine;
   }
 
@@ -292,9 +298,11 @@ export class HermesRun {
     if (this.closed) return;
     this.closed = true;
     this.slot?.();
-    if (!this.runId) return;
-    // Its prompts can't be answered once nobody follows the run.
-    runEnded(this.runId);
-    if (!this.ended) void this.stop();
+    if (this.runId) {
+      // Its prompts can't be answered once nobody follows the run.
+      runEnded(this.runId);
+      if (!this.ended) void this.stop();
+    }
+    this.release?.();
   }
 }
