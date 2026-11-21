@@ -83,7 +83,7 @@ Dispatch signs its own certificate, since browsers allow the microphone (and so 
 
 When a new version is out, **Update available** shows in the sidebar, and one click installs it. Dispatch installs and updates only from releases signed with its release key.
 
-[docs/RUNNING.md](docs/RUNNING.md) covers updates, settings, HTTPS, models, a forgotten password and starting over.
+[docs/RUNNING.md](docs/RUNNING.md) covers updates, settings, HTTPS, models, backups, a forgotten password and starting over.
 
 ### Uninstall
 

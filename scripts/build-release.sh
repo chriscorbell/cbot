@@ -19,7 +19,7 @@
 #   node_modules/  the server's production dependencies, and nothing of the web app's
 #   web/           dist/ (the web app), and src/avatar/shapes.gen.ts, which desk.ts draws avatars from
 #   scripts/       install.sh, uninstall.sh, release.sh, provision.sh, install-units.sh and this
-#                  script, which the machine runs to update itself
+#                  script, which the machine runs to update itself, and backup.sh and restore.sh
 #   deploy/        the systemd units (the server's, and those each bot's screen and agent run as) and
 #                  the speech service's Compose file and address
 #   speech/        the speech service's source, when the tree has it: release.sh builds the image from
@@ -107,7 +107,7 @@ cp -a server/dist server/box server/package.json "$out/server/"
 cp -a web/dist "$out/web/dist"
 cp web/src/avatar/shapes.gen.ts "$out/web/src/avatar/"
 cp -a deploy "$out/deploy"
-cp scripts/release.sh scripts/provision.sh scripts/install-units.sh scripts/build-release.sh scripts/bundle.sh scripts/node.sha256 "$out/scripts/"
+cp scripts/release.sh scripts/provision.sh scripts/install-units.sh scripts/backup.sh scripts/restore.sh scripts/build-release.sh scripts/bundle.sh scripts/node.sha256 "$out/scripts/"
 cp -a scripts/install "$out/scripts/install"
 # install.sh and uninstall.sh, joined from their parts: the app's updates run this release's.
 bash scripts/bundle.sh "$out/scripts"

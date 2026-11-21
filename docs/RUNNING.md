@@ -98,6 +98,25 @@ It prints a new setup code. The next visit creates a new account with it, and th
 
 Until an account exists, making one takes a one-time setup code, so that nobody else who can reach Dispatch makes it first. The installer prints a link that carries it. Without the link, the first-run form asks for the code; it's on the machine in `/var/lib/dispatch/setup-code` (`sudo cat` it), and in the log (`journalctl -u dispatch | grep 'setup code'`). In the development container, it's `docker exec dispatch-dev-dispatch-1 cat /data/setup-code`.
 
+## Backing up
+
+To copy what Dispatch keeps on the machine into one file, while it runs:
+
+```bash
+sudo /srv/dispatch/current/scripts/backup.sh                 # /var/backups/dispatch-<time>.tar.gz
+sudo /srv/dispatch/current/scripts/backup.sh /mnt/usb/dispatch.tar.gz
+```
+
+It holds the database (accounts, bots, chats, routines, settings and provider keys), the secret the bots' tokens are signed with, the certificate, and the bots' folder: each bot's Hermes home (memory, sessions, keys and sign-ins), its Library and its Chrome profile, without Chrome's caches. The databases are copied whole even while they're written to. The file has keys and sign-ins in it, so only root can read it; keep it somewhere safe. The machine's settings in `/etc/dispatch/env` aren't in it: the installer writes them for each machine.
+
+To put a backup back, on this machine or another one you've installed Dispatch on:
+
+```bash
+sudo /srv/dispatch/current/scripts/restore.sh /var/backups/dispatch-<time>.tar.gz
+```
+
+It asks first, then stops Dispatch and the bots, moves what's there now aside (`/var/lib/dispatch.before-restore-<time>` and `~/dispatch.before-restore-<time>` in the bots' account's home, for you to delete once you're happy), unpacks the backup, and starts Dispatch again. A backup from an older version is brought up to date as Dispatch starts; one from a newer version needs this machine updated first.
+
 ## Starting over
 
 **Settings** > **General** > **Reset Dispatch** asks twice, then erases every bot, chat, file, provider key and setting and the account, and Dispatch restarts as a fresh install. The page reloads into the first-run form with the new setup code already filled in. Programs the bots installed on the machine stay. To remove Dispatch altogether, use the [uninstaller](../README.md#uninstall).
