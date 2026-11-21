@@ -39,7 +39,7 @@ main() {
   stage=0
   $tui || step "Checking this machine"
   check_machine
-  choose_account
+  choose_account /etc/dispatch/env
 
   if ! $installed; then
     stage=1
@@ -64,7 +64,7 @@ main() {
     : "${tz:=UTC}" "${max_bots:=4}"
     write_settings
   fi
-  record_account
+  record_account /etc/dispatch/env
   run_release
   work_end
   finish
