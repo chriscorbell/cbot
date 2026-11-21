@@ -79,16 +79,14 @@ test('post_to_chat on a call puts a message in the chat marked with that call; w
   expect(posts()).toEqual([['https://example.com/a', callId], ['https://example.com/b', null]]);
 });
 
-test('a ZONOS3 voice reads as its nearest Phonon voice, and comes back if the service lists ZONOS3 again', () => {
+test('a voice the speech service does not list reads as its default', () => {
   const phonon = { defaultVoice: 'harper', speed: { min: 0.86, max: 1.27 }, voices: ['harper', 'edwin', 'hugh', 'preston'].map((id) => ({ id, name: id })) };
-  expect(mapVoice('zonos3-rupert', phonon)).toBe('edwin');
-  expect(mapVoice('zonos3-cillian', phonon)).toBe('hugh');
-  expect(mapVoice('zonos3-sakura', phonon)).toBe('harper'); // zoey isn't listed here: the default
-  expect(mapVoice('an-old-voice', phonon)).toBe('harper');
   expect(mapVoice('preston', phonon)).toBe('preston');
-  expect(mapVoice('zonos3-wyatt', null)).toBe('preston');
-  const zonos3 = { ...phonon, voices: [...phonon.voices, { id: 'zonos3-rupert', name: 'Rupert' }] };
-  expect(mapVoice('zonos3-rupert', zonos3)).toBe('zonos3-rupert');
+  expect(mapVoice('an-old-voice', phonon)).toBe('harper');
+  expect(mapVoice(undefined, phonon)).toBe('harper');
+  // Before the service has answered, a stored voice passes through.
+  expect(mapVoice('edwin', null)).toBe('edwin');
+  expect(mapVoice('', null)).toBe('harper');
 });
 
 test('browserName names the browser a call came from, for the log', () => {

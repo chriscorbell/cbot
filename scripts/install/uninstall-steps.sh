@@ -48,7 +48,7 @@ remove_speech() {
   ids="$(docker network ls -q --filter label=com.docker.compose.project=dispatch-speech)"
   # shellcheck disable=SC2086 # one network id per word
   [ -z "$ids" ] || docker network rm $ids >/dev/null
-  images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^dispatch-(speech|zonos3):' || true)"
+  images="$(docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -E '^dispatch-speech:' || true)"
   # shellcheck disable=SC2086 # one image per word
   [ -z "$images" ] || docker image rm -f $images >/dev/null
   # Building the speech image leaves gigabytes of build cache; any other project's is only a cache.

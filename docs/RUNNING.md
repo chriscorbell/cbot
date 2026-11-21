@@ -132,7 +132,6 @@ Every pull request runs `npm run check` and shellcheck in GitHub Actions, and `m
 server/   Node server: API, turns, Hermes gateways, screens, voice relay
 web/      React app
 speech/   speech service: recognition, and Phonon's voices
-zonos3/   ZONOS3-Mini voice server (off; speech/README.md says how to run it)
 scripts/  install, uninstall (both built from scripts/install/ by scripts/bundle.sh), deploy, release and host provisioning
 deploy/   systemd unit and the speech services' Compose file
 tests/    end-to-end scripts

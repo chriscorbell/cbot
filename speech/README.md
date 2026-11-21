@@ -5,7 +5,6 @@ Local text-to-speech and speech recognition for Dispatch's voice features. Compo
 | Job | Model | Runtime |
 |---|---|---|
 | Text-to-speech | Phonon 31M (`phonon-31m-en`, q8) and its 37 English voices | `ptts`, Gradium's Rust runtime, on the CPU |
-| Text-to-speech, ZONOS3 voices (off) | ZONOS3-Mini (quantized backbone `backbone-ptq.gguf`, decoder `zac-keep2.gguf`) and its 10 English voices | Zyphra's ggml server in the `zonos3` container (`../zonos3/Dockerfile`), on the GPU through Vulkan, else the CPU |
 | Whole clips (dictation) and the final transcript of each utterance in a call | Parakeet Unified EN 0.6B, offline mode (int8 ONNX) | sherpa-onnx |
 | Live partial transcripts in a call | Nemotron Speech Streaming EN 0.6B, 160 ms chunks (int8 ONNX) | sherpa-onnx |
 | Start and end of speech | Silero VAD v6 | onnxruntime |
@@ -35,12 +34,9 @@ The recognizers work at 16 kHz mono; the service resamples everything else.
     "stream": "nemotron-speech-streaming-en-0.6b-160ms",
     "streamModels": ["nemotron-speech-streaming-en-0.6b-160ms"]
   },
-  "threads": { "tts": 4, "asr": 4, "stream": 4 },
-  "zonos3": { "url": "http://zonos3:1919", "ready": true, "voices": 10 }
+  "threads": { "tts": 4, "asr": 4, "stream": 4 }
 }
 ```
-
-`zonos3` is `null` without `SPEECH_ZONOS3_URL`. `ready` is false until the ZONOS3 server has answered once (the service asks every 5 s) and for 30 s after a request could not reach it.
 
 ## `GET /v1/voices`
 
@@ -63,8 +59,6 @@ The voices for the voice picker, the default, and the speed range.
 
 `id` is what `/v1/tts` takes: the name in lower case with spaces turned into hyphens. `gender` is `"female"` or `"male"` for the 25 regular voices (13 female, 12 male; `locale` `en-us` or `en-gb`) and `null` for the 12 character voices (`character: true`, `locale: null`), whose `description` says who they are. `catalogId` is the voice's id in Gradium's catalog. The list keeps the catalog's order: US voices, then UK voices, then the characters.
 
-With `SPEECH_ZONOS3_URL` set, the list holds ZONOS3's ten voices instead of Phonon's, and `default` is `zonos3-savannah`. Their ids start with `zonos3-` (Phonon has an Imogen too), `locale` is `en-us`, `en-gb` or `en-ie` for the five plain voices and `null` for the five characters (energetic, announcer, ASMR, anime, witch; `character: true`), and they have no `catalogId` or `age`. Every voice has an `engine`, `"phonon"` or `"zonos3"`. ZONOS3's voices are listed while its server is down too, so a bot that uses one keeps it. Phonon's voices still speak when `/v1/tts` names one, and Phonon's default voice stands in for ZONOS3's when its server is down.
-
 ## `POST /v1/tts`
 
 Speech for a piece of text, streamed as it is generated.
@@ -73,9 +67,9 @@ Request body, JSON:
 
 | Field | Type | Default | |
 |---|---|---|---|
-| `text` | string, 1 to 4000 characters | required | Phonon spells out numbers, amounts, dates, times, emails and URLs. Its normalizer drops em and en dashes, so `app/text.py` turns them into the pauses they mark first: a comma between words, a full stop at the end, a hyphen in a range ("3–5"). Long text is split into sentences and spoken one after another in the same stream. ZONOS3's server normalizes text the same way |
-| `voice` | string | `/v1/voices`' `default` | An `id` from `/v1/voices`, or any Phonon voice's |
-| `speed` | number | `1` | Speaking rate. Phonon's range is narrow: values are clamped to 0.86 to 1.27 (`/v1/voices` reports it), for ZONOS3 voices too |
+| `text` | string, 1 to 4000 characters | required | Phonon spells out numbers, amounts, dates, times, emails and URLs. Its normalizer drops em and en dashes, so `app/text.py` turns them into the pauses they mark first: a comma between words, a full stop at the end, a hyphen in a range ("3–5"). Long text is split into sentences and spoken one after another in the same stream. |
+| `voice` | string | `/v1/voices`' `default` | An `id` from `/v1/voices` |
+| `speed` | number | `1` | Speaking rate. Phonon's range is narrow: values are clamped to 0.86 to 1.27 (`/v1/voices` reports it) |
 | `format` | `"pcm"` or `"wav"` | `"pcm"` | `pcm` streams; `wav` returns the whole file once it is done |
 
 Response for `pcm`: `200` with `Content-Type: audio/pcm;rate=24000;channels=1` and a chunked body of raw PCM (see Audio formats). Headers `X-Sample-Rate`, `X-Voice` and `X-Speed` give the rate, voice and clamped speed used. The headers come back at once; the first chunk is about 80 ms of audio and follows 15 to 50 ms after the request, later chunks grow to about a second. Chunk boundaries are arbitrary and can split a sample, so keep an odd trailing byte for the next chunk. The body ends when the speech does. Closing the connection early (`AbortController` with fetch) stops the generation, which is how a call cuts the bot off when the user talks over it.
@@ -83,8 +77,6 @@ Response for `pcm`: `200` with `Content-Type: audio/pcm;rate=24000;channels=1` a
 Response for `wav`: `200` with `Content-Type: audio/wav`, a 16-bit mono 24 kHz WAV, and `X-Processing-Ms` (time to generate).
 
 Errors: `400` with `{"detail": "..."}` for an unknown voice or text that is only whitespace; `422` for a missing or mistyped field, or text over 4000 characters.
-
-**ZONOS3 voices.** The service streams the ZONOS3 server's 44.1 kHz float audio through soxr to the same 24 kHz PCM16. ZONOS3 has no speed multiplier; it takes a speaking rate in UTF-8 bytes of text per second. At speed 1 the voice keeps its own pace; otherwise the service asks for the voice's measured natural pace times the speed, divided by 1.09, because ZONOS3 comes out about 9% faster than asked. Each generation samples afresh, so the same text sounds a little different each time. On the production host's integrated AMD GPU the first chunk follows about 100 to 250 ms after the request and generation runs 8 to 10 times faster than real time; on the dev machine's integrated Intel GPU, 330 to 610 ms and about 2.5 times. When the ZONOS3 server is down or fails before its first chunk, the text is spoken in the default Phonon voice (`X-Voice` still names the voice asked for).
 
 One Phonon generation runs at a time. Phonon generates about 17 times faster than real time, so a second request waits at most a fraction of a second. A voice's first use after a restart, or after a request at a different speed, costs about 30 ms more while Phonon primes it; the default voice is primed at startup.
 
@@ -145,8 +137,6 @@ Every event also has `audio_ms`: how much audio the server had received when it 
 
 What to expect, measured on the dev machine with this service's 4-CPU cap: `speech_started` about 170 ms after the user starts talking; partials about 130 ms behind the words; `speech_stopped` about 650 ms after the last word (the 500 ms of `silence_ms` plus the VAD's own lag); `final` 100 ms after `speech_stopped` for a one-word reply and 250 to 300 ms for a five-second sentence, since Parakeet Unified decodes the whole utterance (`final=stream` finishes in a steadier 150 to 230 ms, less accurately). Lowering `silence_ms` makes turns end sooner, at the risk of cutting users off when they pause mid-sentence. The service does not cancel echo: the browser's `echoCancellation` has to keep the bot's own voice out of the microphone.
 
-**Running ZONOS3 again.** It is off since 2026-11-16: Phonon's voice choice won. Its code stays here and in `zonos3/`. To turn it back on, add a `zonos3` service built from `zonos3/` (with `devices: [/dev/dri:/dev/dri]` for the GPU) on the speech network in `compose.yaml` and `deploy/speech.compose.yaml`, set `SPEECH_ZONOS3_URL` to it, and have `scripts/release.sh` build its image again; commit 9cffd17 has all three as they were. Bots that were on a ZONOS3 voice get it back, since their stored voice was never rewritten.
-
 ## Settings
 
 compose.yaml sets `SPEECH_THREADS`; the rest are rarely needed.
@@ -157,8 +147,7 @@ compose.yaml sets `SPEECH_THREADS`; the rest are rarely needed.
 | `SPEECH_TTS_THREADS`, `SPEECH_ASR_THREADS`, `SPEECH_STREAM_THREADS` | `SPEECH_THREADS` | Per model: Phonon, Parakeet Unified, the streaming model |
 | `SPEECH_STREAM_MODEL` | `nemotron-speech-streaming-en-0.6b-160ms` | Default streaming model; must be in the image |
 | `SPEECH_OFFLINE_MODEL` | `parakeet-unified-en-0.6b` | Model for clips and finals |
-| `SPEECH_DEFAULT_VOICE` | `harper` | Phonon's default voice, which also stands in for ZONOS3's |
-| `SPEECH_ZONOS3_URL` | unset | The ZONOS3 server (off: see above). Unset leaves the ZONOS3 voices out |
+| `SPEECH_DEFAULT_VOICE` | `harper` | Phonon's default voice |
 | `SPEECH_MAX_TTS_CHARS` | `4000` | |
 | `SPEECH_MAX_CLIP_SECONDS`, `SPEECH_MAX_UPLOAD_BYTES` | `600`, `52428800` | Limits for `/v1/transcribe` |
 
@@ -170,7 +159,6 @@ compose.yaml sets `SPEECH_THREADS`; the rest are rarely needed.
 | `models.json`, `fetch_models.py` | Every model file with its repository, revision, license and hash, and the script that downloads and checks them |
 | `app/main.py` | The HTTP and WebSocket routes |
 | `app/tts.py` | Phonon: voices, speed, streaming |
-| `app/zonos3.py` | The ZONOS3 voices, their natural paces, and the stream from the ZONOS3 server |
 | `app/asr.py`, `app/listen.py`, `app/vad.py` | Recognizers, the live session (VAD and streaming), Silero |
 | `app/ort-cpu.conf` | onnxruntime settings that keep the models fast under a CPU cap |
 | `bench/` | The benchmark and the smoke test; `bench/README.md` says how to run them |

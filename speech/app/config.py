@@ -26,10 +26,6 @@ TTS_MODEL = MODELS / "phonon-31m-en"
 VOICES = MODELS / "phonon-voices-en"
 DEFAULT_VOICE = os.environ.get("SPEECH_DEFAULT_VOICE", "harper")
 
-# The ZONOS3-Mini server (zonos3/Dockerfile), whose voices are listed and spoken next to Phonon's.
-# Empty leaves them out.
-ZONOS3_URL = os.environ.get("SPEECH_ZONOS3_URL", "")
-
 # Longest text one synthesis request takes, and longest clip /v1/transcribe takes.
 MAX_TTS_CHARS = _int("SPEECH_MAX_TTS_CHARS", 4000)
 MAX_CLIP_SECONDS = _int("SPEECH_MAX_CLIP_SECONDS", 600)

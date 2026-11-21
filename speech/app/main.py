@@ -3,7 +3,6 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -16,7 +15,6 @@ from .audio import DecodeError, decode_clip, to_pcm16, wav_header
 from .guard import RefuseBrowsers
 from .listen import ListenSession, Options
 from .tts import SPEED_MAX, SPEED_MIN, Phonon
-from .zonos3 import Zonos3, Zonos3Error
 
 log = logging.getLogger("speech")
 state: dict = {}
@@ -32,13 +30,7 @@ async def lifespan(app: FastAPI):
     # Phonon primes a voice on its first use (about 30 ms) and keeps the 16 most recent primed.
     await loop.run_in_executor(None, tts.warm, [tts.default_voice])
     log.warning("models loaded in %.1f s", time.perf_counter() - t)
-    zonos = state["zonos3"] = Zonos3(config.ZONOS3_URL, tts.sample_rate) if config.ZONOS3_URL else None
-    connecting = asyncio.create_task(zonos.connect()) if zonos else None
     yield
-    if connecting:
-        connecting.cancel()
-    if zonos:
-        await zonos.close()
 
 
 app = FastAPI(title="Dispatch speech", lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -55,22 +47,17 @@ async def health():
         "tts": {"model": config.TTS_MODEL.name, "sampleRate": tts.sample_rate, "voices": len(tts.voices)},
         "asr": {"offline": asr.offline_id, "stream": asr.default_stream, "streamModels": asr.stream_models},
         "threads": {"tts": config.TTS_THREADS, "asr": config.ASR_THREADS, "stream": config.STREAM_THREADS},
-        "zonos3": await state["zonos3"].health() if state.get("zonos3") else None,
     }
 
 
 @app.get("/v1/voices")
 async def voices():
     tts: Phonon = state["tts"]
-    zonos: Zonos3 | None = state.get("zonos3")
-    # With ZONOS3 configured its voices replace Phonon's in the list. They are listed while its server
-    # is down too, so a bot keeps its voice, and are spoken in the default Phonon voice meanwhile.
-    # Phonon's voices still speak when asked for by id.
     return {
-        "default": zonos.default_voice if zonos else tts.default_voice,
+        "default": tts.default_voice,
         "sampleRate": tts.sample_rate,
         "speed": {"min": SPEED_MIN, "max": SPEED_MAX, "default": 1.0},
-        "voices": zonos.voices if zonos else tts.voices,
+        "voices": tts.voices,
     }
 
 
@@ -81,43 +68,17 @@ class TTSRequest(BaseModel):
     format: str = Field("pcm", pattern="^(pcm|wav)$")
 
 
-async def zonos3_or_phonon(zonos: Zonos3, text: str, voice: str, speed: float) -> AsyncIterator[bytes]:
-    """ZONOS3's speech, or the default Phonon voice's when ZONOS3 fails before its first chunk."""
-    tts: Phonon = state["tts"]
-    started = False
-    try:
-        async for chunk in zonos.stream(text, voice, speed):
-            started = True
-            yield chunk
-        return
-    except Zonos3Error as e:
-        if started:
-            raise
-        log.warning("%s; speaking in %s instead", e, tts.default_voice)
-    async for chunk in tts.stream(text, tts.default_voice, speed):
-        yield chunk
-
-
 @app.post("/v1/tts")
 async def tts(req: TTSRequest):
     tts: Phonon = state["tts"]
-    zonos: Zonos3 | None = state.get("zonos3")
-    voice = req.voice or (zonos.default_voice if zonos else tts.default_voice)
-    if voice not in tts.voice_ids and not (zonos and voice in zonos.voice_ids):
+    voice = req.voice or tts.default_voice
+    if voice not in tts.voice_ids:
         raise HTTPException(400, f"unknown voice {voice!r}; GET /v1/voices lists them")
     text = req.text.strip()
     if not text:
         raise HTTPException(400, "text is empty")
     speed = min(max(req.speed, SPEED_MIN), SPEED_MAX)
     headers = {"X-Sample-Rate": str(tts.sample_rate), "X-Voice": voice, "X-Speed": f"{speed:g}"}
-    if zonos and voice in zonos.voice_ids:
-        speech = zonos3_or_phonon(zonos, text, voice, speed)
-        if req.format == "wav":
-            t = time.perf_counter()
-            body = b"".join([c async for c in speech])
-            headers["X-Processing-Ms"] = str(round((time.perf_counter() - t) * 1000))
-            return Response(wav_header(tts.sample_rate, len(body)) + body, media_type="audio/wav", headers=headers)
-        return StreamingResponse(speech, media_type=f"audio/pcm;rate={tts.sample_rate};channels=1", headers=headers)
     if req.format == "wav":
         loop = asyncio.get_running_loop()
         pcm, secs = await loop.run_in_executor(tts._pool, tts.synth, text, voice, speed)

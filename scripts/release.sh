@@ -6,7 +6,7 @@
 #   1. runs scripts/provision.sh when that script or the service unit changed since its last run,
 #   2. builds a fresh release and renames it to <commit>,
 #   3. builds the speech image when speech/ changed, and starts it (and stops anything the compose
-#      file no longer lists, such as the ZONOS3 container),
+#      file no longer lists),
 #   4. points /srv/dispatch/current at the release and restarts Dispatch, whose bots keep running.
 #      When it doesn't answer within a minute, it goes back to the release before it and that
 #      release's speech image, writes /etc/dispatch/last-update for the app to say so, and fails.
@@ -109,8 +109,7 @@ for r in $(ls -1t "$releases"); do
   n=$((n + 1))
   [ "$n" -le 4 ] || rm -rf "${releases:?}/$r"
 done
-# The speech image in use and the newest one besides it stay (docker lists the newest first). ZONOS3's
-# images are left for turning it back on.
+# The speech image in use and the newest one besides it stay (docker lists the newest first).
 spare=
 for image in $(docker image ls "${speech%%:*}" --format '{{.Repository}}:{{.Tag}}'); do
   [ "$image" = "$speech" ] && continue

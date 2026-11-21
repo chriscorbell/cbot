@@ -1,6 +1,6 @@
 # The speech service on Dispatch's production host (scripts/release.sh runs it). Its network is internal,
 # so it has no route out; the host reaches it at a fixed address, which deploy/dispatch.service passes to
-# the server as SPEECH_URL. ZONOS3-Mini (zonos3/) is off; speech/README.md says how to run it again.
+# the server as SPEECH_URL.
 name: dispatch-speech
 services:
   speech:

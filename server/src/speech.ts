@@ -11,17 +11,6 @@ export interface VoiceCatalog { defaultVoice: string; speed: { min: number; max:
 /** New bots get one of these, picked by id: clear, even Phonon voices that hold up on a call. */
 export const NEW_BOT_VOICES = ['harper', 'preston', 'hadley', 'edwin', 'maeve', 'trevor'];
 
-/**
- * ZONOS3-Mini's voices, which replaced Phonon's for a day (2026-11-15), as the nearest Phonon voice:
- * the same gender and accent where Phonon has one (it has no Irish voice), and the closest character
- * otherwise. Stored ids stay as they are, so turning ZONOS3 back on brings each bot's voice back.
- */
-const FROM_ZONOS3: Record<string, string> = {
-  'zonos3-savannah': 'harper', 'zonos3-wyatt': 'preston', 'zonos3-imogen': 'imogen', 'zonos3-rupert': 'edwin',
-  'zonos3-cillian': 'hugh', 'zonos3-jett': 'russell', 'zonos3-thaddeus': 'miles', 'zonos3-willow': 'bryony',
-  'zonos3-sakura': 'zoey', 'zonos3-morgana': 'the-snow-queen',
-};
-
 // What /v1/voices reports today, for mapping stored speeds before the service has answered.
 const SPEED_RANGE = { min: 0.86, max: 1.27 };
 
@@ -62,17 +51,13 @@ export function initSpeech() {
 }
 
 /**
- * A bot's stored voice as the speech service can use it. A ZONOS3 voice the service doesn't list reads
- * as its nearest Phonon voice (FROM_ZONOS3); any other unknown name (bots from before the local speech
- * service) as the service's default. Before the catalog has loaded, a ZONOS3 voice still maps and any
- * other stored name passes through.
+ * A voice as the speech service can use it: one the service doesn't list reads as its default. Before
+ * the catalog has loaded, any name passes through.
  */
 export function mapVoice(stored: unknown, c: VoiceCatalog | null = catalog?.value ?? null): string {
   const id = typeof stored === 'string' ? stored : '';
-  if (!c) return FROM_ZONOS3[id] ?? (id || NEW_BOT_VOICES[0]);
-  if (c.voices.some((v) => v.id === id)) return id;
-  const near = FROM_ZONOS3[id];
-  return near && c.voices.some((v) => v.id === near) ? near : c.defaultVoice;
+  if (!c) return id || NEW_BOT_VOICES[0];
+  return c.voices.some((v) => v.id === id) ? id : c.defaultVoice;
 }
 
 /** A stored speed clamped to the speech service's range (older settings went from 0.7 to 1.5). */

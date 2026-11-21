@@ -1,7 +1,6 @@
 # Dispatch for development, in two containers: `dispatch` (the app, a screen per bot with an X display and
 # VNC server, Chrome and Hermes, set up by scripts/provision.sh) and `speech` (Phonon text-to-speech
-# and speech recognition on the CPU). ZONOS3-Mini (zonos3/) is off; speech/README.md says how to
-# run it again.
+# and speech recognition on the CPU).
 # Production runs on a machine of its own without the app container (scripts/deploy.sh, deploy/).
 #
 #   DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build --remove-orphans    # images dispatch:dev and dispatch-speech:dev, .env, port 8788

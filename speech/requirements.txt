@@ -7,7 +7,6 @@ uvloop==0.23.0
 python-multipart==0.0.33
 numpy==2.5.4
 soxr==1.1.0
-httpx==0.28.1  # ZONOS3's server (app/zonos3.py)
 av==19.0.2
 onnxruntime==1.28.0  # 1.29 and later upload telemetry to Microsoft from Linux by default
 ptts==0.7.1
