@@ -415,7 +415,7 @@ function linkToShared(home: string, name: string) {
 
 /** Create or refresh the home. config.yaml is created once; after that only the keys we own are patched. */
 async function writeHome(botId: string): Promise<{ home: string; key: string; display: string | null; settings: string }> {
-  const b = requireBot(botId);
+  let b = requireBot(botId);
   const home = homeFor(botId);
   fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
   fs.mkdirSync(path.join(home, 'locks'), { recursive: true });
@@ -434,6 +434,9 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   } catch (e) {
     console.warn(`[engine] no screen for ${b.name} yet: ${errorText(e)}`);
   }
+  // Read again after the wait: a model chosen meanwhile (the setup wizard sets it right after making
+  // the bot) would otherwise be written over with none.
+  b = requireBot(botId);
 
   // It works in its Library folder, so what it makes there shows up in the app.
   const cwd = libraryDir(botId);
