@@ -5,6 +5,7 @@ import { box } from './box.js';
 import { cdpPortFor, displayNumber, libraryDir, LIBRARY_ROOT, profileDir, PROFILES_ROOT } from './machine.js';
 import { ensureDisplay, SCREEN_SIZE, stopDisplay } from './displays.js';
 import type { ComputerState } from './types.js';
+import { errorText } from './lib/errors.js';
 
 /**
  * The computer every bot works on is the machine this server runs on. Each bot has a screen of its
@@ -85,8 +86,8 @@ async function lease(userId: string, botId: string): Promise<BotScreen> {
   if (fresh || Date.now() - (verified.get(botId) ?? 0) > 15_000) {
     try {
       await ensureDisplay(displayNumber(screenId));
-    } catch (e: any) {
-      setFailure(userId, String(e?.message ?? e));
+    } catch (e) {
+      setFailure(userId, errorText(e));
       throw e;
     }
     verified.set(botId, Date.now());
@@ -154,7 +155,7 @@ export async function releaseScreen(botId: string): Promise<void> {
   dressing.delete(botId);
   verified.delete(botId);
   try {
-    try { await undressScreen(botId, mine.screen_id); } catch (e: any) { console.warn(`[computer] undress failed: ${e?.message ?? e}`); }
+    try { await undressScreen(botId, mine.screen_id); } catch (e) { console.warn(`[computer] undress failed: ${errorText(e)}`); }
     await stopDisplay(displayNumber(mine.screen_id));
   } finally {
     db.prepare('DELETE FROM screens WHERE bot_id=?').run(botId);

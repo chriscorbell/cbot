@@ -5,6 +5,7 @@ import { mcpToken } from './engine.js';
 import { claimToolRow, enqueueBotMessage, turnDepth } from './agent/turns.js';
 import { inputSchema, runTool, toolMap, TOOLS, type ToolCtx } from './agent/tools.js';
 import { liveCallOf } from './voice.js';
+import { errorText } from './lib/errors.js';
 
 /**
  * The app's tools, served to the Hermes engines over MCP (streamable HTTP, JSON answers only).
@@ -64,8 +65,8 @@ async function callTool(botId: string, rawName: string, rawArgs: unknown): Promi
     if (r.endTurn) claim?.transcript.silence();
     report('done', r.summary);
     return text(r.output);
-  } catch (e: any) {
-    const msg = String(e?.message ?? e);
+  } catch (e) {
+    const msg = errorText(e);
     report('error', msg.slice(0, 200));
     return text(`Tool error: ${msg}`, true);
   }

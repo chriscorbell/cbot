@@ -11,6 +11,7 @@ import { TOOLS } from './agent/tools.js';
 import { displayFor, ENGINE_PORT_BASE, HERMES_ROOT, libraryDir } from './machine.js';
 import { requireBot } from './store.js';
 import { envOf, getSetting, secretEnv } from './settings.js';
+import { errorField, errorText } from './lib/errors.js';
 
 /**
  * Every bot is run by a Hermes agent of its own: a Hermes home under <DATA_DIR>/engines/<botId> with
@@ -405,8 +406,8 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
     const s = await screenFor(b.user_id, botId);
     display = displayFor(s.screenId);
     cdp = cdpUrlFor(s.screenId);
-  } catch (e: any) {
-    console.warn(`[engine] no screen for ${b.name} yet: ${e?.message ?? e}`);
+  } catch (e) {
+    console.warn(`[engine] no screen for ${b.name} yet: ${errorText(e)}`);
   }
 
   // It works in its Library folder, so what it makes there shows up in the app.
@@ -631,8 +632,8 @@ function ensureManaged(botId: string): Promise<void> {
   if (!p) {
     p = startGateway(botId)
       .then(() => { failures.delete(botId); })
-      .catch((e: any) => {
-        const msg = String(e?.message ?? e);
+      .catch((e: unknown) => {
+        const msg = errorText(e);
         failures.set(botId, msg);
         console.warn(`[engine] ${botId}: ${msg}`);
         throw e;
@@ -751,8 +752,8 @@ export function ownScreenOn(botId: string): boolean {
     if (!Number.isInteger(pid) || pid <= 1 || !fs.existsSync(path.join(dir, 'env'))) return false;
     process.kill(pid, 0);
     return true;
-  } catch (e: any) {
-    return e?.code === 'EPERM';
+  } catch (e) {
+    return errorField(e, 'code') === 'EPERM';
   }
 }
 
@@ -864,8 +865,8 @@ export async function endpointModels(id: Endpoint): Promise<{ models: string[]; 
     const models = Array.isArray(body?.data) ? body.data.map((m: any) => m?.id).filter((m: unknown): m is string => typeof m === 'string' && !!m) : [];
     if (!r.ok) out = { models: [], error: `${url} answered HTTP ${r.status}${typeof body?.error?.message === 'string' ? `: ${body.error.message}` : ''}` };
     else out = models.length ? { models, error: null } : { models: [], error: `${url} lists no models` };
-  } catch (e: any) {
-    out = { models: [], error: `Couldn’t reach ${url}: ${e?.cause?.code ?? e?.message ?? e}` };
+  } catch (e) {
+    out = { models: [], error: `Couldn’t reach ${url}: ${String(errorField(errorField(e, 'cause'), 'code') ?? errorText(e))}` };
   }
   endpointCache.set(id, { at: Date.now(), ...out });
   return out;

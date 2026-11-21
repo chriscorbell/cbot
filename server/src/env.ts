@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { errorField } from './lib/errors.js';
 
 /**
  * A random secret made on first start and kept in the data directory, readable only by us.
@@ -8,7 +9,7 @@ import path from 'node:path';
  */
 function generatedSecret(file: string): string {
   let s = '';
-  try { s = fs.readFileSync(file, 'utf8').trim(); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
+  try { s = fs.readFileSync(file, 'utf8').trim(); } catch (e) { if (errorField(e, 'code') !== 'ENOENT') throw e; }
   if (s) return s;
   s = crypto.randomBytes(32).toString('hex');
   fs.mkdirSync(path.dirname(file), { recursive: true });

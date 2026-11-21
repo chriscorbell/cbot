@@ -6,6 +6,7 @@ import { authenticate, crossSite, headerOf } from './lib/auth.js';
 import { displayFor, vncPortFor } from './machine.js';
 import { readyScreen, screenFor } from './computer.js';
 import { ByteQueue, rfbHandshake } from './lib/rfb.js';
+import { errorText } from './lib/errors.js';
 
 /**
  * VNC relay: browser <-> our server <-> the VNC server of the bot's display (Xvnc on 127.0.0.1).
@@ -170,8 +171,8 @@ async function relay(client: WebSocket, state: Relay, conn: string | null) {
       const fwd = forward(leftoverClient);
       if (fwd.length) up.write(fwd);
     }
-  } catch (e: any) {
-    console.warn('[vnc] relay failed', e?.message ?? e);
-    closeAll(1011, String(e?.message ?? e));
+  } catch (e) {
+    console.warn('[vnc] relay failed', errorText(e));
+    closeAll(1011, errorText(e));
   }
 }

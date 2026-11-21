@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { hub } from './lib/hub.js';
 import { INSTALL_LOG, INSTALL_SOURCE, RELEASES_ROOT, UPDATE_RESULT } from './machine.js';
 import type { UpdateState } from './types.js';
+import { errorField, errorText } from './lib/errors.js';
 
 /**
  * Updating Dispatch from GitHub: the sidebar's "Update available" and Settings > General > Updates.
@@ -280,9 +281,10 @@ export async function startUpdate(): Promise<string | null> {
       `--setenv=DISPATCH_REPO=${from.repo}`, ...(from.ref === null ? [] : [`--setenv=DISPATCH_REF=${from.ref}`]),
       '/bin/bash', path.join(RELEASES_ROOT, commit, 'scripts', 'install.sh'),
     ]);
-  } catch (e: any) {
-    console.error('[updates] could not start the installer:', e?.stderr || e?.message || e);
-    publish({ current: s.current, available: s.available, checkedAt: s.checkedAt, status: 'failed', error: `It couldn’t start: ${String(e?.stderr || e?.message || e).trim().split('\n')[0]}` });
+  } catch (e) {
+    const why = String(errorField(e, 'stderr') || errorText(e));
+    console.error('[updates] could not start the installer:', why);
+    publish({ current: s.current, available: s.available, checkedAt: s.checkedAt, status: 'failed', error: `It couldn’t start: ${why.trim().split('\n')[0]}` });
     return null;
   }
   console.log(`[updates] updating from ${s.current} to ${s.available.version} (${from.repo} ${from.ref ?? 'releases'})`);
@@ -298,7 +300,7 @@ function watch(startedAt: number) {
 }
 
 /** systemctl is-active exits non-zero for anything but active, with the state still on stdout. */
-const unitState = () => run('systemctl', ['is-active', UNIT]).then((r) => r.stdout.trim(), (e: any) => String(e?.stdout ?? '').trim() || 'inactive');
+const unitState = () => run('systemctl', ['is-active', UNIT]).then((r) => r.stdout.trim(), (e: unknown) => String(errorField(e, 'stdout') ?? '').trim() || 'inactive');
 
 /** The installer's step, from its log once it has started this run's (it empties the log when it starts). */
 function currentStep(startedAt: number): string | null {

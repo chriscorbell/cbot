@@ -4,6 +4,7 @@ import { body as readBody } from './lib/validate.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
 import { fireCheckin, getCheckins, setCheckins } from './proactive.js';
 import type { CheckinSettings, Ok } from './contract.js';
+import { errorText } from './lib/errors.js';
 
 /** /api/checkins: proactive check-in settings for the primary bot. */
 export const checkinsApi = new Hono<AuthVars>();
@@ -15,8 +16,8 @@ checkinsApi.put('/', async (c) => {
   const body = await readBody(c, z.object({ enabled: z.boolean().optional(), times: z.array(z.string()).optional(), timezone: z.string().optional() }));
   try {
     return c.json(setCheckins(c.get('user').id, body) satisfies CheckinSettings);
-  } catch (e: any) {
-    return c.json({ error: e?.message ?? String(e) }, 400);
+  } catch (e) {
+    return c.json({ error: errorText(e) }, 400);
   }
 });
 

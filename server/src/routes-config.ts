@@ -22,6 +22,7 @@ import { authorityPem } from './https.js';
 import { checkForUpdate, startUpdate, updateState } from './updates.js';
 import { TLSSocket } from 'node:tls';
 import type { HttpBindings } from '@hono/node-server';
+import { errorText } from './lib/errors.js';
 
 /**
  * Bot settings, skills, library, computer controls and memory maintenance.
@@ -221,8 +222,8 @@ async function signInAnswer(c: Context<AuthVars>, start: () => Promise<ProviderS
     const signIn = await start();
     if (signIn.status === 'failed') return c.json({ error: signIn.error ?? 'The sign-in didn’t start.' }, 502);
     return c.json({ signIn } satisfies SignInResponse);
-  } catch (e: any) {
-    return c.json({ error: String(e?.message ?? e).slice(0, 300) }, 502);
+  } catch (e) {
+    return c.json({ error: errorText(e).slice(0, 300) }, 502);
   }
 }
 
@@ -234,8 +235,8 @@ configApi.post('/bots/:id/engine/restart', async (c) => {
     await restartEngine(b.id);
     forgetEngineOptions(b.id);
     return c.json({ engine: await engineInfo(b.id) } satisfies EngineResponse);
-  } catch (e: any) {
-    return c.json({ error: String(e?.message ?? e).slice(0, 300) }, 502);
+  } catch (e) {
+    return c.json({ error: errorText(e).slice(0, 300) }, 502);
   }
 });
 
@@ -246,8 +247,8 @@ configApi.post('/bots/:id/engine/screen/stop', async (c) => {
   try {
     await stopOwnScreen(b.id);
     return c.json({ engine: await engineInfo(b.id) } satisfies EngineResponse);
-  } catch (e: any) {
-    return c.json({ error: String(e?.message ?? e).slice(0, 300) }, 409);
+  } catch (e) {
+    return c.json({ error: errorText(e).slice(0, 300) }, 409);
   }
 });
 
@@ -308,8 +309,8 @@ configApi.get('/bots/:id/files', async (c) => {
     const r = await box.bash(`mkdir -p ${shq(`${LIB_ROOT}/${b.id}`)} && ls -la --time-style=+%s ${shq(dir)} 2>&1`, 30);
     if (r.exit_code !== 0) return c.json({ status: 'error', path: rel, files: [], error: (r.output ?? '').slice(0, 300) } satisfies LibraryListing);
     return c.json({ status: 'ok', path: rel, files: parseLs(r.output ?? '') } satisfies LibraryListing);
-  } catch (e: any) {
-    return c.json({ status: 'error', path: rel, files: [], error: String(e?.message ?? e).slice(0, 300) } satisfies LibraryListing);
+  } catch (e) {
+    return c.json({ status: 'error', path: rel, files: [], error: errorText(e).slice(0, 300) } satisfies LibraryListing);
   }
 });
 
@@ -418,7 +419,7 @@ configApi.post('/bots/:id/screen/reset', async (c) => {
     await resetBotScreen(user.id, b.id);
     hub.emit(user.id, { type: 'computer', state: computerState(user.id) });
     return c.json({ ok: true } satisfies Ok);
-  } catch (e: any) {
-    return c.json({ error: String(e?.message ?? e).slice(0, 300) }, 502);
+  } catch (e) {
+    return c.json({ error: errorText(e).slice(0, 300) }, 502);
   }
 });

@@ -3,6 +3,7 @@ import { newId } from './lib/ids.js';
 import { engineHome, forgetEngineOptions, HERMES_BIN, hermesEnv, signInName } from './engine.js';
 import { saveProviderSettings } from './providers.js';
 import type { ProviderSignIn } from './contract.js';
+import { errorText } from './lib/errors.js';
 
 /**
  * Signing in to a subscription with a code, so nothing happens on a bot's screen. ChatGPT, Grok and
@@ -85,7 +86,7 @@ export async function startSignIn(userId: string, provider: string, botId: strin
   if (!s) {
     const made = open(userId, slot, provider, name);
     if (shared) {
-      copilot(made).catch((e: any) => { end(made, 'failed', `The GitHub sign-in failed: ${e?.message ?? e}`); });
+      copilot(made).catch((e: unknown) => { end(made, 'failed', `The GitHub sign-in failed: ${errorText(e)}`); });
     } else {
       hermes(made, home!, botId!);
     }

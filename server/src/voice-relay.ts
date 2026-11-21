@@ -35,6 +35,7 @@ import { SAMPLE_RATE, listenUrl, speak } from './speech.js';
 import { claimCall, type ActiveCall } from './voice.js';
 import { chatNews } from './agent/catchup.js';
 import type { ClientEvent, RealtimeResponse, RelayEvent, SpeechEvent } from './voice-protocol.js';
+import { errorText } from './lib/errors.js';
 
 type Json = Record<string, any>;
 
@@ -423,9 +424,9 @@ export class Relay {
         if (r.state !== 'active') return;
         if (this.onRunEvent(r, ev.data)) break;
       }
-    } catch (e: any) {
+    } catch (e) {
       if (r.state !== 'active') return; // cancelled
-      console.warn(`[voice] ${this.call.id} ${r.id}: the turn failed: ${e?.message ?? e}`);
+      console.warn(`[voice] ${this.call.id} ${r.id}: the turn failed: ${errorText(e)}`);
       this.send({ type: 'error', error: { type: 'server_error', code: 'model_error', message: 'The bot did not answer.' } });
       // Say so rather than going quiet.
       if (!r.spoken.length && !r.sentences.length) r.buffer = 'Sorry, I couldn’t get an answer just then.';
@@ -560,9 +561,9 @@ export class Relay {
     while (r.state === 'active' && !r.held && r.sentences.length) {
       try {
         await this.speakSentence(r, r.sentences.shift()!);
-      } catch (e: any) {
+      } catch (e) {
         if (r.state !== 'active' || r.held) break;
-        console.warn('[voice] speech failed:', e?.message ?? e);
+        console.warn('[voice] speech failed:', errorText(e));
       }
     }
     r.speaking = false;

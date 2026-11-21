@@ -12,6 +12,7 @@ import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
 import { libraryDir } from '../machine.js';
 import { z } from 'zod';
+import { errorText } from '../lib/errors.js';
 
 export interface ToolCtx {
   userId: string;
@@ -87,7 +88,7 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Setting up a routine',
     impl: async (a, ctx) => {
-      try { new Cron(a.schedule, { paused: true, timezone: a.timezone || env.timeZone }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
+      try { new Cron(a.schedule, { paused: true, timezone: a.timezone || env.timeZone }); } catch (e) { return { output: `Invalid schedule: ${errorText(e)}` }; }
       const id = newId('rt');
       db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, a.timezone || env.timeZone, now());
       const r = getRoutine(id)!;
@@ -124,8 +125,8 @@ export const TOOLS: ToolDef[] = [
       try {
         const r = setCheckins(ctx.userId, { enabled: !!a.enabled, times: a.times, timezone: a.timezone });
         return { output: JSON.stringify({ ok: true, ...r }), summary: r.enabled ? `Check-ins at ${r.times.join(', ')} ${r.timezone}` : 'Check-ins off' };
-      } catch (e: any) {
-        return { output: `Could not update check-ins: ${e?.message ?? e}` };
+      } catch (e) {
+        return { output: `Could not update check-ins: ${errorText(e)}` };
       }
     },
   }),
@@ -147,7 +148,7 @@ export const TOOLS: ToolDef[] = [
       const cur = db.prepare<[string, string], RoutineRecord>('SELECT * FROM routines WHERE id=? AND bot_id=?').get(a.routine_id, ctx.botId);
       if (!cur) return { output: 'No such routine.' };
       const next = { ...cur, name: a.name ?? cur.name, prompt: a.prompt ?? cur.prompt, schedule: a.schedule ?? cur.schedule, timezone: a.timezone ?? cur.timezone, enabled: a.enabled === undefined ? cur.enabled : a.enabled ? 1 : 0 };
-      try { new Cron(next.schedule, { paused: true, timezone: next.timezone }); } catch (e: any) { return { output: `Invalid schedule: ${e.message}` }; }
+      try { new Cron(next.schedule, { paused: true, timezone: next.timezone }); } catch (e) { return { output: `Invalid schedule: ${errorText(e)}` }; }
       db.prepare('UPDATE routines SET name=?,prompt=?,schedule=?,timezone=?,enabled=? WHERE id=?').run(next.name, next.prompt, next.schedule, next.timezone, next.enabled, cur.id);
       const r = getRoutine(cur.id)!;
       applySchedule(r);

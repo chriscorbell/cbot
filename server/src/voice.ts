@@ -19,6 +19,7 @@ import { ago, callLength, chatCursor, type ChatCursor } from './agent/catchup.js
 import type { ActivityKind, CardBody, EventBody, RowBody, VoiceCallRecord } from './types.js';
 import { SAMPLE_RATE, mapSpeed, mapVoice, speak, transcribe, voiceCatalog, type VoiceCatalog } from './speech.js';
 import type { EchoSecond, Transcription, VoiceEnded, VoiceOptions, VoiceSession } from './contract.js';
+import { errorText } from './lib/errors.js';
 
 export const voiceApi = new Hono<AuthVars>();
 
@@ -403,8 +404,8 @@ voiceApi.post('/stt', async (c) => {
   if (file.size < 200) return c.json({ text: '' } satisfies Transcription);
   try {
     return c.json({ text: await transcribe(file, file.name || 'dictation.webm') } satisfies Transcription);
-  } catch (e: any) {
-    console.warn('[voice] dictation failed', e?.message ?? e);
+  } catch (e) {
+    console.warn('[voice] dictation failed', errorText(e));
     return c.json({ error: 'Transcription failed' }, 502);
   }
 });

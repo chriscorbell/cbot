@@ -28,6 +28,7 @@ import { searchLibraries, searchMessages } from './search.js';
 import { mapSpeed, mapVoice, voiceCatalog } from './speech.js';
 import { AVATAR_COLORS, AVATAR_SHAPES, EFFORTS, type ServerEvent } from './types.js';
 import type { BotResponse, BotsResponse, ComputerResponse, Ok, PermissionsResponse, ResetResponse, ProvidersResponse, RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, SearchResponse, SecretId, SecretState } from './contract.js';
+import { errorText } from './lib/errors.js';
 
 export const api = new Hono<AuthVars>();
 
@@ -103,7 +104,7 @@ api.post('/bots', async (c) => {
     // bot waits for the end of setup, when it has a model to answer with.
     if (bot.kind !== 'room' && !setupPending(user.id)) welcome(bot, user.username);
     return c.json({ bot } satisfies BotResponse);
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof UserError) return c.json({ error: e.message }, 409);
     throw e;
   }
@@ -375,8 +376,8 @@ api.get('/bots/:id/screenshot', async (c) => {
   try {
     const jpeg = await screenshot(n);
     return c.body(new Uint8Array(jpeg), 200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
-  } catch (e: any) {
-    console.warn(`[computer] screenshot of ${scr.screen_id} failed: ${e?.message ?? e}`);
+  } catch (e) {
+    console.warn(`[computer] screenshot of ${scr.screen_id} failed: ${errorText(e)}`);
     return c.body(null, 204);
   }
 });
