@@ -1,6 +1,10 @@
 # Speech service
 
-Local text-to-speech and speech recognition for Dispatch's voice features. Compose runs it as the `speech` service next to `dispatch`, on an internal network with no route out and no published port. From the `dispatch` container it is `http://speech:8000`, which compose passes to Dispatch as `SPEECH_URL`. There is no authentication: only Dispatch can reach it. The machine itself can too, and with it the web pages the bots open in Chrome, so a request that carries an `Origin` header, which browsers always send on a WebSocket handshake and a POST and Dispatch never does, is refused with 403 (`app/guard.py`). English only.
+Local text-to-speech and speech recognition for Dispatch's voice features, English only.
+
+Compose runs it as the `speech` service next to `dispatch`, on an internal network with no route out and no published port. From the `dispatch` container it is `http://speech:8000`, which compose passes to Dispatch as `SPEECH_URL`.
+
+There is no authentication: only Dispatch can reach it. The machine itself can too, and with it the web pages the bots open in Chrome. So a request that carries an `Origin` header is refused with 403 (`app/guard.py`): browsers always send one on a WebSocket handshake and a POST, and Dispatch never does.
 
 | Job | Model | Runtime |
 |---|---|---|
@@ -72,7 +76,11 @@ Request body, JSON:
 | `speed` | number | `1` | Speaking rate. Phonon's range is narrow: values are clamped to 0.86 to 1.27 (`/v1/voices` reports it) |
 | `format` | `"pcm"` or `"wav"` | `"pcm"` | `pcm` streams; `wav` returns the whole file once it is done |
 
-Response for `pcm`: `200` with `Content-Type: audio/pcm;rate=24000;channels=1` and a chunked body of raw PCM (see Audio formats). Headers `X-Sample-Rate`, `X-Voice` and `X-Speed` give the rate, voice and clamped speed used. The headers come back at once; the first chunk is about 80 ms of audio and follows 15 to 50 ms after the request, later chunks grow to about a second. Chunk boundaries are arbitrary and can split a sample, so keep an odd trailing byte for the next chunk. The body ends when the speech does. Closing the connection early (`AbortController` with fetch) stops the generation, which is how a call cuts the bot off when the user talks over it.
+Response for `pcm`: `200` with `Content-Type: audio/pcm;rate=24000;channels=1` and a chunked body of raw PCM (see Audio formats). Headers `X-Sample-Rate`, `X-Voice` and `X-Speed` give the rate, voice and clamped speed used.
+
+- The headers come back at once. The first chunk is about 80 ms of audio and follows 15 to 50 ms after the request; later chunks grow to about a second.
+- Chunk boundaries are arbitrary and can split a sample, so keep an odd trailing byte for the next chunk.
+- The body ends when the speech does. Closing the connection early (`AbortController` with fetch) stops the generation, which is how a call cuts the bot off when the user talks over it.
 
 Response for `wav`: `200` with `Content-Type: audio/wav`, a 16-bit mono 24 kHz WAV, and `X-Processing-Ms` (time to generate).
 
@@ -135,7 +143,16 @@ The server sends JSON text messages:
 
 Every event also has `audio_ms`: how much audio the server had received when it sent the event. `start_ms` and `end_ms` are positions in that same audio, so they line up with what you sent. `utterance` counts from 1. For each utterance the order is `speech_started`, any `partial`s, then `speech_stopped` and `final` (or `speech_dropped`). Closing the socket discards an utterance in progress.
 
-What to expect, measured on the dev machine with this service's 4-CPU cap: `speech_started` about 170 ms after the user starts talking; partials about 130 ms behind the words; `speech_stopped` about 650 ms after the last word (the 500 ms of `silence_ms` plus the VAD's own lag); `final` 100 ms after `speech_stopped` for a one-word reply and 250 to 300 ms for a five-second sentence, since Parakeet Unified decodes the whole utterance (`final=stream` finishes in a steadier 150 to 230 ms, less accurately). Lowering `silence_ms` makes turns end sooner, at the risk of cutting users off when they pause mid-sentence. The service does not cancel echo: the browser's `echoCancellation` has to keep the bot's own voice out of the microphone.
+What to expect, measured on the dev machine with this service's 4-CPU cap:
+
+| Event | When |
+|---|---|
+| `speech_started` | About 170 ms after the user starts talking |
+| Partials | About 130 ms behind the words |
+| `speech_stopped` | About 650 ms after the last word: the 500 ms of `silence_ms` plus the VAD's own lag |
+| `final` | 100 ms after `speech_stopped` for a one-word reply, 250 to 300 ms for a five-second sentence, since Parakeet Unified decodes the whole utterance. `final=stream` finishes in a steadier 150 to 230 ms, less accurately |
+
+Lowering `silence_ms` makes turns end sooner, at the risk of cutting users off when they pause mid-sentence. The service does not cancel echo: the browser's `echoCancellation` has to keep the bot's own voice out of the microphone.
 
 ## Settings
 
