@@ -126,6 +126,8 @@ DISPATCH_API=http://127.0.0.1:8788 npm run dev -w web   # Vite against the dev c
 
 Rebuild the dev container to try server changes. The Playwright scripts in `tests/` run against a live app, and each one's header says how.
 
+Every pull request runs `npm run check` and shellcheck in GitHub Actions, and `main` takes only changes that pass. The app and speech images are built too when a change touches what goes into them.
+
 ```text
 server/   Node server: API, turns, Hermes gateways, screens, voice relay
 web/      React app

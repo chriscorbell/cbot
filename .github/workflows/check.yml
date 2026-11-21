@@ -1,0 +1,32 @@
+# The gate on every pull request and every push to main: the same `npm run check` that publish.sh
+# and deploy.sh run, plus shellcheck on the scripts that install and run Dispatch.
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      # Typecheck, lint and every unit test. The Python suites are stdlib only; the installer's
+      # needs git and ssh-keygen, which the runner has.
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
+      # Notes (client-side expansion in deploy.sh, unfollowed /etc/os-release) are by design.
+      - run: shellcheck --severity=warning $(git ls-files '*.sh')

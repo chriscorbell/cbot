@@ -6,7 +6,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 
 | Command | What it does |
 |---|---|
-| `npm run check` | Typecheck both workspaces, lint, and run every unit test. Run it before every commit; `scripts/deploy.sh` refuses a commit that fails it |
+| `npm run check` | Typecheck both workspaces, lint, and run every unit test. Run it before every commit. GitHub Actions runs it, with shellcheck, on every pull request (`.github/workflows/check.yml`) and `main` requires it to pass; `scripts/deploy.sh` and `scripts/publish.sh` refuse a commit that fails it |
 | `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`), the speech service's (`npm run test:speech`) and the installer's release check (`npm run test:install`, which needs git and ssh-keygen), all stdlib only. Seconds, no services needed |
 | `npm run lint` | ESLint: floating promises and non-exhaustive switches on the server, hooks rules on the web app |
 | `DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
@@ -122,4 +122,4 @@ These exist for old data or old screens. Don't build on them without deciding wi
 
 ## Git
 
-Work in a worktree on a branch; other agents may be using the main checkout. Stage only the files you changed. Commit messages say what changed and why, in plain sentences, with no attribution lines.
+Work in a worktree on a branch; other agents may be using the main checkout. Stage only the files you changed. Changes reach `main` through a pull request whose `check` workflow passed. Make each commit one change: its message says what changed and why, in plain sentences, with no attribution lines. The image workflows (`app-image.yml`, `speech.yml`) run only when what goes into an image changes. Node's version is in `.node-version`.
