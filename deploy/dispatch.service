@@ -17,10 +17,9 @@ EnvironmentFile=/etc/dispatch/env
 # Each release brings its own Node (scripts/build-release.sh), so the machine's Node, which the bots
 # use, can change without touching Dispatch.
 ExecStart=/srv/dispatch/current/node/bin/node server/dist/index.js
-# The bots' screens, Chromes and Hermes gateways are this server's children but outlive it: stopping
-# or restarting the service (a deploy) stops only the server, which finds them again when it starts.
-# systemd notes each one it finds still running as a "left-over process"; that is expected.
-KillMode=process
+# The bots' screens, Chromes and Hermes gateways run as units of their own under dispatch.slice
+# (server/src/units.ts, scripts/install-units.sh), not in this service, so stopping or restarting it
+# (a deploy, an update) stops only the server, which uses them as they are when it starts again.
 Restart=always
 RestartSec=2
 LimitNOFILE=1048576

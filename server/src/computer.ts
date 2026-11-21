@@ -16,7 +16,7 @@ import { errorText } from './lib/errors.js';
  * A bot's screen goes through these layers, each with its own record:
  *
  *   lease      `screens` row (claim, synchronous so two bots never get one display; freed last by releaseScreen)
- *   display    Xvnc + bus + window manager (displays.ts); checked at most every 15 s (`verified`),
+ *   display    Xvnc + bus + window manager, systemd units (displays.ts); checked at most every 15 s (`verified`),
  *              with one start in flight per bot (`leasing`)
  *   dressed    wallpaper, dock, the bot's Chrome on its home page (desk.ts); once per server run, again
  *              on a rename or new colour, or when its Chrome stops answering (`dressing`, a failed
@@ -67,7 +67,7 @@ function claim(userId: string, botId: string): { screenId: string; fresh: boolea
   return { screenId, fresh: true };
 }
 
-/** When each bot's display was last seen running, so a busy bot does not scan the process table on every turn. */
+/** When each bot's display was last seen running, so a busy bot does not ask systemd and the VNC server on every turn. */
 const verified = new Map<string, number>();
 const leasing = new Map<string, Promise<BotScreen>>();
 const dressing = new Map<string, Promise<void>>();

@@ -9,6 +9,12 @@ vi.mock('../src/computer.js', async (orig) => ({
   releaseScreen: async (id: string) => { steps.push(`screen ${rowGone(id)}`); },
   forgetBotFiles: async (id: string) => { steps.push(`files ${rowGone(id)}`); },
 }));
+vi.mock('../src/units.js', async (orig) => ({
+  ...(await orig<typeof import('../src/units.js')>()),
+  removeBotUnits: async (id: string) => { steps.push(`units ${rowGone(id)}`); },
+  // removeEngine, run for real below, stops the gateway's unit.
+  stop: async () => {},
+}));
 vi.mock('../src/routines.js', async (orig) => ({ ...(await orig<typeof import('../src/routines.js')>()), unscheduleRoutine: (id: string) => { steps.push(`unschedule ${id}`); } }));
 
 const { deleteBot } = await import('../src/bots.js');
@@ -24,7 +30,7 @@ test('deleting a bot removes its row first, then takes down what runs for it', a
   steps.length = 0;
   await deleteBot(bot);
   expect(rowGone(bot.id)).toBe(true);
-  expect(steps).toEqual(['unschedule rt_x', 'engine true', 'screen true', 'files true']);
+  expect(steps).toEqual(['unschedule rt_x', 'engine true', 'screen true', 'units true', 'files true']);
   expect(db.prepare('SELECT 1 FROM routines WHERE id=?').get('rt_x')).toBeUndefined();
 });
 

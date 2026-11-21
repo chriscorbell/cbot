@@ -1,6 +1,7 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
 import { z } from 'zod';
@@ -13,12 +14,14 @@ import { displayFor, ENGINE_PORT_BASE, HERMES_ROOT, libraryDir } from './machine
 import { requireBot } from './store.js';
 import { envOf, getSetting, secretEnv } from './settings.js';
 import { errorField, errorText } from './lib/errors.js';
+import { botLimits, botSlice, gatewayEnvFile, gatewayUnit, mainPid, restart, setSliceLimits, stop, unitState, writeEnvFile } from './units.js';
 
 /**
  * Every bot is run by a Hermes agent of its own: a Hermes home under <DATA_DIR>/engines/<botId> with
- * its own `hermes gateway run`, started here on its own port and left running when this server exits.
- * A restarted server adopts it, unless the settings this app gives it changed in the meantime; then
- * it is restarted on the new ones. The primary bot's agent is one of these too.
+ * its own `hermes gateway run` on its own port, which systemd runs as dispatch-gateway@<bot>.service
+ * in the bot's slice (units.ts) and restarts when it crashes. It keeps running when this server exits;
+ * a restarted server uses it as it is, unless the settings this app gives it changed in the meantime,
+ * and then restarts it on the new ones. The primary bot's agent is one of these too.
  *
  * Each home is a Hermes root of its own (its default profile), so one bot's gateway never folds the
  * others into it. Hermes keeps its tools and Python environment per root; a home links tools/ and
@@ -34,13 +37,13 @@ import { errorField, errorText } from './lib/errors.js';
  *
  *   none      bots.engine is null: a group chat, which never gets one. Every other bot gets its engine
  *             when it is made (createBot in bots.ts)
- *   starting  a start or adoption is in flight (`starting`), or nothing answers and none has failed
+ *   starting  a start is in flight (`starting`), or nothing answers and none has failed
  *   ready     the gateway answers /health
  *   error     nothing answers and the last start failed (`failures`)
  *
- * Starting (startGateway): rewrite the home, then if a gateway already answers on the bot's port with
- * our key, adopt it when the settings hash it started with still matches (or its screen is down, or it
- * has no pid file); otherwise stop it, spawn `hermes gateway run` detached and wait up to 90 s for
+ * Starting (startGateway): rewrite the home, then if the bot's gateway unit runs and answers with our
+ * key, keep it when the settings hash it started with still matches (or its screen is down); otherwise
+ * write its environment file, set its slice's limits, (re)start the unit and wait up to 90 s for
  * /health. Looking at the settings panel of a bot whose gateway is down starts it too.
  */
 
@@ -526,56 +529,9 @@ async function keyAccepted(url: string, key: string): Promise<boolean> {
   } catch { return false; }
 }
 
-/** HERMES_HOME of a running process, or null when it has none (or is gone). */
-function hermesHomeOf(pid: number): string | null {
-  try {
-    const item = fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').find((e) => e.startsWith('HERMES_HOME='));
-    return item ? item.slice('HERMES_HOME='.length) : null;
-  } catch { return null; }
-}
-
-/**
- * The gateway's pid, but only if the pid file belongs to this home and the process is alive and runs
- * for this home. After a reboot the same pids come round again, so a stale pid file can name
- * another bot's gateway.
- */
-function gatewayPid(home: string): number | null {
-  let raw = '';
-  try { raw = fs.readFileSync(path.join(home, 'gateway.pid'), 'utf8').trim(); } catch { return null; }
-  let pid = NaN;
-  try {
-    const j = JSON.parse(raw);
-    if (typeof j === 'number') pid = j;
-    else {
-      if (j?.hermes_home && path.resolve(j.hermes_home) !== path.resolve(home)) return null;
-      pid = Number(j?.pid);
-    }
-  } catch { pid = Number(raw); }
-  if (!Number.isInteger(pid) || pid <= 1) return null;
-  try { process.kill(pid, 0); } catch { return null; }
-  try {
-    if (!fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('gateway')) return null;
-  } catch { /* no /proc: trust the pid file */ }
-  const runsFor = hermesHomeOf(pid);
-  if (runsFor && path.resolve(runsFor) !== path.resolve(home)) return null;
-  return pid;
-}
-
 async function stopGateway(botId: string) {
   warmed.delete(botId);
-  const home = homeFor(botId);
-  const pid = gatewayPid(home);
-  if (!pid) return;
-  const signal = (sig: NodeJS.Signals) => {
-    try { process.kill(-pid, sig); } catch { try { process.kill(pid, sig); } catch { /* gone */ } }
-  };
-  signal('SIGTERM');
-  for (let i = 0; i < 40; i++) {
-    await new Promise((r) => setTimeout(r, 250));
-    try { process.kill(pid, 0); } catch { return; }
-  }
-  signal('SIGKILL');
-  await new Promise((r) => setTimeout(r, 300));
+  await stop(gatewayUnit(botId));
 }
 
 const starting = new Map<string, Promise<void>>();
@@ -604,32 +560,27 @@ async function startGateway(botId: string): Promise<void> {
   if (!b || b.engine !== 'managed') throw new Error('This bot has no agent.');
   if (!b.engine_port) db.prepare('UPDATE bots SET engine_port=? WHERE id=?').run(freePort(), botId);
   const url = managedUrl(botId);
+  const unit = gatewayUnit(botId);
 
   // The home always follows this server's code and environment, even under a running gateway.
   const { home, key, display, settings } = await writeHome(botId);
   keys.set(botId, key);
 
-  if (await healthy(url)) {
-    const ours = await keyAccepted(url, key);
-    const pid = gatewayPid(home);
+  const state = await unitState(unit);
+  const running = state === 'active' || state === 'activating';
+  // Something answers on the bot's port that isn't its unit: another program has the port.
+  if (!running && (await healthy(url))) throw new Error(`Port ${b.engine_port} is taken by something else.`);
+  if (running) {
     // A gateway from an earlier run of this server stays as it is while it runs on the current
-    // settings. So does one whose bot's screen is down right now: restarting it would only take its
-    // computer away. One without a pid file can't be stopped, so it stays too.
-    if (ours && (startedWith(home) === settings || !display || !pid)) return;
-    if (!pid) throw new Error(`Port ${b.engine_port} is taken by something else.`);
-    if (ours) console.log(`[engine] ${b.name}: settings changed since its gateway started; restarting it`);
-    await stopGateway(botId);
+    // settings, and so does one systemd is bringing back after a crash: it gets the time a start
+    // would. So does one whose bot's screen is down right now: restarting it would only take its
+    // computer away.
+    if ((startedWith(home) === settings || !display) && (await cameUp(unit, url)) && (await keyAccepted(url, key))) return;
+    console.log(`[engine] ${b.name}: its gateway runs on other settings, or doesn't answer; restarting it`);
   }
-  if (gatewayPid(home)) await stopGateway(botId);
-  fs.writeFileSync(path.join(home, SETTINGS_FILE), `${settings}\n`);
 
-  const log = fs.openSync(path.join(home, 'logs', 'gateway.out.log'), 'a');
-  warmed.delete(botId);
-  const child = spawn(HERMES_BIN, ['gateway', 'run', '--no-supervise'], {
-    cwd: home,
-    detached: true,
-    stdio: ['ignore', log, log],
-    env: hermesEnv(home, {
+  writeEnvFile(gatewayEnvFile(botId), {
+    ...hermesEnv(home, {
       HERMES_GATEWAY_LOCK_DIR: path.join(home, 'locks'),
       // Hermes' browser tool talks to a helper process it finds under this folder. With the default
       // (one folder per HOME) every bot would end up driving the same browser.
@@ -637,24 +588,29 @@ async function startGateway(botId: string): Promise<void> {
       ...(display ? { DISPLAY: display } : {}),
     }),
   });
-  fs.closeSync(log);
-  let exited: string | null = null;
-  child.once('error', (e) => { exited = `could not run ${HERMES_BIN}: ${e.message}`; });
-  child.once('exit', (code) => { exited = `the agent stopped while starting (exit ${code}). See ${path.join(home, 'logs', 'gateway.out.log')}`; });
-  child.unref();
-
-  for (let i = 0; i < 90; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    if (exited) throw new Error(exited);
-    if (await healthy(url, 1500)) {
-      console.log(`[engine] ${b.name}: gateway up on ${url}`);
-      return;
-    }
+  // Set every time, so a change of MAX_BOTS or of the machine's memory reaches the bot's next start.
+  await setSliceLimits(botSlice(botId), botLimits(os.totalmem(), env.maxBots));
+  fs.writeFileSync(path.join(home, SETTINGS_FILE), `${settings}\n`);
+  warmed.delete(botId);
+  await restart(unit);
+  if (!(await cameUp(unit, url))) {
+    throw new Error(`The agent ${(await unitState(unit)) === 'failed' ? 'stopped while starting' : 'did not come up within 90 seconds'}. journalctl -u ${unit} says why.`);
   }
-  throw new Error('The agent did not come up within 90 seconds.');
+  console.log(`[engine] ${b.name}: gateway up on ${url} (pid ${(await mainPid(unit)) ?? '?'})`);
 }
 
-/** Start (or adopt) the bot's gateway. Safe to call often; concurrent calls share one start. */
+/** Wait up to 90 s for a gateway unit to answer /health; false as soon as systemd gives up on it. */
+async function cameUp(unit: string, url: string): Promise<boolean> {
+  for (let i = 0; i < 90; i++) {
+    if (await healthy(url, 1500)) return true;
+    const state = await unitState(unit);
+    if (state === 'failed' || state === 'inactive') return false;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
+}
+
+/** Start the bot's gateway, or keep the one that runs. Safe to call often; concurrent calls share one start. */
 function ensureManaged(botId: string): Promise<void> {
   let p = starting.get(botId);
   if (!p) {
@@ -811,10 +767,10 @@ export async function restartEngine(botId: string): Promise<void> {
   provisionEngine(botId);
 }
 
-/** The bot is gone: stop its gateway and delete its home. */
 /**
  * The bot is gone (its row already deleted, see deleteBot): stop its gateway and delete its home.
- * `port` is the gateway's port, kept from new bots until the gateway has stopped.
+ * `port` is the gateway's port, kept from new bots until the gateway has stopped. Its slice goes last,
+ * once its screen is released (units.ts removeBotUnits, from deleteBot).
  */
 export async function removeEngine(botId: string, port: number | null): Promise<void> {
   if (port) retiringPorts.add(port);

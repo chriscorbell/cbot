@@ -70,8 +70,8 @@ if (process.env.DISPATCH_NO_SCHEDULER !== '1') {
   initRoutines(enqueue);
   initProactive(enqueue);
 } else console.log('[dispatch] scheduler disabled (DISPATCH_NO_SCHEDULER=1)');
-// After a server restart the displays and gateways still run and are adopted; after a reboot (or in a
-// new dev container) nothing runs yet: bring back what the bots had.
+// After a server restart the displays and gateways still run as their systemd units and are used as
+// they are; after a reboot (or in a new dev container) nothing runs yet: bring back what the bots had.
 initEngines();
 initScreens();
 initSpeech();

@@ -1,0 +1,16 @@
+# Display :%i's window manager, part of dispatch-display@%i.target. No compositor: nothing on these
+# screens needs one, and it would redraw on every frame the VNC server sends.
+[Unit]
+Description=Dispatch display :%i (window manager)
+PartOf=dispatch-display@%i.target
+After=dispatch-xvnc@%i.service dispatch-bus@%i.service
+
+[Service]
+Slice=dispatch-displays.slice
+Environment=HOME=/root USER=root LANG=C.UTF-8 DISPLAY=:%i DBUS_SESSION_BUS_ADDRESS=unix:path=/run/dispatch/display-%i/bus
+# xfwm4 asks the X server and the bus for its settings as it starts. When the X server restarts,
+# xfwm4 loses it and fails, and starts again here once the new one answers.
+ExecStartPre=/bin/sh -c 'for i in $$(seq 150); do [ -S /tmp/.X11-unix/X%i ] && [ -S /run/dispatch/display-%i/bus ] && exit 0; sleep 0.1; done; echo "display :%i has no X server or bus" >&2; exit 1'
+ExecStart=xfwm4 --compositor=off --sm-client-disable
+Restart=on-failure
+RestartSec=1

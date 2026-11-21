@@ -9,6 +9,7 @@ vi.mock('../src/computer.js', async (orig) => ({
   forgetBotFiles: async (id: string) => { steps.push(`files ${id}`); },
   forgetAllBotFiles: async () => { steps.push('all files'); },
 }));
+vi.mock('../src/units.js', async (orig) => ({ ...(await orig<typeof import('../src/units.js')>()), removeBotUnits: async (id: string) => { steps.push(`units ${id}`); } }));
 const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
 
 const fs = await import('node:fs');
@@ -47,7 +48,7 @@ test('a reset takes every bot down, then erases the data and exits for a fresh s
   const { setupCode } = (await res.json()) as { setupCode: string };
   // By the reply every bot is down, the group first; nothing is erased yet.
   expect(bots()).toEqual([]);
-  expect(steps).toEqual([`files ${team.id}`, ...[ada, bea.id].flatMap((id) => [`engine ${id}`, `screen ${id}`, `files ${id}`])]);
+  expect(steps).toEqual([`files ${team.id}`, ...[ada, bea.id].flatMap((id) => [`engine ${id}`, `screen ${id}`, `units ${id}`, `files ${id}`])]);
   expect(fs.existsSync(env.dbPath)).toBe(true);
   expect(exit).not.toHaveBeenCalled();
 

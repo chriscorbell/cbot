@@ -1,0 +1,8 @@
+# Display :%i, one bot screen: its X and VNC server, its session bus and its window manager, each a
+# unit of its own (dispatch-xvnc@, dispatch-bus@, dispatch-wm@). server/src/displays.ts starts this
+# target when a bot's screen is used and stops it when the screen is released; the pieces are PartOf
+# it, so stopping it stops them. scripts/provision.sh installs these files.
+[Unit]
+Description=Dispatch display :%i
+Wants=dispatch-xvnc@%i.service dispatch-bus@%i.service dispatch-wm@%i.service
+After=dispatch-xvnc@%i.service dispatch-bus@%i.service dispatch-wm@%i.service

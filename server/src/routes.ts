@@ -372,7 +372,7 @@ api.get('/bots/:id/screenshot', async (c) => {
   if (!b) return c.json({ error: 'not found' }, 404);
   const scr = db.prepare<[string], Pick<ScreenRecord, 'screen_id'>>('SELECT screen_id FROM screens WHERE bot_id=?').get(b.id);
   const n = scr ? displayNumber(scr.screen_id) : 0;
-  if (!scr || !n || !displayRunning(n)) return c.body(null, 204);
+  if (!scr || !n || !(await displayRunning(n))) return c.body(null, 204);
   try {
     const jpeg = await screenshot(n);
     return c.body(new Uint8Array(jpeg), 200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });

@@ -1,75 +1,26 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import { ByteQueue, rfbHandshake } from './lib/rfb.js';
-import { LOGS_ROOT as LOGS, vncPortFor } from './machine.js';
+import { RUN_ROOT, vncPortFor } from './machine.js';
+import { displayEnvFile, displayTarget, restart, start, stop, unitState, writeEnvFile, xvncUnit } from './units.js';
 
 /**
  * The bots' screens. Each one is an X display of its own on this machine: TigerVNC's Xvnc (the X
- * server and its VNC server in one process), a D-Bus session bus and the xfwm4 window manager. Making
- * a screen look like a bot's computer is the desk's job (desk.ts); this file only brings displays up
- * and down.
- *
- * Everything is started detached, the way engine.ts starts the Hermes gateways, and carries
- * DISPATCH_DISPLAY=<n> in its environment. That tag is how a display that already runs is found again
- * and used as it is, and how stopping a display finds its pieces.
+ * server and its VNC server in one process), a D-Bus session bus and the xfwm4 window manager, each a
+ * systemd unit under dispatch-display@<n>.target (deploy/, units.ts). Making a screen look like a
+ * bot's computer is the desk's job (desk.ts); this file only brings displays up and down. systemd
+ * keeps them running across restarts of the server and brings a piece that crashed back.
  */
 
 /** Every screen's size. The dock, the wallpaper and the home page are laid out for about this much room. */
 export const SCREEN_SIZE = { width: 1440, height: 900 };
 
-
-const busDir = (n: number) => `/run/dispatch/display-${n}`;
-const busAddress = (n: number) => `unix:path=${busDir(n)}/bus`;
+/** Each display's session bus (deploy/dispatch-bus@.service). */
+export const busAddress = (n: number) => `unix:path=${RUN_ROOT}/display-${n}/bus`;
 const xLock = (n: number) => `/tmp/.X${n}-lock`;
-const X_SOCKETS = '/tmp/.X11-unix';
-const xSocket = (n: number) => `${X_SOCKETS}/X${n}`;
+const xSocket = (n: number) => `/tmp/.X11-unix/X${n}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-// ---------------------------------------------------------------- processes
-
-function environ(pid: number): Map<string, string> {
-  const out = new Map<string, string>();
-  try {
-    for (const item of fs.readFileSync(`/proc/${pid}/environ`).toString('utf8').split('\0')) {
-      const i = item.indexOf('=');
-      if (i > 0) out.set(item.slice(0, i), item.slice(i + 1));
-    }
-  } catch { /* gone, or not ours to read */ }
-  return out;
-}
-
-function comm(pid: number): string {
-  try { return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim(); } catch { return ''; }
-}
-
-function alive(pid: number): boolean {
-  try {
-    // A zombie still answers kill(0); its state letter says it is gone.
-    return fs.readFileSync(`/proc/${pid}/stat`, 'utf8').split(')').pop()!.trim()[0] !== 'Z';
-  } catch { return false; }
-}
-
-const allPids = () => fs.readdirSync('/proc').filter((d) => /^\d+$/.test(d)).map(Number).filter((p) => p !== process.pid);
-
-/** Everything we run for display :n (and what its bus started for it), as pid -> program name. */
-function pieces(n: number): Map<number, string> {
-  const found = new Map<number, string>();
-  for (const pid of allPids()) {
-    if (environ(pid).get('DISPATCH_DISPLAY') === String(n) && alive(pid)) found.set(pid, comm(pid));
-  }
-  return found;
-}
-
-const running = (mine: Map<number, string>, name: string) => [...mine.values()].includes(name);
-
-async function stopPids(pids: number[], graceMs = 3000) {
-  const live = pids.filter(alive);
-  for (const p of live) { try { process.kill(p, 'SIGTERM'); } catch { /* gone */ } }
-  const end = Date.now() + graceMs;
-  while (Date.now() < end && live.some(alive)) await sleep(100);
-  for (const p of live.filter(alive)) { try { process.kill(p, 'SIGKILL'); } catch { /* gone */ } }
-}
 
 /**
  * Does the VNC server on `port` take the relay? The check signs in and leaves: TigerVNC counts every
@@ -94,86 +45,25 @@ function vncAnswers(port: number, connectMs = 800, talkMs = 3000): Promise<boole
   });
 }
 
-// ---------------------------------------------------------------- starting pieces
-
-function logFile(name: string): number {
-  fs.mkdirSync(LOGS, { recursive: true });
-  const file = `${LOGS}/${name}.log`;
-  try { if (fs.statSync(file).size > 4 * 1024 * 1024) fs.renameSync(file, `${file}.1`); } catch { /* new file */ }
-  return fs.openSync(file, 'a');
-}
-
-/** Only what a display piece needs; none of this server's secrets. */
-function displayEnv(n: number): NodeJS.ProcessEnv {
-  return {
-    PATH: process.env.PATH ?? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-    HOME: process.env.HOME ?? '/root',
-    USER: process.env.USER ?? 'root',
-    LANG: process.env.LANG ?? 'C.UTF-8',
-    TZ: process.env.TZ || 'UTC',
-    DISPLAY: `:${n}`,
-  };
-}
-
-/** The pieces of display :n carry its tag. */
-const pieceEnv = (n: number): NodeJS.ProcessEnv => ({ ...displayEnv(n), DISPATCH_DISPLAY: String(n) });
-
-/** Start a long-lived piece of display :n, detached. `exited` says why it stopped, once it has. */
-function start(n: number, name: string, argv: string[], env: NodeJS.ProcessEnv): { exited: () => string | null } {
-  const log = logFile(`${name}-${n}`);
-  const child = spawn(argv[0], argv.slice(1), { detached: true, stdio: ['ignore', log, log], env });
-  fs.closeSync(log);
-  let exited: string | null = null;
-  child.once('error', (e) => { exited = `could not run ${argv[0]}: ${e.message}`; });
-  child.once('exit', (code, signal) => { exited = `${argv[0]} stopped (${signal ?? `exit ${code}`}); see ${LOGS}/${name}-${n}.log`; });
-  child.unref();
-  return { exited: () => exited };
-}
-
-/** An X lock whose server is gone (after a reboot or a crash) would stop a new Xvnc from taking the display. */
-function clearStaleLock(n: number) {
+/**
+ * An X server this app did not start holds the display (its lock names a live Xvnc while our unit is
+ * down). The unit would clear its lock and break it, so the display isn't ours to start.
+ */
+function heldByOther(n: number): number | null {
   let pid = 0;
-  try { pid = Number(fs.readFileSync(xLock(n), 'utf8').trim()); } catch { return; }
-  if (pid > 1 && alive(pid) && comm(pid) === 'Xvnc') {
-    throw new Error(`display :${n} belongs to an X server this app did not start (pid ${pid})`);
+  try { pid = Number(fs.readFileSync(xLock(n), 'utf8').trim()); } catch { return null; }
+  if (!(pid > 1)) return null;
+  try { return fs.readFileSync(`/proc/${pid}/comm`, 'utf8').trim() === 'Xvnc' ? pid : null; } catch { return null; }
+}
+
+/** Wait until display :n's X socket is there and its VNC server takes the relay; false after 15 s or once the unit failed. */
+async function answers(n: number): Promise<boolean> {
+  for (let i = 0; i < 75; i++) {
+    if (fs.existsSync(xSocket(n)) && (await vncAnswers(vncPortFor(n), 300))) return true;
+    if ((await unitState(xvncUnit(n))) === 'failed') return false;
+    await sleep(200);
   }
-  for (const f of [xLock(n), xSocket(n)]) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
-}
-
-async function startXvnc(n: number) {
-  clearStaleLock(n);
-  // Two servers starting at once race to create the socket folder, and the loser runs without a socket.
-  fs.mkdirSync(X_SOCKETS, { recursive: true, mode: 0o1777 });
-  const { width, height } = SCREEN_SIZE;
-  const x = start(n, 'xvnc', [
-    'Xvnc', `:${n}`,
-    '-geometry', `${width}x${height}`, '-depth', '24', '-dpi', '96',
-    '-rfbport', String(vncPortFor(n)), '-localhost',
-    // Only the relay connects, over loopback; it does its own sign-in check. Every connection comes
-    // from 127.0.0.1, so a blacklist of hosts that fail to sign in could only lock the relay out.
-    '-SecurityTypes', 'None', '-UseBlacklist=0', '-AlwaysShared', '-AcceptSetDesktopSize=0',
-    '-nolisten', 'tcp', '-s', '0', '-dpms', '-desktop', `dispatch :${n}`,
-  ], pieceEnv(n));
-  for (let i = 0; i < 150; i++) {
-    await sleep(100);
-    const gone = x.exited();
-    if (gone) throw new Error(`the screen for display :${n} did not start: ${gone}`);
-    if (fs.existsSync(xSocket(n)) && (await vncAnswers(vncPortFor(n), 300))) return;
-  }
-  throw new Error(`the screen for display :${n} did not come up within 15 seconds (see ${LOGS}/xvnc-${n}.log)`);
-}
-
-function startBus(n: number) {
-  fs.mkdirSync(busDir(n), { recursive: true });
-  try { fs.unlinkSync(`${busDir(n)}/bus`); } catch { /* none left over */ }
-  start(n, 'bus', ['dbus-daemon', '--session', '--nofork', '--nopidfile', `--address=${busAddress(n)}`], pieceEnv(n));
-}
-
-async function startWindowManager(n: number) {
-  // The bus must answer before xfwm4 asks it for its settings.
-  for (let i = 0; i < 30 && !fs.existsSync(`${busDir(n)}/bus`); i++) await sleep(100);
-  // No compositor: nothing on these screens needs one, and it would redraw on every frame the VNC server sends.
-  start(n, 'wm', ['xfwm4', '--compositor=off', '--sm-client-disable'], { ...pieceEnv(n), DBUS_SESSION_BUS_ADDRESS: busAddress(n) });
+  return false;
 }
 
 // ---------------------------------------------------------------- the API
@@ -181,16 +71,27 @@ async function startWindowManager(n: number) {
 const starting = new Map<number, Promise<void>>();
 
 async function bringUp(n: number) {
-  let mine = pieces(n);
-  if (!running(mine, 'Xvnc') || !fs.existsSync(xSocket(n)) || !(await vncAnswers(vncPortFor(n)))) {
-    // A wedged server, one without its X socket, or one that turns the relay away: no window of it can be
-    // trusted, so the whole display starts over.
-    if (mine.size) { await stopPids([...mine.keys()]); mine = new Map(); }
-    await startXvnc(n);
-    console.log(`[displays] :${n} up`);
+  const state = await unitState(xvncUnit(n));
+  if (state !== 'active' && state !== 'activating') {
+    const other = heldByOther(n);
+    if (other) throw new Error(`display :${n} belongs to an X server this app did not start (pid ${other})`);
   }
-  if (!running(mine, 'dbus-daemon')) startBus(n);
-  if (!running(mine, 'xfwm4')) await startWindowManager(n);
+  // What the units read as they start: written every time, so a changed size, port or time zone
+  // reaches the display the next time it starts.
+  const { width, height } = SCREEN_SIZE;
+  writeEnvFile(displayEnvFile(n), { VNC_PORT: String(vncPortFor(n)), GEOMETRY: `${width}x${height}`, TZ: process.env.TZ || 'UTC' });
+  // Starts whichever of the display's pieces isn't running; cheap when all of them are.
+  await start(displayTarget(n));
+  if (await answers(n)) {
+    if (state !== 'active') console.log(`[displays] :${n} up`);
+    return;
+  }
+  // A wedged server, one without its X socket, or one that turns the relay away: no window of it can
+  // be trusted, so the whole display starts over.
+  console.warn(`[displays] :${n} does not answer; restarting it`);
+  await restart(displayTarget(n));
+  if (await answers(n)) { console.log(`[displays] :${n} up`); return; }
+  throw new Error(`the screen for display :${n} did not come up within 15 seconds (journalctl -u ${xvncUnit(n)} says why)`);
 }
 
 /** Make sure display :n runs with its session pieces. Cheap when it already does; concurrent calls share one start. */
@@ -205,23 +106,28 @@ export function ensureDisplay(n: number): Promise<void> {
 }
 
 /** Is display :n's X server running? */
-export function displayRunning(n: number): boolean {
-  return running(pieces(n), 'Xvnc') && fs.existsSync(xSocket(n));
+export async function displayRunning(n: number): Promise<boolean> {
+  return (await unitState(xvncUnit(n))) === 'active' && fs.existsSync(xSocket(n));
 }
 
-/** Stop display :n: whatever else still runs on it first, then the display's own pieces. */
+/**
+ * Stop display :n and its pieces. What the bot ran on it went first, with its own units (the desk's
+ * undress in desk.ts, and the bot's slice when the bot is deleted).
+ */
 export async function stopDisplay(n: number): Promise<void> {
   await starting.get(n)?.catch(() => {});
-  const mine = pieces(n);
-  // A bot's Hermes gateway also has this DISPLAY; it is engine.ts's to stop, not ours.
-  const others = allPids().filter((pid) => {
-    const e = environ(pid);
-    return !mine.has(pid) && e.get('DISPLAY') === `:${n}` && !e.has('HERMES_HOME');
-  });
-  await stopPids(others, 2000);
-  await stopPids([...mine.keys()]);
-  for (const f of [xLock(n), xSocket(n), `${busDir(n)}/bus`]) { try { fs.unlinkSync(f); } catch { /* already gone */ } }
+  await stop(displayTarget(n));
   console.log(`[displays] :${n} stopped`);
+}
+
+/** Only what a screenshot needs; none of this server's secrets. */
+function displayEnv(n: number): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH ?? '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    HOME: process.env.HOME ?? '/root',
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    DISPLAY: `:${n}`,
+  };
 }
 
 /** A JPEG of what display :n shows right now. */

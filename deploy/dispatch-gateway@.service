@@ -1,0 +1,15 @@
+# Bot %I's Hermes gateway: its agent, with the API server Dispatch sends its turns to. server/src/engine.ts
+# writes /run/dispatch/gateway-%I.env (HERMES_HOME, its display and the rest of its environment, none
+# of the server's secrets) and starts it. It outlives restarts of the server, which uses it as it is
+# while the settings it started with still hold. It runs in the bot's slice with the bot's Chrome and
+# apps, under the bot's memory limit; its own processes (Hermes' browser helper among them) stop with it.
+[Unit]
+Description=Dispatch bot %I (Hermes gateway)
+
+[Service]
+Slice=dispatch-bot-%i.slice
+EnvironmentFile=/run/dispatch/gateway-%I.env
+ExecStart=/bin/sh -c 'cd "$$HERMES_HOME" && exec hermes gateway run --no-supervise'
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10

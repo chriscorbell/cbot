@@ -180,6 +180,8 @@ install -d -m 0755 /srv/dispatch /srv/dispatch/releases /var/log/dispatch
 install -d -m 0700 /var/lib/dispatch /etc/dispatch /root/dispatch
 
 install -m 0644 "$here/deploy/dispatch.service" /etc/systemd/system/dispatch.service
+# The units each bot's screen and agent run as (deploy/, server/src/units.ts).
+bash "$here/scripts/install-units.sh"
 systemctl daemon-reload
 systemctl enable dispatch.service >/dev/null 2>&1
 systemctl enable --now docker.service >/dev/null 2>&1

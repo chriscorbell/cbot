@@ -36,6 +36,8 @@ if [ "$(cat "$etc/provisioned" 2>/dev/null)" != "$want" ]; then
   bash "$rel/scripts/provision.sh"
   echo "$want" > "$etc/provisioned"
 fi
+# The units each bot's screen and agent run as, from this release.
+[ -n "$root" ] || bash "$rel/scripts/install-units.sh"   # not with DISPATCH_ROOT: the tests have no systemd
 
 if [ "$rel" != "$final" ]; then
   rm -rf "$final" "$final.build"

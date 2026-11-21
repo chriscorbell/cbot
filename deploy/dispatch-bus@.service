@@ -1,0 +1,14 @@
+# Display :%i's D-Bus session bus, part of dispatch-display@%i.target. The window manager and the
+# apps on the screen use it; its address is fixed, so nothing has to look it up.
+[Unit]
+Description=Dispatch display :%i (session bus)
+PartOf=dispatch-display@%i.target
+
+[Service]
+Slice=dispatch-displays.slice
+Environment=HOME=/root USER=root LANG=C.UTF-8 DISPLAY=:%i
+ExecStartPre=/usr/bin/install -d -m 0755 /run/dispatch/display-%i
+ExecStartPre=/bin/rm -f /run/dispatch/display-%i/bus
+ExecStart=dbus-daemon --session --nofork --nopidfile --address=unix:path=/run/dispatch/display-%i/bus
+Restart=on-failure
+RestartSec=1

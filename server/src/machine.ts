@@ -15,6 +15,7 @@ const Machine = z.object({
   boxRoot: z.string(),
   hermesRoot: z.string(),
   logs: z.string(),
+  run: z.string(),
   homePort: z.number().int(),
   enginePortBase: z.number().int(),
   cdpPortBase: z.number().int(),
@@ -39,8 +40,14 @@ export const profileDir = (botId: string) => `${PROFILES_ROOT}/${botId}`;
 export const BOX_ROOT = machine.boxRoot;
 /** The Hermes install every bot's home links to (scripts/provision.sh). */
 export const HERMES_ROOT = machine.hermesRoot;
-/** The logs of what runs on the screens: displays, Chrome, the home screen, the desk's jobs. */
+/** The logs of what the box scripts start on the screens (apps, terminals, the desk's jobs); the systemd units log to the journal. */
 export const LOGS_ROOT = machine.logs;
+/**
+ * What the systemd units read when they start (each display's and each gateway's environment file) and
+ * each display's session bus. On tmpfs: the server writes it again before it starts a unit. The unit
+ * files in deploy/ name the same folder.
+ */
+export const RUN_ROOT = machine.run;
 /** The first bot's Hermes API port; each bot takes the next free one (engine.ts). */
 export const ENGINE_PORT_BASE = machine.enginePortBase;
 /** The home screen server on the computer (server/box/dispatch-home.py), which every bot's new tab frames. */

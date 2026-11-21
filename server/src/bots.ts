@@ -11,6 +11,7 @@ import { forgetBotFiles, releaseScreen } from './computer.js';
 import { dropCalls } from './voice.js';
 import { cancelBotSignIns } from './signin.js';
 import { NEW_BOT_VOICES } from './speech.js';
+import { removeBotUnits } from './units.js';
 import { AVATAR_COLORS, AVATAR_SHAPES, type AvatarColor, type AvatarShape, type User } from './types.js';
 
 const SHAPES: readonly AvatarShape[] = AVATAR_SHAPES;
@@ -92,7 +93,8 @@ export function finishSetup(user: User, greet: boolean) {
  * Delete a bot and everything it runs. Its row goes first (its rows and routines with it), so
  * from then on requests about it fail, new turns for it are not queued and its MCP token stops
  * working. Then what runs for it on the computer is taken down: its turn, its sign-in, its gateway and home, its
- * screen (whose lease is freed last), its Chrome profile and Library. A group runs nothing, so only
+ * screen (whose lease is freed last), its slice with whatever of the bot's still runs in it, and only
+ * then its Chrome profile and Library, so nothing is still writing there. A group runs nothing, so only
  * its folder of attached files goes. A cleanup step that fails is logged and the rest still runs; the
  * bot is gone either way.
  */
@@ -110,5 +112,6 @@ export async function deleteBot(b: BotRecord) {
   }
   await removeEngine(b.id, b.engine_port).catch((e) => console.warn('[engine] remove failed', e?.message ?? e));
   await releaseScreen(b.id).catch((e) => console.warn('[computer] release failed', e?.message ?? e));
+  await removeBotUnits(b.id).catch((e) => console.warn('[units] removing the bot\'s units failed', e?.message ?? e));
   await forgetBotFiles(b.id).catch((e) => console.warn('[computer] cleanup failed', e?.message ?? e));
 }
