@@ -26,8 +26,9 @@ cp -a "$(cd "$(dirname "$0")/.." && pwd)" "$out"
 mkdir -p "$out/node/bin" && echo '#!/bin/sh' >"$out/node/bin/node" && chmod +x "$out/node/bin/node"
 """
 
-# The stand-ins log each call to $CALLS. curl answers the health check unless the release `current`
-# points at is listed in $BROKEN. Starting a release listed in $MIGRATES rewrites the database, as a new schema would.
+# The stand-ins log each call to $CALLS. curl answers the health check, naming the release `current`
+# points at, unless that release is listed in $BROKEN, or names another commit when it is listed in
+# $STALE. Starting a release listed in $MIGRATES rewrites the database, as a new schema would.
 # Images built here are there already; one named by digest is there once pulled.
 SHIMS = {
     "systemctl": """echo "systemctl $*" >>"$CALLS"
@@ -37,7 +38,11 @@ if [ "$1" = restart ] && grep -qx "${cur#releases/}" "$MIGRATES"; then
 fi""",
     "journalctl": 'echo "the journal"',
     "sleep": ":",
-    "curl": 'cur="$(readlink "$DISPATCH_ROOT/srv/dispatch/current")"; grep -qx "${cur#releases/}" "$BROKEN" && exit 7; exit 0',
+    "curl": """cur="$(readlink "$DISPATCH_ROOT/srv/dispatch/current")"; cur="${cur#releases/}"
+grep -qx "$cur" "$BROKEN" && exit 7
+grep -qx "$cur" "$STALE" && cur=ffffffffffff
+printf '{"ok":true,"commit":"%s"}' "$cur"
+exit 0""",
     "docker": """case "$1" in
   image) if [ "$2" = inspect ]; then case "$3" in *@sha256:*) grep -qxF "$3" "$PULLED" 2>/dev/null; exit ;; esac; fi; exit 0 ;;
   pull) echo "pull $3" >>"$CALLS"; echo "$3" >>"$PULLED" ;;
@@ -59,15 +64,15 @@ class ReleaseTest(unittest.TestCase):
                 f.write(f"#!/usr/bin/env bash\n{body}\n")
             os.chmod(path, 0o755)
         self.calls = os.path.join(self.root, "calls")
-        self.broken, self.migrates = (os.path.join(self.root, n) for n in ("broken", "migrates"))
-        for f in (self.broken, self.migrates):
+        self.broken, self.stale, self.migrates = (os.path.join(self.root, n) for n in ("broken", "stale", "migrates"))
+        for f in (self.broken, self.stale, self.migrates):
             open(f, "w").close()
         os.makedirs(self.path("etc/dispatch"))
         os.makedirs(self.path("srv/dispatch/releases"))
         os.makedirs(self.path("var/lib/dispatch"))
         self.db = self.path("var/lib/dispatch/dispatch.db")
         self.env = dict(os.environ, DISPATCH_ROOT=self.root, CALLS=self.calls, BROKEN=self.broken,
-                        MIGRATES=self.migrates, DB=self.db,
+                        STALE=self.stale, MIGRATES=self.migrates, DB=self.db,
                         PULLED=self.path("pulled"), PATH=f"{bin_dir}:{os.environ['PATH']}")
 
     def path(self, *parts):
@@ -202,6 +207,20 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(self.read(self.db), f"schema of {NEW}\n")
         self.assertEqual(self.read(self.db + ".before-update"), "schema of old")
         self.assertFalse(os.path.exists(self.db + ".before-update-wal"))
+
+    def test_a_release_that_answers_as_another_commit_has_not_started(self):
+        self.assertEqual(self.release(OLD).returncode, 0)
+        self.write(self.stale, NEW + "\n")
+        r = self.release(NEW)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.current(), f"releases/{OLD}")
+
+    def test_the_port_comes_from_the_machines_settings(self):
+        self.write(self.path("etc/dispatch/env"), "PORT=9000\n")
+        shim = self.path("bin/curl")
+        self.write(shim, self.read(shim).replace("#!/usr/bin/env bash\n", '#!/usr/bin/env bash\necho "curl $*" >>"$CALLS"\n', 1))
+        self.assertEqual(self.release(OLD).returncode, 0)
+        self.assertIn("http://127.0.0.1:9000/api/health", " ".join(c for c in self.logged() if c.startswith("curl ")))
 
     def test_the_next_good_release_clears_the_notice(self):
         self.release(OLD)

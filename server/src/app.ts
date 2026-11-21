@@ -6,6 +6,10 @@ import { configApi, httpsApi } from './routes-config.js';
 import { mcpApi } from './mcp.js';
 import { authApi } from './routes-auth.js';
 import { crossSite, requireUser, type AuthVars } from './lib/auth.js';
+import { db } from './db.js';
+import { errorText } from './lib/errors.js';
+import { runningCommit } from './updates.js';
+import type { ApiError, Health } from './contract.js';
 
 /**
  * What needs no session: the web app's files, the health check, creating the account and signing in
@@ -14,6 +18,9 @@ import { crossSite, requireUser, type AuthVars } from './lib/auth.js';
 const OPEN_API = new Set(['/api/health', '/api/auth/me', '/api/auth/setup', '/api/auth/login', '/api/auth/logout', '/api/https/certificate']);
 const isApi = (path: string) => path === '/api' || path.startsWith('/api/');
 const isOpen = (path: string) => !isApi(path) || OPEN_API.has(path);
+
+/** A read of a real table, which a database that is missing, locked or not migrated fails. */
+const healthRead = db.prepare('SELECT COUNT(*) AS n FROM users');
 
 /** Methods that only read. Every other one changes something, so it must come from the app's own pages. */
 const READS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -69,7 +76,16 @@ export function createApp() {
   // session. The built web app is open, since it holds no data and draws the sign-in screen; the
   // agents' MCP endpoint has per-bot bearer tokens of its own.
   app.use('*', (c, next) => (isOpen(c.req.path) ? next() : requireUser(c, next)));
-  app.get('/api/health', (c) => c.json({ ok: true, engine: 'hermes' }));
+  // release.sh switches back to the release before when this doesn't name the new release within
+  // a minute, so it answers only once the database can be read, and says which release it is.
+  app.get('/api/health', (c) => {
+    try {
+      healthRead.get();
+    } catch (e) {
+      return c.json({ error: `The database can't be read: ${errorText(e)}` } satisfies ApiError, 503);
+    }
+    return c.json({ ok: true, commit: runningCommit() } satisfies Health);
+  });
   app.route('/api/auth', authApi);
   app.route('/api/https', httpsApi);
   // The app's tools for the agent engines (MCP).

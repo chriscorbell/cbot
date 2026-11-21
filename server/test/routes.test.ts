@@ -27,7 +27,10 @@ let user: ReturnType<typeof seedOwner>;
 beforeAll(() => { user = seedOwner(); });
 
 test('the health check needs no sign-in; the rest of the API does', async () => {
-  expect((await app.request('/api/health')).status).toBe(200);
+  const health = await app.request('/api/health');
+  expect(health.status).toBe(200);
+  // Outside an installed release there is no commit to name (release.sh checks it on a machine).
+  expect(await health.json()).toEqual({ ok: true, commit: null });
   const res = await app.request('/api/bots');
   expect(res.status).toBe(401);
   // No basic-auth challenge: the browser would show its own password prompt over the sign-in screen.

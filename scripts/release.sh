@@ -11,10 +11,10 @@
 #      release's SPEECH_IMAGE, for a rollback to start it again. Compose stops anything its file no
 #      longer lists,
 #   4. stops Dispatch, copies its database aside, points /srv/dispatch/current at the release and
-#      starts it, whose bots keep running. When it doesn't answer within a minute, it puts the
-#      database back as it was (the new release may have migrated it, and the release before can't
-#      open a newer schema), goes back to the release before it and that release's speech image,
-#      writes /etc/dispatch/last-update for the app to say so, and fails.
+#      starts it, whose bots keep running. When /api/health doesn't name the release within a
+#      minute, it puts the database back as it was (the new release may have migrated it, and the
+#      release before can't open a newer schema), goes back to the release before it and that
+#      release's speech image, writes /etc/dispatch/last-update for the app to say so, and fails.
 #      Provisioning stays: it only adds to the machine, and the release before runs on it too,
 #   5. keeps the running release, the one before it and four more, and each image in use and one more.
 #
@@ -32,6 +32,7 @@ final="$releases/$commit"
 say() { echo "[release] $*"; }
 # setting <name> <default>: a variable from /etc/dispatch/env, which overrides the unit's own.
 setting() { local v; v="$(sed -n "s/^$1=//p" "$etc/env" 2>/dev/null | tail -n 1)"; echo "${v:-$2}"; }
+port="$(setting PORT 8787)"
 # The database, and the copy of it taken before the switch (reset.ts erases dispatch.db*).
 db="$root$(setting DATA_DIR /var/lib/dispatch)/dispatch.db"
 saved="$db.before-update"
@@ -72,14 +73,20 @@ copy_db() {
     if [ -f "$1$s" ]; then cp -p "$1$s" "$2$s"; else rm -f "$2$s"; fi
   done
 }
-# start <link>: point current at releases/<commit> and restart Dispatch on it. Fails when it doesn't
-# answer within a minute.
+# start <link>: point current at releases/<commit> and start Dispatch on it. Fails unless /api/health
+# names that commit within a minute: a release that answers but isn't the one just switched to, or
+# can't read its database, hasn't started. Releases from before health named its commit answer
+# without one, which a rollback to one of them accepts.
 start() {
+  local want="${1#releases/}" got
   ln -sfn "$1" "$srv/current.new"
   mv -T "$srv/current.new" "$srv/current"
   systemctl restart dispatch
   for _ in $(seq 60); do
-    if curl -fs -o /dev/null --max-time 2 http://127.0.0.1:8787/api/health; then return 0; fi
+    if got="$(curl -fs --max-time 2 "http://127.0.0.1:$port/api/health")"; then
+      got="$(jq -r '.commit // empty' <<<"$got" 2>/dev/null || true)"
+      [ -n "$got" ] && [ "$got" != "$want" ] || return 0
+    fi
     sleep 1
   done
   return 1
