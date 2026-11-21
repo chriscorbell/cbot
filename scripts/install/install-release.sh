@@ -144,6 +144,8 @@ fetch_release() {
       fetch_assets "${DISPATCH_RELEASES_URL:-https://github.com/$repo/releases/download}/$tag" "$tag" "$sha" "$fetch_dir"
       tar -xzf "$fetch_dir/dispatch.tar.gz" -C "$releases/$commit.new" && [ -x "$releases/$commit.new/node/bin/node" ] ||
         die "Unpacking $tag failed."
+      # release.sh pulls the speech image the manifest names.
+      cp "$fetch_dir/manifest.json" "$releases/$commit.new/manifest.json"
     else
       curl -fsSL "${auth[@]}" "$api/tarball/$sha" | tar -xz -C "$releases/$commit.new" --strip-components=1 ||
         die "The download of $commit failed."
