@@ -11,3 +11,8 @@ web/screenshots
 design
 docs/research
 speech
+# Nothing the build reads, so editing them doesn't rebuild the image.
+docs
+tests
+assets
+*.md

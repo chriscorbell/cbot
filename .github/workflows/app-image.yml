@@ -4,10 +4,10 @@ name: app-image
 
 on:
   pull_request:
-    paths: [Dockerfile, .dockerignore, scripts/provision.sh, package-lock.json, .github/workflows/app-image.yml]
+    paths: [Dockerfile, .dockerignore, scripts/provision.sh, scripts/build-release.sh, scripts/node.sha256, .node-version, package-lock.json, .github/workflows/app-image.yml]
   push:
     branches: [main]
-    paths: [Dockerfile, .dockerignore, scripts/provision.sh, package-lock.json, .github/workflows/app-image.yml]
+    paths: [Dockerfile, .dockerignore, scripts/provision.sh, scripts/build-release.sh, scripts/node.sha256, .node-version, package-lock.json, .github/workflows/app-image.yml]
 
 permissions:
   contents: read
