@@ -5,8 +5,8 @@
 #
 #   DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build --remove-orphans    # images dispatch:dev and dispatch-speech:dev, .env, port 8788
 #
-# `down` keeps the volumes (the database, the bots' Hermes homes, Chrome profiles and Library files);
-# only `down -v` deletes them. The speech service keeps no data. The server's log is systemd's:
+# `down` keeps the volumes (the database, and the bots' account's home with their Hermes homes, Chrome
+# profiles and Library files); only `down -v` deletes them. The speech service keeps no data. The server's log is systemd's:
 #   docker exec dispatch-dev-dispatch-1 journalctl -u dispatch -f
 #
 # For web UI work, run the Vite dev server on the host against a running container:
@@ -23,8 +23,9 @@ services:
       SPEECH_URL: http://speech:8000
     volumes:
       - data:/data
-      # Chrome profiles and Library files (/root/dispatch), and whatever else the bots keep in their home.
-      - root:/root
+      # The home of the bots' account (the Dockerfile makes it): their Hermes homes, Chrome profiles and
+      # Library files (~/dispatch), and whatever else they keep there.
+      - home:/home/bots
     # Chrome needs more shared memory than Docker's 64 MB default.
     shm_size: 2gb
     # systemd is the container's first process (Dockerfile), and runs the server as dispatch.service and
@@ -62,4 +63,4 @@ networks:
 
 volumes:
   data:
-  root:
+  home:

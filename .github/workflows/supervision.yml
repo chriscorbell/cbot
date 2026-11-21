@@ -8,6 +8,8 @@ on:
     paths:
       - deploy/**
       - server/src/units.ts
+      - server/src/account.ts
+      - server/src/machine.ts
       - server/src/displays.ts
       - server/src/engine.ts
       - server/src/computer.ts

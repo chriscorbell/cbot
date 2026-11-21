@@ -1,7 +1,8 @@
 // Checks that systemd runs the bots the way server/src/units.ts says, against a fresh dev container
 // (compose.yaml: systemd is its first process). A bot runs on tests/fake-llm.mjs, started in the
 // container, so nothing needs a key or the network. It makes the account, two bots and one chat turn,
-// then restarts the server, kills a gateway, runs one bot out of memory and deletes the other.
+// then restarts the server, kills a gateway, checks the bots run as one ordinary account with Chrome's
+// sandbox on, runs one bot out of memory and deletes the other.
 //
 //   DISPATCH_PORT=8792 docker compose -p dispatch-supervision up -d --build dispatch
 //   node tests/supervision.mjs [baseUrl] [container]   # http://127.0.0.1:8792, dispatch-supervision-dispatch-1
@@ -130,6 +131,73 @@ await check('a gateway that is killed comes back by itself', async () => {
 
 const bea = (await api('POST', '/api/bots', { name: 'Bea' })).bot;
 const B = { gateway: `dispatch-gateway@${key(bea.id)}.service`, slice: `dispatch-bot-${key(bea.id)}.slice` };
+
+// ---------------------------------------------------------------- the bots' account (server/src/account.ts)
+
+// The Dockerfile makes it, as the installer's account is on a machine.
+const ACCOUNT = insideOk('sh', '-c', 'echo "$DISPATCH_USER"') || 'root';
+const HOME = insideOk('sh', '-c', `getent passwd ${ACCOUNT} | cut -d: -f6`);
+const asAccount = (...cmd) => inside('runuser', '-u', ACCOUNT, '--', ...cmd);
+const userOf = (pid) => insideOk('ps', '-o', 'user=', '-p', String(pid));
+const argsOf = (pid) => insideOk('sh', '-c', `tr '\\0' ' ' < /proc/${pid}/cmdline`);
+/** Every process in a unit's or slice's control group, its sub-groups too. */
+const procsIn = (unit) => insideOk('sh', '-c', `cat $(find /sys/fs/cgroup${prop(unit, 'ControlGroup')} -name cgroup.procs) 2>/dev/null`).split('\n').filter(Boolean);
+
+await check('every bot runs as one ordinary account: its gateway, Chrome and display, and all it starts but the dock', async () => {
+  expect(ACCOUNT !== 'root', 'the container names no account for the bots (DISPATCH_USER)');
+  await engineReady(bea.id);
+  for (const unit of [A.gateway, A.chrome, B.gateway, 'dispatch-xvnc@99.service', 'dispatch-bus@99.service', 'dispatch-wm@99.service']) {
+    const pid = prop(unit, 'MainPID');
+    expect(userOf(pid) === ACCOUNT, `${unit} (pid ${pid}) runs as ${userOf(pid) || 'nobody'}`);
+  }
+  // The dock (with the image loaders GTK starts for it) is Dispatch's own and stays root: it asks
+  // systemd to open apps, which only root may.
+  const dock = new Set(procsIn('dispatch-shell-99.service'));
+  expect(dock.size, 'the dock of screen 99 isn\'t running');
+  const root = procsIn(A.slice).filter((pid) => !dock.has(pid) && userOf(pid) === 'root');
+  expect(!root.length, `in ${A.slice}, root runs: ${root.map(argsOf).join('; ')}`);
+});
+
+await check("a file in one bot's Library is the other bot's to change", async () => {
+  const form = new FormData();
+  form.append('file', new Blob(['written by the app\n'], { type: 'text/plain' }), 'shared-note.txt');
+  const r = await fetch(`${BASE}/api/bots/${ada.id}/files/upload`, { method: 'POST', headers: { cookie }, body: form });
+  expect(r.ok, `the upload failed: ${r.status}`);
+  const file = `${HOME}/dispatch/files/${ada.id}/${(await r.json()).files[0].path}`;
+  expect(insideOk('stat', '-c', '%U', file) === ACCOUNT, `${file} belongs to ${insideOk('stat', '-c', '%U', file)}`);
+  // Bea, in her own slice, as the account she runs as, adds a line to Ada's file.
+  inside('systemd-run', '--wait', '--collect', '--quiet', `--uid=${ACCOUNT}`, `--slice=${B.slice}`, 'sh', '-c', `echo 'and by Bea' >> '${file}'`);
+  expect(inside('cat', file).includes('and by Bea'), "Bea's line isn't in the file");
+  const config = `${HOME}/dispatch/engines/${ada.id}/config.yaml`;
+  expect(insideOk('stat', '-c', '%U', config) === ACCOUNT, `${config} belongs to ${insideOk('stat', '-c', '%U', config)}`);
+});
+
+await check("the bots' account can't read the server's data without sudo, and can sudo", async () => {
+  for (const file of ['/data/secret', '/data/dispatch.db']) {
+    let read = true;
+    try { asAccount('cat', file); } catch { read = false; }
+    expect(!read, `${ACCOUNT} can read ${file}`);
+  }
+  asAccount('sudo', '-n', 'true');
+});
+
+await check('Chrome keeps its sandbox: no --no-sandbox, and its renderers are sandboxed', async () => {
+  const main = prop(A.chrome, 'MainPID');
+  expect(!argsOf(main).includes('--no-sandbox'), 'Chrome runs with --no-sandbox');
+  const renderers = procsIn(A.chrome).filter((pid) => argsOf(pid).includes('--type=renderer'));
+  expect(renderers.length, 'Chrome has no renderer');
+  const ns = (pid) => insideOk('readlink', `/proc/${pid}/ns/pid`);
+  let seen = 0;
+  for (const pid of renderers) {
+    // Chrome ends spare renderers as it goes; one gone since the list was made is skipped.
+    const seccomp = insideOk('sh', '-c', `grep '^Seccomp:' /proc/${pid}/status 2>/dev/null`).split(/\s+/)[1];
+    if (seccomp === undefined) continue;
+    seen++;
+    expect(seccomp === '2', `renderer ${pid} has Seccomp ${seccomp}, not filtered (2)`);
+    expect(ns(pid) !== ns(main), `renderer ${pid} shares the browser's pid namespace`);
+  }
+  expect(seen, 'every renderer was gone before it could be looked at');
+});
 
 await check("a process that goes over one bot's memory limit is killed, and the other bot runs on", async () => {
   await engineReady(bea.id);

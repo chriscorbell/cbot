@@ -7,7 +7,11 @@
 
 # ---------------------------------------------------------------- the computer
 FROM ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db AS computer
-ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+# The account the bots run as (server/src/account.ts), as the account that runs the installer is on a
+# machine: an ordinary one, which provision.sh (scripts/install-units.sh) lets sudo. The entrypoint
+# passes DISPATCH_USER on to the server.
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 DISPATCH_USER=bots
+RUN useradd --create-home --shell /bin/bash --user-group bots
 COPY scripts/provision.sh scripts/install-units.sh /tmp/dispatch/scripts/
 COPY deploy/dispatch-*@.* /tmp/dispatch/deploy/
 RUN bash /tmp/dispatch/scripts/provision.sh --container && rm -r /tmp/dispatch
