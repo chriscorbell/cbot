@@ -6,7 +6,8 @@
 # build time.
 #
 #   sudo scripts/provision.sh               # the production host
-#   scripts/provision.sh --container        # the dev image (Dockerfile): no Docker, systemd or Tailscale
+#   scripts/provision.sh --container        # the dev image (Dockerfile): no Docker or Tailscale; systemd
+#                                           # runs in the container as on a host (compose.yaml)
 #
 # Everything here runs as root and the bots work as root, so whatever they install later (apt, pip,
 # npm, Hermes tools) stays on the machine.
@@ -124,6 +125,8 @@ apt_install \
   arc-theme papirus-icon-theme adwaita-icon-theme \
   nodejs google-chrome-stable
 $container || apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# A host has systemd already; the dev container runs it as its first process.
+! $container || apt_install systemd systemd-sysv
 
 # ---------------------------------------------------------------- Hermes Agent
 
@@ -162,6 +165,11 @@ if [ "$(cat /opt/hermes/.dispatch-pin 2>/dev/null)" != "$pin" ] || ! HERMES_HOME
 fi
 HERMES_HOME=/opt/hermes hermes --version | head -1
 
+# ---------------------------------------------------------------- the bots' units
+
+# The systemd units each bot's screen and agent run as (deploy/, server/src/units.ts).
+bash "$here/scripts/install-units.sh"
+
 # ---------------------------------------------------------------- the dev image stops here
 
 if $container; then
@@ -180,8 +188,6 @@ install -d -m 0755 /srv/dispatch /srv/dispatch/releases /var/log/dispatch
 install -d -m 0700 /var/lib/dispatch /etc/dispatch /root/dispatch
 
 install -m 0644 "$here/deploy/dispatch.service" /etc/systemd/system/dispatch.service
-# The units each bot's screen and agent run as (deploy/, server/src/units.ts).
-bash "$here/scripts/install-units.sh"
 systemctl daemon-reload
 systemctl enable dispatch.service >/dev/null 2>&1
 systemctl enable --now docker.service >/dev/null 2>&1

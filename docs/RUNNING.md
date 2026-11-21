@@ -132,6 +132,8 @@ DISPATCH_API=http://127.0.0.1:8788 npm run dev -w web   # Vite against the dev c
 
 Rebuild the dev container to try server changes. The Playwright scripts in `tests/` run against a live app, and each one's header says how.
 
+The container boots systemd, as a host does: the server is `dispatch.service`, and each bot's screen, Chrome and agent are units of their own, so the container behaves like a real install (a server restart leaves the bots running, each bot has its memory limit). The server's log is in the journal: `docker exec dispatch-dev-dispatch-1 journalctl -u dispatch -f`.
+
 Every pull request runs `npm run check` and shellcheck in GitHub Actions, and `main` takes only changes that pass. The app and speech images are built too when a change touches what goes into them.
 
 ```text

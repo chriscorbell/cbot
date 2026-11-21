@@ -1,12 +1,13 @@
 # Dispatch for development, in two containers: `dispatch` (the app, a screen per bot with an X display and
-# VNC server, Chrome and Hermes, set up by scripts/provision.sh) and `speech` (Phonon text-to-speech
-# and speech recognition on the CPU).
+# VNC server, Chrome and Hermes, set up by scripts/provision.sh, with systemd running it all as on a
+# host) and `speech` (Phonon text-to-speech and speech recognition on the CPU).
 # Production runs on a machine of its own without the app container (scripts/deploy.sh, deploy/).
 #
 #   DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build --remove-orphans    # images dispatch:dev and dispatch-speech:dev, .env, port 8788
 #
 # `down` keeps the volumes (the database, the bots' Hermes homes, Chrome profiles and Library files);
-# only `down -v` deletes them. The speech service keeps no data.
+# only `down -v` deletes them. The speech service keeps no data. The server's log is systemd's:
+#   docker exec dispatch-dev-dispatch-1 journalctl -u dispatch -f
 #
 # For web UI work, run the Vite dev server on the host against a running container:
 #   DISPATCH_API=http://127.0.0.1:8788 npm run dev -w web           # then open http://localhost:5173
@@ -26,8 +27,15 @@ services:
       - root:/root
     # Chrome needs more shared memory than Docker's 64 MB default.
     shm_size: 2gb
-    # Reaps the detached processes the server starts (displays, gateways, Chrome).
-    init: true
+    # systemd is the container's first process (Dockerfile), and runs the server as dispatch.service and
+    # each bot's screen, Chrome and agent as units of their own, each bot in a slice with its memory
+    # limit. It needs the cgroup tree to write to (privileged, in a cgroup namespace of its own) and
+    # its runtime folders on tmpfs, and stops cleanly on SIGRTMIN+3.
+    privileged: true
+    cgroup: private
+    tmpfs: [/run, /run/lock]
+    stop_signal: SIGRTMIN+3
+    stop_grace_period: 30s
     restart: unless-stopped
     ports:
       - "127.0.0.1:${DISPATCH_PORT:-8787}:8787"
