@@ -9,8 +9,8 @@
 #   scripts/provision.sh --container        # the dev image (Dockerfile): no Docker or Tailscale; systemd
 #                                           # runs in the container as on a host (compose.yaml)
 #
-# Everything here runs as root and the bots work as root, so whatever they install later (apt, pip,
-# npm, Hermes tools) stays on the machine.
+# Everything here runs as root, and what the bots install later (apt, pip, npm, Hermes tools) through
+# their account's sudo stays on the machine too.
 set -euo pipefail
 
 container=false
