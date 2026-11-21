@@ -19,6 +19,9 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /data
+      # The image's account (Dockerfile), even when .env names the account of a machine deploy.sh
+      # deploys to.
+      DISPATCH_USER: bots
       # The speech service, on the internal `speech` network (speech/README.md).
       SPEECH_URL: http://speech:8000
     volumes:
