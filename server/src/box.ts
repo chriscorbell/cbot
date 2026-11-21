@@ -10,6 +10,7 @@ import path from 'node:path';
 export interface BashResult { output: string; exit_code: number }
 
 import { displayFor } from './machine.js';
+import { errorField } from './lib/errors.js';
 
 /** Only what a desktop command needs; none of this server's secrets. */
 function shellEnv(screenId?: string | null): NodeJS.ProcessEnv {
@@ -31,7 +32,9 @@ export const box = {
   bash(command: string, timeoutSec = 60, screenId?: string | null): Promise<BashResult> {
     return new Promise((resolve) => {
       execFile('bash', ['-c', command], { timeout: timeoutSec * 1000, maxBuffer: 32 * 1024 * 1024, env: shellEnv(screenId) }, (err, stdout, stderr) => {
-        const code = err ? (typeof (err as any).code === 'number' ? (err as any).code : 1) : 0;
+        // A command that ran and failed has its exit code; one that couldn't run (or timed out) counts as 1.
+        const exit = errorField(err, 'code');
+        const code = err ? (typeof exit === 'number' ? exit : 1) : 0;
         resolve({ output: `${stdout ?? ''}${stderr ?? ''}`, exit_code: code });
       });
     });

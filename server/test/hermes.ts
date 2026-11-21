@@ -34,7 +34,7 @@ export function gate() {
   return { opened, open };
 }
 
-export interface HermesCall { method: string; path: string; body: any }
+export interface HermesCall { method: string; path: string; body: Record<string, unknown> | undefined }
 
 /**
  * Makes `fetch` answer requests to the engine. Every POST /v1/runs plays the next script on its event
@@ -43,7 +43,7 @@ export interface HermesCall { method: string; path: string; body: any }
  * Hermes give up on a prompt by itself.
  */
 export function fakeHermes(...scripts: Step[][]) {
-  const runs: Record<string, any>[] = [];
+  const runs: Record<string, unknown>[] = [];
   const calls: HermesCall[] = [];
   const sessions = new Set<string>();
   /** Prompts Hermes is still waiting on, by run. */

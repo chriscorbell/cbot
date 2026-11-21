@@ -22,6 +22,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/db.ts` | The whole schema, migrations, and a record type per table |
 | `server/src/store.ts` | Bots and rows: reading, appending, rewriting, `Conversation` handles, unread counts |
 | `server/src/agent/turns.ts` | Each bot's turn runner and the turn itself |
+| `server/src/agent/run-events.ts` | What a Hermes run sends and answers, checked with zod as it arrives |
 | `server/src/agent/transcript.ts` | What the events of a turn's Hermes run become in the chat |
 | `server/src/agent/live.ts` | What each bot is doing right now |
 | `server/src/agent/tools.ts` | The app's MCP tools (zod parameters, implementation, activity label) |
@@ -75,7 +76,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 - **Requests name rows by generation.** The web app sends a row's `generation` with an answer or a reaction; the server refuses an answer to a cleared chat and patches the row of that generation.
 - **Read, check, write with no await between.** A route that checks state before changing it (a question still pending) reads it after its last `await`, so two requests at once can't both pass the check.
 - **Live state through `live.ts`.** Only `agent/turns.ts` and `agent/transcript.ts` call its transitions.
-- **Validate at the boundary.** Route bodies go through `body(c, schema)` from `lib/validate.ts`. Tool arguments are the tool's zod `params`. Inside, trust the types.
+- **Validate at the boundary.** Route bodies go through `body(c, schema)` from `lib/validate.ts`. Tool arguments are the tool's zod `params`. Data from outside is parsed with zod where it enters, like route bodies: Hermes' run events and answers (`agent/run-events.ts`, `engine.ts`), the MCP envelope (`mcp.ts`), the speech service's and the browser's call events (`voice-relay.ts`), and other services (`weather.ts`). What doesn't fit is logged and dropped, or fails the request with a clear error; it is never cast. Inside, trust the types; lint refuses `any`.
 - **Contracts are shared, not restated.** A route's response type lives in `contract.ts` and the handler returns `{ ... } satisfies ThatType`; the web call names the same type. Server events are `ServerEvent` in `types.ts`; voice messages are in `voice-protocol.ts`. `types.ts`, `contract.ts` and `voice-protocol.ts` import nothing from the server, because the web app bundles them.
 - **Exhaustive switches.** A switch over a union ends with `default: { const x: never = ev; ... }` where it must handle every case (`lib/events.ts`, `voice/call.ts`). Lint enforces it in both workspaces.
 - **No floating promises.** Await it, `.catch` it, or write `void` when it is deliberate and cannot reject. An unhandled rejection stops the server; in the browser it fails without a word. A caught error is `unknown`: read it with `errorText` and `errorField` (`server/src/lib/errors.ts`).

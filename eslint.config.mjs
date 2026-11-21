@@ -10,6 +10,9 @@ const typeAware = {
   '@typescript-eslint/no-floating-promises': 'error',
   // A switch over a union handles every member, or says why not with a default.
   '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: true }],
+  // Data from outside (Hermes, the speech service, the browser, other services) is parsed with zod
+  // where it enters; past that, types are trusted. `any` would let unchecked data through.
+  '@typescript-eslint/no-explicit-any': 'error',
 };
 
 export default tseslint.config(

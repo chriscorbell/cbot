@@ -1,6 +1,7 @@
 // Signing in to a subscription with a link and a code, with nothing on a bot's screen: Hermes signs a
 // bot's home in to ChatGPT or Grok in the background, and GitHub's device flow gives the Copilot token
 // every bot shares.
+import type { SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { afterEach, expect, test, vi } from 'vitest';
 
@@ -15,10 +16,10 @@ class FakeHermes extends EventEmitter {
   kill(signal: NodeJS.Signals = 'SIGTERM') { this.signalCode = signal; this.emit('close', null, signal); return true; }
 }
 
-const spawned: { cmd: string; args: string[]; opts: any; child: FakeHermes }[] = [];
+const spawned: { cmd: string; args: string[]; opts: SpawnOptions; child: FakeHermes }[] = [];
 vi.mock('node:child_process', async (orig) => {
   const real = await orig<typeof import('node:child_process')>();
-  const spawn = (cmd: string, args: string[], opts: unknown) => { const child = new FakeHermes(); spawned.push({ cmd, args, opts, child }); return child; };
+  const spawn = (cmd: string, args: string[], opts: SpawnOptions) => { const child = new FakeHermes(); spawned.push({ cmd, args, opts, child }); return child; };
   return { ...real, spawn, default: { ...real, spawn } };
 });
 
@@ -52,9 +53,9 @@ test("a ChatGPT sign-in runs Hermes for the bot's home with no terminal, answers
   const started = startSignIn('u1', 'openai-codex', 'bot1');
   const { cmd, args, opts, child } = spawned.at(-1)!;
   expect([cmd, ...args]).toEqual(['hermes', 'auth', 'add', 'openai-codex']);
-  expect(opts.stdio[0]).toBe('ignore');
+  expect(opts.stdio?.[0]).toBe('ignore');
   expect(opts.env).toMatchObject({ HERMES_HOME: '/homes/bot1', BROWSER: 'true' });
-  expect(opts.env.DISPLAY).toBeUndefined();
+  expect(opts.env?.DISPLAY).toBeUndefined();
 
   child.print(CHATGPT);
   const s = await started;
