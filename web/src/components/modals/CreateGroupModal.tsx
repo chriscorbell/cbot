@@ -42,7 +42,7 @@ export function CreateGroupModal() {
           <button type="button" className="modal__close" onClick={close} aria-label="Close"><Icon name="close" size={16} /></button>
         </div>
         <div className="create-modal__body is-stretch">
-          <input className="text-input create-modal__name" placeholder="Name your group" value={name} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Group name" />
+          <input className="text-input create-modal__name" placeholder="Name your group" autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Group name" />
           <div className="field-label">Members <span className="field-label__hint">Pick at least two</span></div>
           <div className="group-pick">
             {bots.map((b) => (

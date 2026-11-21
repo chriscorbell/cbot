@@ -1,5 +1,7 @@
 /* ---------- window: rail · chat · details ---------- */
 .app { position: relative; display: flex; height: 100%; width: 100%; background: var(--color-bg-chrome); overflow: hidden; }
+/* A phone on its side: the notch and the rounded corners stay clear of the rail and the composer. */
+.app { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
 /* The rail: bots as icons, then new bot and the account at the bottom. No labels; hover says what each is.
    ⌘B (or the header's button) opens it into the full sidebar: names and previews, a top row with
@@ -43,8 +45,8 @@
 .rail-bot .status-dot { top: 5px; right: 5px; }
 .rail-bot__text { display: none; }
 .rail-bot__name, .rail-bot__preview { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rail-bot__name { font-size: var(--text-sm); font-weight: 500; line-height: 18px; color: var(--color-text-primary); }
-.rail-bot__preview { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.rail-bot__name { font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-sm); color: var(--color-text-primary); }
+.rail-bot__preview { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .rail-bot.has-attention .rail-bot__preview { color: var(--color-warn-text); }
 .rail-bot.has-unread .rail-bot__name { font-weight: 600; }
 
@@ -99,7 +101,7 @@
 /* Avatars stay where they were in the rail (13px in), so opening only adds what sits beside them. */
 .sidebar.is-expanded .rail__scroll, .sidebar.is-expanded .rail__foot { width: 100%; padding-left: 8px; padding-right: 8px; }
 .sidebar.is-expanded .rail__scroll { padding-top: 2px; }
-.sidebar.is-expanded .rail__label { display: block; padding: 16px 10px 6px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); animation: fade var(--dur-med) var(--ease-out); }
+.sidebar.is-expanded .rail__label { display: block; padding: 16px 10px 6px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-tertiary); animation: fade var(--dur-med) var(--ease-out); }
 .sidebar.is-expanded .rail__bots { align-items: stretch; gap: 2px; }
 .sidebar.is-expanded .rail-bot {
   justify-content: flex-start; gap: 10px; min-height: 54px; padding: 4px 5px; border-radius: 12px; text-align: left;
@@ -135,6 +137,10 @@
   }
   .app.is-drawer-open .drawer-scrim { opacity: 1; pointer-events: auto; }
   .sidebar.is-expanded .rail__foot { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+  /* Rows like a phone's message list: the name at the body size, the preview a step down. */
+  .sidebar.is-expanded .rail-bot { min-height: 60px; }
+  .sidebar.is-expanded .rail-bot__name { font-size: var(--text-message); line-height: var(--leading-message); }
+  .sidebar.is-expanded .rail-bot__preview { font-size: var(--text-sm); line-height: var(--leading-sm); }
 }
 
 /* the rail's right-click menu sits at the pointer */

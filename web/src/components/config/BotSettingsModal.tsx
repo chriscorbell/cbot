@@ -209,12 +209,12 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
 
       <section className="cfg-section cfg-grid">
         <Field label="Name" htmlFor="cfg-name">
-          <input id="cfg-name" className="text-input" value={draft.name} maxLength={60} onChange={(e) => put('name', e.target.value)} aria-invalid={!nameOk} />
+          <input id="cfg-name" className="text-input" autoComplete="off" value={draft.name} maxLength={60} onChange={(e) => put('name', e.target.value)} aria-invalid={!nameOk} />
         </Field>
         {/* What each field is for, as prompt.ts and engine.ts use them: the label and About describe the bot to itself (and the label to the other bots too); Instructions are rules.
             A group's label is only shown; its About and Instructions go to each of its bots under the group's name. */}
         <Field label="Label" htmlFor="cfg-label" hint={room ? 'A word or two shown next to the group’s name.' : 'Its role in a word or two, like “Research” or “Inbox”. It’s shown next to the name, and it tells the bots who does what.'}>
-          <input id="cfg-label" className="text-input" value={draft.label} maxLength={60} placeholder="Add a label" onChange={(e) => put('label', e.target.value)} aria-describedby="cfg-label-hint" />
+          <input id="cfg-label" className="text-input" autoComplete="off" value={draft.label} maxLength={60} placeholder="Add a label" onChange={(e) => put('label', e.target.value)} aria-describedby="cfg-label-hint" />
         </Field>
       </section>
 

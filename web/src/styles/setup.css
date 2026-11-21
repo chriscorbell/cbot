@@ -34,7 +34,7 @@
 .setup__form { display: flex; flex-direction: column; gap: 14px; }
 
 .setup__head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; text-align: center; }
-.setup__title { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: 24px; letter-spacing: -0.01em; color: var(--color-text-primary); outline: none; }
+.setup__title { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: var(--leading-xl); letter-spacing: -0.01em; color: var(--color-text-primary); outline: none; }
 .setup__sub { margin: 0; font-size: var(--text-sm); line-height: 19px; color: var(--color-text-secondary); text-wrap: balance; }
 
 .setup .text-input { border-radius: var(--radius-md); }
@@ -56,7 +56,7 @@
 }
 .setup__link:hover:not(:disabled) { color: var(--color-text-primary); text-decoration-color: currentColor; }
 .setup__link:disabled { opacity: 0.5; }
-.setup__end > .setup__link { padding: 4px 8px; font-size: var(--text-sm); line-height: 18px; text-decoration: none; }
+.setup__end > .setup__link { padding: 4px 8px; font-size: var(--text-sm); line-height: var(--leading-sm); text-decoration: none; }
 
 /* The model step: the provider and model rows of a bot's settings, with what connecting takes between them. */
 .setup__engine { gap: 0; animation: rise 260ms var(--ease-out) both; }
@@ -70,7 +70,7 @@
 
 .setup__wait {
   display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px;
-  font-size: var(--text-sm); line-height: 18px; color: var(--color-text-secondary); animation: fade 260ms var(--ease-out) both;
+  font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-secondary); animation: fade 260ms var(--ease-out) both;
 }
 .setup__wait--inset { min-height: 44px; border-top: 1px solid var(--color-border-tertiary); }
 .setup__trouble { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; animation: rise 220ms var(--ease-out) both; }

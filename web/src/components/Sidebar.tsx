@@ -15,6 +15,7 @@ import { Menu, type MenuItem } from './Menu';
 import { Presence, useExiting } from './Presence';
 import { useToast } from './Toast';
 import { copyConversation } from '../lib/share';
+import { useLongPress } from '../lib/longPress';
 
 export function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -92,8 +93,11 @@ function tipProps(head: ReactNode, body?: string | null) {
 const RailBot = memo(function RailBot({ bot, selected, running, caption, born, tips, onSelect, onMenu }: { bot: Bot; selected: boolean; running: boolean; caption: string | null; born: boolean; tips: boolean; onSelect: (id: string) => void; onMenu: (bot: Bot, x: number, y: number) => void }) {
   const status = statusOf(running, bot.unread);
   const preview = previewFor(bot, running, caption);
+  // On a touch screen, holding a bot opens the menu a right-click opens with a mouse.
+  const hold = useLongPress((x, y) => { showTip(null); onMenu(bot, x, y); });
   return (
     <button
+      {...hold}
       type="button"
       className={`rail-bot${selected ? ' is-selected' : ''}${status ? ` has-${status.cls.slice(3)}` : ''}`}
       style={botVars(bot.avatarColor)}
@@ -163,6 +167,9 @@ function AccountButton({ name, avatarUrl, tips }: { name: string; avatarUrl?: st
   const [open, setOpen] = useState(false);
   const set = useStore((s) => s.set);
   const go = (fn: () => void) => () => { set({ drawerOpen: false }); fn(); };
+  // Keyboard shortcuts mean nothing on a phone.
+  const touch = useNarrow('(hover: none)');
+  const key = (k: string) => (touch ? undefined : `${MOD}${k}`);
   return (
     <div className="rail-account">
       <button
@@ -182,9 +189,9 @@ function AccountButton({ name, avatarUrl, tips }: { name: string; avatarUrl?: st
           placement="above"
           onClose={() => setOpen(false)}
           items={[
-            { label: 'Search', hint: `${MOD}K`, icon: <Search size={14} strokeWidth={1.75} />, onSelect: go(() => useStore.getState().setModal('search')) },
+            { label: 'Search', hint: key('K'), icon: <Search size={14} strokeWidth={1.75} />, onSelect: go(() => useStore.getState().setModal('search')) },
             { label: 'New group chat', icon: <MessagesSquare size={14} strokeWidth={1.75} />, onSelect: go(() => useStore.getState().setModal('group')) },
-            { label: 'Settings', hint: `${MOD},`, icon: <Settings size={14} strokeWidth={1.75} />, onSelect: go(() => useConfigUI.getState().openAppSettings()), separatorBefore: true },
+            { label: 'Settings', hint: key(','), icon: <Settings size={14} strokeWidth={1.75} />, onSelect: go(() => useConfigUI.getState().openAppSettings()), separatorBefore: true },
             { label: 'Sign out', icon: <LogOut size={14} strokeWidth={1.75} />, onSelect: go(() => { void useStore.getState().signOut(); }) },
           ]}
         >

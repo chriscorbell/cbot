@@ -54,6 +54,9 @@ export function applyTheme(t: Theme) {
   const resolved = t === 'system' ? (darkQuery?.matches ? 'dark' : 'light') : t;
   document.documentElement.dataset.theme = resolved;
   document.documentElement.style.colorScheme = resolved;
+  // Phone browsers tint their toolbars and the status bar with this; index.html picks by the OS's
+  // scheme, which is wrong when cbot's own setting differs from it.
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => { m.content = resolved === 'dark' ? '#111111' : '#FFFFFF'; });
 }
 
 export const useConfigUI = create<ConfigUI>((set, get) => ({

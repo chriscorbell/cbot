@@ -62,6 +62,10 @@ Choose a bot's provider, model and thinking effort in its settings under **Model
 
 Signing in to ChatGPT, Grok or Copilot shows a link and a short code. Open the link on any device where you're signed in, enter the code and approve; the sign-in finishes by itself.
 
+## On a phone
+
+cbot works in a phone's browser, and **Add to Home Screen** (Safari's Share menu, or Chrome's menu) gives it an icon and a window of its own. The sidebar opens from the button at the top left. Hold a message to react, reply or copy its text, and hold a bot in the sidebar for its menu (mark as unread, copy, hide, delete). The chat stays above the keyboard while you type.
+
 ## Approvals
 
 **Settings** > **Permissions** decides whether the bots ask before a command or change that is flagged as risky, such as deleting files with `rm -rf` or editing `~/.ssh/config`. **Smart**, the default, asks unless the bot's model judges the action low-risk; **Off** never asks; **Ask** always asks. A request shows as a card in the bot's chat, during a voice call too, and the bot waits up to five minutes for Allow, Always allow or Don't allow. Always allow counts for every bot and can be taken back under **Allow without Asking**. **Never Allow** lists command patterns, such as `git push --force*`, that the bots refuse even with approvals off.

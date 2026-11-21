@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { initViewport } from './lib/viewport';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './styles/tokens.css';
@@ -14,6 +15,8 @@ import './styles/viewer.css';
 import './styles/voice.css';
 import './styles/signin.css';
 import './styles/setup.css';
+
+initViewport();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

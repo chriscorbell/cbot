@@ -61,10 +61,10 @@
   max-width: 100%; text-align: center; font-size: var(--text-lg); font-weight: 600; line-height: 20px; color: var(--color-text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.details__label { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.details__label { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .details__tabs { display: inline-flex; align-items: center; gap: 2px; margin-top: 12px; }
 .details__tabs button {
-  height: 26px; padding: 0 10px; border-radius: var(--radius-full); font-size: var(--text-sm); font-weight: 500; line-height: 18px; color: var(--color-text-tertiary);
+  height: 26px; padding: 0 10px; border-radius: var(--radius-full); font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-sm); color: var(--color-text-tertiary);
   transition: background-color var(--dur-fast), color var(--dur-fast);
 }
 .details__tabs button:hover { color: var(--color-text-primary); }
@@ -73,7 +73,7 @@
 /* The left side is 1px wider because the panel's 1px border is drawn inside it; the cards end up 12px from both edges. */
 .details__sections { display: flex; flex-direction: column; gap: 16px; padding: 14px 12px 8px 13px; animation: rise var(--dur-med) var(--ease-out); }
 .details__sections > section { display: flex; flex-direction: column; gap: 7px; }
-.section-label { padding: 0 4px; font-size: var(--text-sm); font-weight: 400; line-height: 18px; color: var(--color-text-tertiary); }
+.section-label { padding: 0 4px; font-size: var(--text-sm); font-weight: 400; line-height: var(--leading-sm); color: var(--color-text-tertiary); }
 .section-label--row { display: flex; align-items: center; justify-content: space-between; min-height: 22px; }
 .section-label--row .link-btn--small { margin-right: -4px; font-size: var(--text-sm); color: var(--color-text-tertiary); }
 
@@ -83,22 +83,22 @@
 .panel-row--link, .panel-row--action { cursor: pointer; transition: background-color var(--dur-fast); }
 .panel-row--link { height: 34px; gap: 8px; }
 .panel-row--link:hover, .panel-row--action:hover:not(:disabled) { background: var(--surface-active); }
-.panel-row--action { font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary); }
-.panel-row--setting { justify-content: space-between; padding: 4px 4px 4px 8px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary); }
+.panel-row--action { font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-primary); }
+.panel-row--setting { justify-content: space-between; padding: 4px 4px 4px 8px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-primary); }
 .panel-row--computer { min-height: 52px; padding: 6px 6px 6px 8px; }
 /* "<name>’s computer": a long bot name ends in … rather than wrapping beside the thumbnail. */
 .panel-row--computer .panel-row__title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel-row__icon { display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; color: var(--color-text-secondary); }
 .panel-row__text { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
-.panel-row__title, .panel-row__sub { display: block; font-size: var(--text-sm); line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-row__title, .panel-row__sub { display: block; font-size: var(--text-sm); line-height: var(--leading-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel-row__title { color: var(--color-text-primary); }
 .panel-row--action > .panel-row__title { flex: 1 1 0; min-width: 0; }
-.panel-row__sub { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.panel-row__sub { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .panel-row__value { min-width: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); color: var(--color-text-secondary); }
 .panel-row__chev { flex-shrink: 0; color: var(--color-text-tertiary); transition: transform var(--dur-fast) var(--ease-out); }
 .panel-row--action:hover .panel-row__chev { transform: translateX(2px); color: var(--color-text-secondary); }
-.panel-row__meta { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.panel-empty { padding: 10px 8px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); }
+.panel-row__meta { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-empty { padding: 10px 8px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-tertiary); }
 .panel-empty--center { text-align: center; padding: 28px 16px; }
 
 /* the bot's screen, small: a live picture once it is running, the bot asleep otherwise */
@@ -131,7 +131,7 @@
 /* value + chevron, quiet until pointed at */
 .mini-select {
   display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px 0 8px; border-radius: 7px;
-  font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary);
+  font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-primary);
   transition: background-color var(--dur-fast);
 }
 .mini-select:hover:not(:disabled) { background: var(--surface-active); }
@@ -140,14 +140,14 @@
 /* group chat members */
 .members__row { gap: 8px; height: 40px; }
 .members__text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.members__name { font-size: var(--text-sm); line-height: 18px; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.members__label { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.members__name { font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.members__label { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .members__remove { width: 28px; height: 28px; border-radius: var(--radius-xs); color: var(--color-text-tertiary); display: inline-flex; align-items: center; justify-content: center; transition: background-color var(--dur-fast), color var(--dur-fast); }
 .members__remove:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .members__remove:disabled { opacity: 0.3; cursor: default; }
 .members__dot { width: 24px; height: 24px; border-radius: 50%; background: var(--color-bg-hover); }
 .members__add { border-top: 1px solid var(--color-border-tertiary); margin-top: 4px; padding-top: 4px; }
-.members__hint { font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); padding: 6px 8px 2px; }
+.members__hint { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); padding: 6px 8px 2px; }
 
 /* engine: provider, model, sign-in */
 .engine__empty { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -155,7 +155,7 @@
 .engine__select { max-width: 60%; flex-shrink: 1; min-width: 0; }
 .engine__select:disabled { opacity: 0.5; }
 .engine__select > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.engine__conn { display: flex; align-items: center; justify-content: flex-start; gap: 5px; padding: 0; font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.engine__conn { display: flex; align-items: center; justify-content: flex-start; gap: 5px; padding: 0; font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .engine__conn i, .engine__state i { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--color-text-quaternary); }
 .engine__conn.is-on i, .engine__state.is-ready i { background: var(--color-success); }
 .engine__state.is-starting i { background: var(--color-warn); animation: breathe 1.6s ease-in-out infinite; }
@@ -167,10 +167,10 @@
 .engine__signin { border-top: 1px solid var(--color-border-tertiary); border-radius: 0 0 var(--radius-xs) var(--radius-xs); margin-top: 2px; }
 .engine__signin:disabled { opacity: 0.6; cursor: default; }
 .engine__code { border-top: 1px solid var(--color-border-tertiary); margin-top: 2px; }
-.engine__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; padding: 4px 4px 4px 8px; border-top: 1px solid var(--color-border-tertiary); font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.engine__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; padding: 4px 4px 4px 8px; border-top: 1px solid var(--color-border-tertiary); font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .engine__state { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.engine__notice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px; border-top: 1px solid var(--color-border-tertiary); font-size: var(--text-xs); line-height: 16px; color: var(--color-text-secondary); }
-.engine__error { padding: 0 8px 8px; font-size: var(--text-xs); line-height: 16px; color: var(--color-danger-text); overflow-wrap: anywhere; }
+.engine__notice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px; border-top: 1px solid var(--color-border-tertiary); font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-secondary); }
+.engine__error { padding: 0 8px 8px; font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-danger-text); overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .engine__state.is-starting i { animation: none; } }
 
 

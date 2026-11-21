@@ -1,4 +1,4 @@
-import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Ellipsis, FileText, Reply, SmilePlus } from 'lucide-react';
 import type { Attachment, Bot, LiveState, MessageBody, Row } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
@@ -6,7 +6,7 @@ import { isWaitingForYou } from '../lib/phrases';
 import { dividerLabel } from '../lib/time';
 import { useStore } from '../store';
 import { Menu } from './Menu';
-import { Presence } from './Presence';
+import { Presence, useExiting } from './Presence';
 import { ThinkingBlock } from './ActivityLine';
 import { CardRow } from './cards/Cards';
 import { Icon } from './Icon';
@@ -16,6 +16,7 @@ import { useConfigUI } from '../configStore';
 import { glow } from '../lib/glow';
 import { fileUrl } from '../lib/files';
 import { FilePreview } from './FilePreview';
+import { useLongPress } from '../lib/longPress';
 
 type Item =
   | { kind: 'divider'; key: string; ts: number }
@@ -125,6 +126,65 @@ function MessageActions({ row, side }: { row: Row; side: 'left' | 'right' }) {
   );
 }
 
+/**
+ * The same actions on a touch screen, where nothing hovers: holding a message lifts it, with the
+ * reactions above it and Reply and Copy below. Any other tap puts it back and does nothing else.
+ */
+function TouchActions({ row, side, onClose }: { row: Row; side: 'left' | 'right'; onClose: () => void }) {
+  const b = row.body as MessageBody;
+  const ref = useRef<HTMLDivElement>(null);
+  const exiting = useExiting();
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      if (ref.current?.contains(e.target as Node)) return;
+      const swallow = (ev: MouseEvent) => { ev.preventDefault(); ev.stopPropagation(); };
+      document.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 500);
+      onClose();
+    };
+    document.addEventListener('pointerdown', down, true);
+    // A message at the edge of the view scrolls in far enough for the reactions above it and the menu
+    // below it to show; if all three can't fit, the reactions and the message win.
+    const el = ref.current;
+    const scroller = el?.closest<HTMLElement>('.transcript');
+    const above = el?.querySelector<HTMLElement>('.reaction-picker');
+    const below = el?.querySelector<HTMLElement>('.menu');
+    if (scroller && above && below) {
+      const view = scroller.getBoundingClientRect();
+      const top = view.top + parseFloat(getComputedStyle(scroller).paddingTop);
+      const bottom = view.bottom - 12;
+      let dy = Math.max(0, below.offsetTop + below.offsetHeight + el!.getBoundingClientRect().top - bottom);
+      const pickerTop = el!.getBoundingClientRect().top - above.offsetHeight - 8;
+      if (pickerTop - dy < top) dy = pickerTop - top;
+      if (Math.abs(dy) > 1) scroller.scrollBy({ top: dy, behavior: 'smooth' });
+    }
+    return () => document.removeEventListener('pointerdown', down, true);
+  }, [onClose]);
+  const react = (emoji: string | null) => {
+    onClose();
+    useStore.getState().patchRow(row.botId, row.seq, { reaction: emoji }).catch(() => {});
+  };
+  const current = b.reaction ?? null;
+  const ic = { size: 15, strokeWidth: 1.75 } as const;
+  return (
+    <div ref={ref} className={`touch-actions is-${side}${exiting ? ' is-exiting' : ''}`}>
+      <div className="reaction-picker" role="menu" aria-label="Reactions">
+        {REACTIONS.map((e) => (
+          <button key={e} type="button" role="menuitemradio" aria-checked={current === e} className={`reaction-picker__item${current === e ? ' is-on' : ''}`} onClick={() => react(current === e ? null : e)}>{e}</button>
+        ))}
+      </div>
+      <div className="menu" role="menu">
+        <button type="button" role="menuitem" className="menu__item" onClick={() => { onClose(); replyTo(plain(splitQuote(b.text).rest), row); }}>
+          <span className="menu__item-main"><Reply {...ic} aria-hidden /><span>Reply</span></span>
+        </button>
+        <button type="button" role="menuitem" className="menu__item" onClick={() => { onClose(); navigator.clipboard.writeText(splitQuote(b.text).rest).catch(() => {}); }}>
+          <span className="menu__item-main"><Copy {...ic} aria-hidden /><span>Copy text</span></span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ReactionPicker({ current, onPick, onClose }: { current: string | null; onPick: (e: string | null) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -176,8 +236,11 @@ function Attachments({ botId, files }: { botId: string; files: Attachment[] }) {
 const Bubble = memo(function Bubble({ row, side, pos }: { row: Row; side: 'left' | 'right'; pos: string }) {
   const b = row.body as MessageBody;
   const { quote, rest } = side === 'right' ? splitQuote(b.text) : { quote: null, rest: b.text };
+  const [held, setHeld] = useState(false);
+  const press = useLongPress(() => { if (!b.streaming) setHeld(true); });
+  const release = useCallback(() => setHeld(false), []);
   return (
-    <div className={`bubble-wrap is-${side}`} data-seq={row.seq}>
+    <div className={`bubble-wrap is-${side}${held ? ' is-held' : ''}`} data-seq={row.seq} {...press}>
       <div className={`bubble is-${side === 'right' ? 'user' : 'agent'}${pos}${b.streaming ? ' is-streaming' : ''}${b.reaction ? ' has-reaction' : ''}`}>
         {quote && <div className="bubble__quote">{quote}</div>}
         {side === 'right' ? (rest || !b.attachments?.length) && <div className="bubble__plain">{rest}</div> : b.streaming ? <StreamingText text={b.text || ' '} /> : <Markdown text={b.text || ' '} />}
@@ -196,6 +259,7 @@ const Bubble = memo(function Bubble({ row, side, pos }: { row: Row; side: 'left'
         )}
       </div>
       {!b.streaming && <MessageActions row={row} side={side} />}
+      <Presence show={held} ms={140}><TouchActions row={row} side={side} onClose={release} /></Presence>
     </div>
   );
 });
@@ -298,6 +362,20 @@ export function Transcript({ bot, rows, live, loaded }: Props) {
     }
     el.scrollTop = bottom;
   });
+  // The view shrinks when a phone keyboard comes up, and grows back when it goes: a chat that was at
+  // its latest message stays there instead of leaving it under the keyboard.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let height = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight === height) return;
+      height = el.clientHeight;
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // Jump to bottom when switching bots.
   useLayoutEffect(() => {
     stick.current = true;

@@ -59,6 +59,8 @@ export function CreateBotModal() {
           <input
             className="create-modal__name"
             placeholder="Name your Bot"
+            // A bot's name, not a person's: no contact AutoFill on phones.
+            autoComplete="off"
             value={name}
             maxLength={60}
             onChange={(e) => setName(e.target.value)}

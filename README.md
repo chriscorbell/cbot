@@ -18,6 +18,7 @@ https://github.com/user-attachments/assets/20fdaad1-30c2-43b1-a51d-bbd270465cde
 - A library of the files that your bots create and the files you attach
 - Voice calls
 - Dictation
+- A phone layout you can add to your home screen as an app
 
 ## Supported providers
 

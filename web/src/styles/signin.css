@@ -16,13 +16,13 @@
 
 .signin__avatar { align-self: center; display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 4px; animation: signin-in 620ms var(--ease-out) both; }
 .signin__head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; text-align: center; animation: fade 260ms var(--ease-out) both; }
-.signin__title { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: 24px; letter-spacing: -0.01em; color: var(--color-text-primary); }
-.signin__sub { margin: 0; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-secondary); text-wrap: balance; }
-.signin__hint { padding-left: 2px; font-size: var(--text-xs); line-height: 16px; color: var(--color-text-tertiary); }
+.signin__title { margin: 0; font-size: var(--text-xl); font-weight: 600; line-height: var(--leading-xl); letter-spacing: -0.01em; color: var(--color-text-primary); }
+.signin__sub { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-secondary); text-wrap: balance; }
+.signin__hint { padding-left: 2px; font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 .signin__reveal-in { animation: rise 240ms var(--ease-out) both; }
 
 .signin__field { display: flex; flex-direction: column; gap: 6px; }
-.signin__label { padding-left: 2px; font-size: var(--text-sm); line-height: 18px; color: var(--color-text-tertiary); }
+.signin__label { padding-left: 2px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-tertiary); }
 .signin .text-input { height: 38px; border-radius: var(--radius-md); }
 
 .signin__password { position: relative; }

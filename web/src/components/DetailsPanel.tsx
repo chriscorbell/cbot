@@ -144,6 +144,9 @@ export function DetailsPanel() {
   const exiting = useExiting();
   const overlay = useNarrow('(max-width: 700px)');
   const asideRef = useRef<HTMLElement>(null);
+  // Frees the chat under the floating panel at once, for an action that closes the panel and then
+  // focuses the composer: iOS raises its keyboard only for focus given inside the tap.
+  const release = useRef<(() => void) | null>(null);
   useEffect(() => setEditing(false), [bot?.id]);
   // A search result for a file in this bot's Library opens the Library tab (LibraryTab finds the file).
   const fileJump = useConfigUI((s) => (s.jump?.kind === 'file' && s.jump.botId === bot?.id ? s.jump : null));
@@ -158,7 +161,16 @@ export function DetailsPanel() {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.modal-root, .viewer')) useStore.getState().set({ detailsOpen: false }); };
     window.addEventListener('keydown', k);
     const untrap = trapTabWithin(asideRef.current);
-    return () => { untrap(); window.removeEventListener('keydown', k); main?.removeAttribute('inert'); if (!window.matchMedia('(max-width: 560px)').matches) side?.removeAttribute('inert'); prev?.focus?.({ preventScroll: true }); };
+    let freed = false;
+    const free = () => {
+      if (freed) return;
+      freed = true;
+      untrap(); window.removeEventListener('keydown', k); main?.removeAttribute('inert');
+      if (!window.matchMedia('(max-width: 560px)').matches) side?.removeAttribute('inert');
+    };
+    release.current = free;
+    // Focus goes back where it was, unless an action freed the chat early to put it there itself.
+    return () => { const early = freed; free(); release.current = null; if (!early) prev?.focus?.({ preventScroll: true }); };
   }, [overlay]);
   if (!bot) return null;
 
@@ -230,7 +242,7 @@ export function DetailsPanel() {
                   </div>
                   <div className="panel-card">
                     {routines?.length ? routines.map((r) => <RoutineRow key={r.id} r={r} />) : (
-                      <button type="button" className="panel-row panel-row--action" onClick={() => { if (overlay) set({ detailsOpen: false }); compose('Set up a routine: '); }}>
+                      <button type="button" className="panel-row panel-row--action" onClick={() => { if (overlay) { release.current?.(); set({ detailsOpen: false }); } compose('Set up a routine: '); }}>
                         <span className="panel-row__icon"><Clock size={15} strokeWidth={1.75} aria-hidden /></span>
                         <span className="panel-row__title">Create a routine</span>
                         <ChevronRight className="panel-row__chev" size={14} strokeWidth={2} aria-hidden />

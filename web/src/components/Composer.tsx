@@ -76,14 +76,20 @@ export function Composer({ bot, running, rows }: { bot: Bot; running: boolean; r
   const shownBot = useRef(bot.id);
   shownBot.current = bot.id;
 
-  // Per-bot drafts.
-  useEffect(() => { setText(drafts.get(bot.id) ?? ''); setError(null); setReply(null); setFiles([]); ref.current?.focus(); }, [bot.id]);
+  // Per-bot drafts. Opening a chat puts the cursor in it, except on a phone, where that would raise the
+  // keyboard over the chat the person came to read.
+  useEffect(() => {
+    setText(drafts.get(bot.id) ?? ''); setError(null); setReply(null); setFiles([]);
+    if (!window.matchMedia('(hover: none) and (pointer: coarse)').matches) ref.current?.focus();
+  }, [bot.id]);
 
   // Replying to a message, or answering a question in your own words.
   // A reply quotes a row of one chat; after "New chat" it has nothing left to point at.
   const generation = useStore((s) => s.transcripts[bot.id]?.generation);
   useEffect(() => { setReply((r) => (r && generation !== undefined && r.generation !== generation ? null : r)); }, [generation]);
+  // Both focus at once, inside the tap that asked: iOS raises its keyboard only for focus given there.
   useEffect(() => onUi('reply', (d) => {
+    ref.current?.focus({ preventScroll: true });
     setReply(d);
     requestAnimationFrame(() => ref.current?.focus());
   }), []);
@@ -91,6 +97,7 @@ export function Composer({ bot, running, rows }: { bot: Bot; running: boolean; r
 
   // Other parts of the app can hand the composer a starting line (e.g. "Create a routine").
   useEffect(() => onUi('compose', ({ text: t }) => {
+    ref.current?.focus({ preventScroll: true });
     setText(t);
     requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); el.setSelectionRange(t.length, t.length); } });
   }), []);
@@ -240,6 +247,8 @@ export function Composer({ bot, running, rows }: { bot: Bot; running: boolean; r
             }}
             aria-label={`Message ${bot.name}`}
             spellCheck={spellcheck}
+            // Phone keyboards label their return key "send" when it sends.
+            enterKeyHint={sendWithMod ? 'enter' : 'send'}
           />
         </div>
         <div className="composer__right">

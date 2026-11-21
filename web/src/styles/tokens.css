@@ -147,6 +147,13 @@
   --text-lg: 15px;
   --text-title: 15px;
   --text-xl: 17px;
+  /* Each size's line height, so the two grow together on a phone. */
+  --leading-2xs: 14px;
+  --leading-xs: 16px;
+  --leading-sm: 18px;
+  --leading-message: 20px;
+  --leading-lg: 22px;
+  --leading-xl: 24px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -163,6 +170,8 @@
 
   /* layout */
   --header-h: 52px;
+  /* The visible height: the screen, less a phone keyboard while one is up (lib/viewport.ts). */
+  --visible-h: var(--app-h, 100dvh);
   --rail-w: 72px;
   --sidebar-open-w: 280px;
   --details-w: 260px;
@@ -193,4 +202,25 @@
   --color-success-text: #4CCB85;
   --shadow-modal: 0 28px 80px -12px rgb(0 0 0 / 70%), inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
   --shadow-popover: 0 18px 44px -10px rgb(0 0 0 / 65%), inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
+}
+
+/* Phones read at arm's length: the scale of a native app there (body 17, secondary 15, footnotes 13),
+   in portrait and on its side. */
+@media (max-width: 560px), (pointer: coarse) and (max-height: 560px) {
+  :root {
+    --text-2xs: 12px;
+    --text-xs: 13px;
+    --text-sm: 15px;
+    --text-base: 15px;
+    --text-message: 17px;
+    --text-lg: 17px;
+    --text-title: 17px;
+    --text-xl: 20px;
+    --leading-2xs: 16px;
+    --leading-xs: 18px;
+    --leading-sm: 20px;
+    --leading-message: 22px;
+    --leading-lg: 22px;
+    --leading-xl: 25px;
+  }
 }

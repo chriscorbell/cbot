@@ -123,7 +123,7 @@ function GeneralSection() {
             <div className="cfg-row__text"><div className="cfg-row__title">Check Spelling While Typing</div></div>
             <Switch on={spellcheck} onChange={(v) => setPref({ spellcheck: v })} label="Check spelling while typing" />
           </div>
-          <div className="cfg-row">
+          <div className="cfg-row cfg-row--keyboard">
             <div className="cfg-row__text">
               <div className="cfg-row__title">Send with {send}</div>
               <div className="cfg-row__sub">Press {send} to send your message. Enter starts a new line.</div>
