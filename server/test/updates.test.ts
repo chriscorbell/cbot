@@ -90,6 +90,8 @@ test("the installer's log says what the update is doing", () => {
   expect(stepFrom(`[release] building ${NEWER}\nadded 306 packages\n`)).toBe('Building Dispatch');
   expect(stepFrom(`[release] building ${NEWER}\n[release] building dispatch-speech:0123456789ab (the first build takes about ten minutes)\n`))
     .toBe('Building the speech service, which takes about ten minutes');
+  // A release comes built, with its speech image pulled by digest.
+  expect(stepFrom('[release] pulling the speech service\n')).toBe('Downloading the speech service');
   expect(stepFrom(`[release] building ${NEWER}\n[release] starting ${NEWER}\n`)).toBe('Starting Dispatch');
 });
 

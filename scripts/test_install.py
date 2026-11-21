@@ -1,8 +1,10 @@
-"""The installer's release check (install.sh's newest_release, older and fetch_signed), against a
-repository made here with keys made here. Standard library, git and ssh-keygen only:
+"""The installer's release check (install.sh's newest_release, older, fetch_signed and fetch_assets),
+against a repository and release files made here with keys made here. Standard library, git and
+ssh-keygen only:
 
     python3 -m unittest discover -s scripts -p 'test_*.py'
 """
+import json
 import os
 import shutil
 import subprocess
@@ -35,7 +37,7 @@ class ReleaseCheckTest(unittest.TestCase):
         with open(os.path.join(cls.dir, "release.pub")) as f:
             kind, blob = f.read().split()[:2]
         with open(cls.env["SIGNERS"], "w") as f:
-            f.write(f'dispatch namespaces="git" {kind} {blob}\n')
+            f.write(f'dispatch namespaces="git,dispatch-release" {kind} {blob}\n')
 
         cls.repo = os.path.join(cls.dir, "origin")
         cls.git("init", "-q", "-b", "main", cls.repo, cwd=cls.dir)
@@ -127,6 +129,66 @@ class ReleaseCheckTest(unittest.TestCase):
         r = self.fetch("v0.14.0")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("is the signed tag of v0.10.0", r.stderr)
+
+    # What GitHub Actions attaches to a release, as publish.sh signs it.
+
+    def release_files(self, tag, commit, key="release", namespace="dispatch-release", listed=None, manifest=None):
+        """A release's folder of files: the tarball, manifest.json, SHA256SUMS (of `listed`) and its signature."""
+        d = tempfile.mkdtemp(dir=self.dir)
+        name = f"dispatch-{tag}-linux-amd64.tar.gz"
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(f"the build of {tag}\n".encode())
+        with open(os.path.join(d, "manifest.json"), "w") as f:
+            json.dump({"version": tag, "commit": commit, "speechImage": "ghcr.io/x/dispatch-speech@sha256:" + "0" * 64,
+                       **(manifest or {})}, f, indent=2)
+        sums = self.run_ok(["sha256sum", *(listed or [name, "manifest.json"])], cwd=d)
+        with open(os.path.join(d, "SHA256SUMS"), "w") as f:
+            f.write(sums)
+        self.run_ok(["ssh-keygen", "-q", "-Y", "sign", "-f", os.path.join(self.dir, key), "-n", namespace, "SHA256SUMS"], cwd=d)
+        return d
+
+    def assets(self, folder, tag="v0.10.0", commit=None):
+        into = tempfile.mkdtemp(dir=self.dir)
+        r = self.bash('fetch_assets "$1" "$2" "$3" "$4"', f"file://{folder}", tag, commit or self.commits[1], into)
+        return r, into
+
+    def test_a_signed_build_of_the_signed_commit_is_accepted(self):
+        r, into = self.assets(self.release_files("v0.10.0", self.commits[1]))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(os.path.join(into, "dispatch.tar.gz")) as f:
+            self.assertEqual(f.read(), "the build of v0.10.0\n")
+
+    def test_a_tarball_changed_after_signing_is_refused(self):
+        d = self.release_files("v0.10.0", self.commits[1])
+        with open(os.path.join(d, "dispatch-v0.10.0-linux-amd64.tar.gz"), "ab") as f:
+            f.write(b"and something else\n")
+        r, _ = self.assets(d)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("doesn't match its signed checksums", r.stderr)
+
+    def test_checksums_signed_with_another_key_are_refused(self):
+        r, _ = self.assets(self.release_files("v0.10.0", self.commits[1], key="stranger"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("aren't signed with a Dispatch release key", r.stderr)
+
+    def test_checksums_signed_as_a_tag_are_refused(self):
+        # A signature made for git (a tag's) can't stand in for one made for the release's files.
+        r, _ = self.assets(self.release_files("v0.10.0", self.commits[1], namespace="git"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("aren't signed with a Dispatch release key", r.stderr)
+
+    def test_checksums_that_leave_the_tarball_out_are_refused(self):
+        r, _ = self.assets(self.release_files("v0.10.0", self.commits[1], listed=["manifest.json"]))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("don't list its tarball and manifest", r.stderr)
+
+    def test_a_build_of_another_commit_or_release_is_refused(self):
+        r, _ = self.assets(self.release_files("v0.10.0", self.commits[0]))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn(f"is of v0.10.0 at {self.commits[0]}, not of v0.10.0 at {self.commits[1]}", r.stderr)
+        r, _ = self.assets(self.release_files("v0.10.0", self.commits[1], manifest={"version": "v0.9.0"}))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("is of v0.9.0", r.stderr)
 
 
 if __name__ == "__main__":

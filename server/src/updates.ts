@@ -140,6 +140,7 @@ export function stepFrom(log: string): string | null {
     else if (line === 'packages') step = 'Installing packages';
     else if (line.startsWith('Hermes Agent ')) step = `Installing ${line}`;
     else if (line.startsWith('building dispatch-speech')) step = 'Building the speech service, which takes about ten minutes';
+    else if (line === 'pulling the speech service') step = 'Downloading the speech service';
     else if (line.startsWith('building ')) step = 'Building Dispatch';
     else if (line.startsWith('starting ')) step = 'Starting Dispatch';
   }

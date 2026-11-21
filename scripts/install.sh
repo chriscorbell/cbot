@@ -456,12 +456,15 @@ work_begin() {
   local keys=() note offset
   stage=$((${#stages[@]} - 2))
   if [ "${tailscale_too:-0}" = 1 ]; then keys+=(tailscale); fi
+  # A release comes built; a branch (DISPATCH_REF) is built here.
+  local build=()
+  [ -z "$ref" ] || build=(build)
   if $installed; then
-    keys+=(download build start)
+    keys+=(download "${build[@]}" start)
     note="Dispatch keeps running until the new version is ready."
   else
-    keys+=(download provision packages hermes build speech start)
-    note="This takes 15 to 30 minutes, and can be left to finish."
+    keys+=(download provision packages hermes "${build[@]}" speech start)
+    note="This takes 10 to 30 minutes, and can be left to finish."
   fi
   # Measured here, not in the background job, which could start after the first step is written.
   offset="$(stat -c %s "$LOG")"
@@ -679,12 +682,13 @@ setup_tailscale() {
 # ---------------------------------------------------------------- the release
 
 # The keys that sign Dispatch's releases, in ssh-keygen's allowed signers format. The installer installs
-# a release only when one of them signed its tag. An update runs the installer of the release it
-# updates from, so a release can change this list only if a key already on it signed that release.
-# scripts/publish.sh signs with one of them.
+# a release only when one of them signed both its tag (as git) and the checksums of what GitHub
+# Actions built from it (as dispatch-release, so neither signature can stand in for the other). An
+# update runs the installer of the release it updates from, so a release can change this list only if
+# a key already on it signed that release. scripts/publish.sh signs with one of them.
 release_signers() {
   cat <<'EOF'
-dispatch namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBMSc9gHrkDHjyiDVKCPOIm1aJlbAGswe01RpgEsWdFV
+dispatch namespaces="git,dispatch-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBMSc9gHrkDHjyiDVKCPOIm1aJlbAGswe01RpgEsWdFV
 EOF
 }
 
@@ -752,10 +756,38 @@ fetch_signed() {
   sha=$object
 }
 
+# fetch_assets <url> <tag> <commit> <folder>: downloads what GitHub Actions built for the release from
+# <url> (its GitHub release): the tarball, its manifest.json and SHA256SUMS, which lists both. They
+# are accepted only when one of release_signers' keys signed SHA256SUMS (SHA256SUMS.sig, as
+# dispatch-release), both files match it, and the manifest names this tag and the commit that the
+# signed tag names (fetch_signed). Leaves the tarball as <folder>/dispatch.tar.gz.
+fetch_assets() {
+  local url=$1 tag=$2 commit=$3 dir=$4 name="dispatch-$2-linux-amd64.tar.gz" f version built
+  for f in SHA256SUMS SHA256SUMS.sig manifest.json "$name"; do
+    curl -fsSL "$url/$f" -o "$dir/$f" || die "The download of $f for $tag from $url failed."
+  done
+  release_signers >"$dir/signers"
+  ssh-keygen -Y verify -f "$dir/signers" -I dispatch -n dispatch-release -s "$dir/SHA256SUMS.sig" <"$dir/SHA256SUMS" >/dev/null 2>&1 ||
+    die "The checksums of $tag aren't signed with a Dispatch release key, so the installer won't install it."
+  # Both lines must be there: sha256sum would pass a list without them with --ignore-missing.
+  awk -v n="$name" '$2 == n || $2 == "manifest.json"' "$dir/SHA256SUMS" >"$dir/wanted"
+  [ "$(wc -l <"$dir/wanted")" -eq 2 ] || die "The checksums of $tag don't list its tarball and manifest."
+  (cd "$dir" && sha256sum -c --quiet --strict wanted >/dev/null 2>&1) ||
+    die "The download of $tag doesn't match its signed checksums, so the installer won't install it."
+  # The manifest is written one key a line (.github/workflows/release.yml), and its checksum is signed.
+  version="$(sed -nE 's/^ *"version": *"([^"]*)",?$/\1/p' "$dir/manifest.json")"
+  built="$(sed -nE 's/^ *"commit": *"([0-9a-f]{40})",?$/\1/p' "$dir/manifest.json")"
+  [ "$version" = "$tag" ] && [ "$built" = "$commit" ] ||
+    die "The build attached to $tag is of ${version:-another release} at ${built:-another commit}, not of $tag at $commit, so the installer won't install it."
+  mv "$dir/$name" "$dir/dispatch.tar.gz"
+}
+
 # Sets commit and script (the release.sh to run), or up_to_date when that commit already runs. With no
 # DISPATCH_REF, the newest release (and tag, its version), checked as fetch_signed says, even when
-# its commit runs already, so an unsigned tag can't be written down as the version this machine runs.
-# With DISPATCH_REF, the newest commit of that branch, tag or commit, which only GitHub vouches for.
+# its commit runs already, so an unsigned tag can't be written down as the version this machine runs;
+# what is unpacked is its built tarball, checked as fetch_assets says. DISPATCH_RELEASES_URL sets
+# where the releases' files are (scripts/test_install.py). With DISPATCH_REF, the source of the newest
+# commit of that branch, tag or commit, which only GitHub vouches for, and which release.sh builds.
 fetch_release() {
   local api="https://api.github.com/repos/$repo" url="https://github.com/$repo.git" auth=() sha what had
   local releases=/srv/dispatch/releases
@@ -790,8 +822,9 @@ fetch_release() {
     rm -rf "$releases/$commit.new"
     mkdir -p "$releases/$commit.new"
     if [ -n "$fetch_dir" ]; then
-      git -C "$fetch_dir/repo.git" archive "$sha" | tar -x -C "$releases/$commit.new" ||
-        die "Unpacking $commit failed."
+      fetch_assets "${DISPATCH_RELEASES_URL:-https://github.com/$repo/releases/download}/$tag" "$tag" "$sha" "$fetch_dir"
+      tar -xzf "$fetch_dir/dispatch.tar.gz" -C "$releases/$commit.new" && [ -x "$releases/$commit.new/node/bin/node" ] ||
+        die "Unpacking $tag failed."
     else
       curl -fsSL "${auth[@]}" "$api/tarball/$sha" | tar -xz -C "$releases/$commit.new" --strip-components=1 ||
         die "The download of $commit failed."
@@ -855,7 +888,10 @@ describe() {
     'Hermes Agent '*) echo "hermes|Installing $1" ;;
     hermes) echo 'hermes|Installing Hermes Agent' ;;
     done | 'Dispatch runs '*) ;;
-    'building dispatch-speech'* | speech) echo 'speech|Building the speech service (about ten minutes)' ;;
+    'pulling the speech service') echo 'speech|Downloading the speech service' ;;
+    'building dispatch-speech'*) echo 'speech|Building the speech service (about ten minutes)' ;;
+    # A release's speech image is downloaded; a branch's is built.
+    speech) if [ -z "$ref" ]; then echo 'speech|Downloading the speech service'; else echo 'speech|Building the speech service (about ten minutes)'; fi ;;
     'building '* | build) echo 'build|Building Dispatch' ;;
     'starting '* | start) echo 'start|Starting Dispatch' ;;
     *) echo "other|$1" ;;
