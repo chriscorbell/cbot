@@ -125,11 +125,14 @@ export async function answerApproval(userId: string, approvalId: string, choice?
   if (p.answering) throw new ApprovalGone('This was already answered.');
   p.answering = true;
   let res: Response | null = null;
+  let unreachable = '';
   try {
     res = await hermes(p.engine, `/v1/runs/${p.runId}/approval`, { request_id: p.promptId, execution_generation: p.executionGeneration, choice });
-  } catch { /* the gateway is gone */ }
+  } catch (e) {
+    unreachable = `couldn't reach the gateway: ${(e as Error)?.message ?? e}`;
+  }
   if (!res?.ok) {
-    console.warn(`[approvals] ${approvalId}: Hermes did not take the answer: ${res ? await failureText(res) : 'no gateway'}`);
+    console.warn(`[approvals] ${approvalId}: Hermes did not take the answer: ${res ? await failureText(res) : unreachable}`);
     settle(recordOf(p), 'expired');
     throw new ApprovalGone('This request expired.');
   }
@@ -154,7 +157,10 @@ export function runMoved(runId: string) {
       if (!res.ok) return;
       const open = new Set(((await res.json()) as any)?.pending_controls?.map((c: any) => c?.prompt_id) ?? []);
       for (const p of waiting) if (!open.has(p.promptId) && pending.get(p.id) === p && !p.answering) settle(recordOf(p), 'expired');
-    } catch { /* checked again on the next event, and at the run's end */ } finally {
+    } catch (e) {
+      // Checked again on the run's next event, and at its end.
+      console.warn(`[approvals] couldn't ask Hermes which prompts of run ${runId} are still open:`, (e as Error)?.message ?? e);
+    } finally {
       checking.delete(runId);
     }
   })();

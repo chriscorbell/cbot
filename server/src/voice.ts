@@ -272,7 +272,8 @@ async function summarizeCall(call: ActiveCall, transcript: { role: string; text:
     if (run.status === 'completed') return parseSummary(String(run.output ?? ''));
     if (run.status && RUN_ENDED.has(run.status)) throw new Error(String(run.error ?? `the run was ${run.status}`));
   }
-  void hermes(`/v1/runs/${encodeURIComponent(runId)}/stop`, { body: {}, timeout: 10_000 }).catch(() => {});
+  void hermes(`/v1/runs/${encodeURIComponent(runId)}/stop`, { body: {}, timeout: 10_000 })
+    .catch((e) => console.warn(`[voice] couldn't stop the summary run ${runId}; it may still be running:`, (e as Error)?.message ?? e));
   throw new Error(`no answer in ${SUMMARY_WAIT_MS / 1000} seconds`);
 }
 
@@ -383,9 +384,10 @@ voiceApi.post('/preview', async (c) => {
   const voice = p.voice ? mapVoice(p.voice, catalog) : s.voice;
   const speed = p.speed !== undefined ? mapSpeed(p.speed, catalog) : s.speed;
   const text = String(p.text || `Hi, I'm ${bot?.name ?? 'your Bot'}. This is how I'll sound when we talk.`).slice(0, 400);
-  const r = await speak(text, voice, speed, AbortSignal.timeout(30_000)).catch(() => null);
+  let cause = '';
+  const r = await speak(text, voice, speed, AbortSignal.timeout(30_000)).catch((e) => { cause = String((e as Error)?.message ?? e); return null; });
   if (!r?.ok || !r.body) {
-    console.warn('[voice] preview failed', r?.status, (await r?.text().catch(() => ''))?.slice(0, 200));
+    console.warn('[voice] preview failed', r ? r.status : cause, (await r?.text().catch(() => ''))?.slice(0, 200));
     return c.json({ error: 'Preview unavailable' }, 502);
   }
   // Raw PCM16 mono at SAMPLE_RATE, streamed as the speech service makes it.

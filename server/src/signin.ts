@@ -215,6 +215,11 @@ function lastLine(text: string): string | null {
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** GitHub answered, but not with what the device flow expects. `status` is its HTTP status. */
+class GitHubAnswer extends Error {
+  constructor(readonly status: number) { super(`GitHub answered HTTP ${status}`); }
+}
+
 async function github(path: string, form: Record<string, string>): Promise<Record<string, unknown>> {
   const r = await fetch(`${GITHUB}${path}`, {
     method: 'POST',
@@ -223,9 +228,12 @@ async function github(path: string, form: Record<string, string>): Promise<Recor
     signal: AbortSignal.timeout(15_000),
   });
   const data: unknown = await r.json().catch(() => null);
-  if (!r.ok || !data || typeof data !== 'object') throw new Error(`GitHub answered HTTP ${r.status}`);
+  if (!r.ok || !data || typeof data !== 'object') throw new GitHubAnswer(r.status);
   return data as Record<string, unknown>;
 }
+
+/** Whether polling again could help: a network blip, GitHub having trouble (5xx) or asking us to slow down (429). */
+const passing = (e: unknown) => !(e instanceof GitHubAnswer) || e.status >= 500 || e.status === 429;
 
 async function copilot(s: Session): Promise<void> {
   const start = await github('/login/device/code', { client_id: COPILOT_CLIENT_ID, scope: 'read:user' });
@@ -240,8 +248,15 @@ async function copilot(s: Session): Promise<void> {
     let r: Record<string, unknown>;
     try {
       r = await github('/login/oauth/access_token', { client_id: COPILOT_CLIENT_ID, device_code: device, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' });
-    } catch {
-      continue; // a network blip is one more wait
+    } catch (e) {
+      if (passing(e)) {
+        console.warn('[signin] Copilot: GitHub didn\'t answer this poll; trying again:', (e as Error)?.message ?? e);
+        continue;
+      }
+      // Any other refusal (400, 401, 403, 404...) answers every poll the same way.
+      console.warn('[signin] Copilot: GitHub refused the poll:', (e as Error).message);
+      end(s, 'failed', `GitHub refused the sign-in (${(e as Error).message}).`);
+      return;
     }
     if (s.endedAt !== null) return;
     const token = str(r.access_token);

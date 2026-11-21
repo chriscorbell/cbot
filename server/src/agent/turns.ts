@@ -176,7 +176,10 @@ async function recapFor(engine: Engine, convo: Conversation): Promise<string> {
   // Messages that have not been answered yet are inputs of this turn and the ones queued behind it.
   while (rows.length && rows[rows.length - 1].role === 'user') rows.pop();
   if (!rows.some((b) => b.role === 'assistant')) return '';
-  const res = await fetch(`${engine.url}/api/sessions/${encodeURIComponent(sessionFor(convo.botId, convo.generation))}`, { headers: authHeaders(engine), signal: AbortSignal.timeout(10_000) }).catch(() => null);
+  const res = await fetch(`${engine.url}/api/sessions/${encodeURIComponent(sessionFor(convo.botId, convo.generation))}`, { headers: authHeaders(engine), signal: AbortSignal.timeout(10_000) }).catch((e) => {
+    console.warn(`[agent] ${convo.botId}: couldn't ask Hermes for the chat's session, so this turn has no recap:`, (e as Error)?.message ?? e);
+    return null;
+  });
   if (res?.ok) {
     sessions.set(convo.botId, convo.generation);
     return '';
@@ -274,7 +277,12 @@ async function runTurn(botId: string, running: Running) {
     if (run) {
       runEnded(run.id);
       // Stopped by the user (or New chat): Hermes would carry on with a run whose stream nobody reads.
-      if (outcome === 'stopped') void fetch(`${run.engine.url}/v1/runs/${run.id}/stop`, { method: 'POST', headers: authHeaders(run.engine), body: '{}', signal: AbortSignal.timeout(10_000) }).catch(() => {});
+      if (outcome === 'stopped') {
+        const id = run.id;
+        void fetch(`${run.engine.url}/v1/runs/${id}/stop`, { method: 'POST', headers: authHeaders(run.engine), body: '{}', signal: AbortSignal.timeout(10_000) })
+          .then((r) => { if (!r.ok) console.warn(`[agent] ${botId}: Hermes refused to stop run ${id} (HTTP ${r.status}); it may still be running`); })
+          .catch((e) => console.warn(`[agent] ${botId}: couldn't stop run ${id}; it may still be running:`, (e as Error)?.message ?? e));
+      }
     }
     running.transcript = null;
     transcript.finish(outcome);

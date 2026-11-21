@@ -141,3 +141,20 @@ test('a Copilot sign-in turned down on GitHub fails, and saves nothing', async (
   expect(getSignIn('u1', s.id)).toMatchObject({ status: 'failed', error: 'The sign-in was turned down on GitHub.' });
   expect(saved).toEqual([]);
 });
+
+test('a Copilot poll GitHub refuses ends the sign-in, and one GitHub has trouble with is tried again', async () => {
+  vi.useFakeTimers();
+  saved.length = 0;
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(reply({ device_code: 'dev-3', user_code: 'QRST-5555', verification_uri: 'https://github.com/login/device', interval: 5 }))
+    .mockResolvedValueOnce(new Response('{}', { status: 502 }))
+    .mockResolvedValueOnce(new Response('{"message":"Not Found"}', { status: 404 })));
+  const s = await startSignIn('u1', 'copilot', null);
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(getSignIn('u1', s.id)?.status).toBe('waiting');
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(getSignIn('u1', s.id)).toMatchObject({ status: 'failed', error: 'GitHub refused the sign-in (GitHub answered HTTP 404).' });
+  expect(saved).toEqual([]);
+  warn.mockRestore();
+});

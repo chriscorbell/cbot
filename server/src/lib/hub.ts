@@ -20,7 +20,8 @@ class Hub {
     const set = this.listeners.get(userId);
     if (!set) return;
     for (const fn of set) {
-      try { fn(ev); } catch { /* ignore broken listener */ }
+      // One broken listener mustn't stop the others, but it should be seen.
+      try { fn(ev); } catch (e) { console.warn(`[hub] a listener failed on ${ev.type}:`, e); }
     }
   }
 

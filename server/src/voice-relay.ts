@@ -514,13 +514,15 @@ export class Relay {
   /** Tells the running turn what the user just said. Falls back to a new turn if it won't take it. */
   private async steer(r: Reply, text: string, timing?: Timing) {
     this.cutNote = null; // what was cut off was said before this work; it doesn't matter now
-    const res = await this.hermes(r.engine!, `/v1/runs/${r.runId}/steer`, { input: `[Said on the call while you were working]\n${text}` }).catch(() => null);
+    let cause = '';
+    const res = await this.hermes(r.engine!, `/v1/runs/${r.runId}/steer`, { input: `[Said on the call while you were working]\n${text}` })
+      .catch((e) => { cause = String((e as Error)?.message ?? e); return null; });
     if (res?.ok && r.state === 'active') {
       console.log(`[voice] ${this.call.id} ${r.id}: steered "${clip(text, 80)}" into the running turn`);
       this.release(r);
       return;
     }
-    console.log(`[voice] ${this.call.id} ${r.id}: the run took no steer (HTTP ${res?.status ?? 'error'}); asking again`);
+    console.log(`[voice] ${this.call.id} ${r.id}: the run took no steer (${res ? `HTTP ${res.status}` : cause}); asking again`);
     // Something newer may own the call by now (another utterance started a turn while this steer was
     // in flight): decide again against that reply, so two replies never run at once.
     if (this.reply !== r) return this.answer(text, timing);
@@ -533,7 +535,10 @@ export class Relay {
     r.stopped ??= (async () => {
       await r.created;
       if (!r.engine || !r.runId) return false;
-      const res = await this.hermes(r.engine, `/v1/runs/${r.runId}/stop`, {}).catch(() => null);
+      const res = await this.hermes(r.engine, `/v1/runs/${r.runId}/stop`, {}).catch((e) => {
+        console.warn(`[voice] ${this.call.id} ${r.id}: couldn't stop run ${r.runId}; it may still be running:`, (e as Error)?.message ?? e);
+        return null;
+      });
       const status = res?.ok ? String(((await res.json().catch(() => ({}))) as Json).status ?? '') : '';
       return status !== 'cancelled' && status !== '';
     })();
