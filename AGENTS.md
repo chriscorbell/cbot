@@ -111,15 +111,6 @@ Each lifecycle has one owner module. Its states are written down there; other co
 - `server/test/helpers.ts` has `seedOwner()`, `seedBot()` and request helpers; `server/test/hermes.ts` fakes a gateway's event stream with `fakeHermes(...)` and `gate()`.
 - The scripts in `tests/` need the whole app running and are not part of `npm test`.
 
-## Dormant and compatibility code
-
-These exist for old data or old screens. Don't build on them without deciding with Chris first.
-
-- Policies and draft cards (the `policies` table, `DraftCard`), from when Dispatch asked before tools itself. Approvals are Hermes' prompts now (`agent/approvals.ts`).
-- Hidden bots (`bots.hidden`, `parent_bot_id`) from an earlier subagent feature: they stay out of the roster and the team.
-- ZONOS3-Mini (`zonos3/`, `speech/app/zonos3.py`, `FROM_ZONOS3` in `server/src/speech.ts`): turned off for Phonon; `speech/README.md` says how to turn it back on.
-- Tables nothing reads in older databases (`llm_items`, `pending_turns`, `memories`, `memory_jobs`, `compactions`) and the `proactivity.silent_streak`, `bots.pinned` and `bots.mode` columns.
-
 ## Git
 
 Work in a worktree on a branch; other agents may be using the main checkout. Stage only the files you changed. Changes reach `main` through a pull request whose `check` workflow passed. Make each commit one change: its message says what changed and why, in plain sentences, with no attribution lines. The image workflows (`app-image.yml`, `speech.yml`) run only when what goes into an image changes. Node's version is in `.node-version`.

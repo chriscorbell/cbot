@@ -48,12 +48,6 @@
 .swatch { width: 19px; height: 19px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%); transition: box-shadow var(--dur-fast), transform var(--dur-med) var(--ease-out); }
 .swatch-cell:hover .swatch { transform: scale(1.14); }
 .swatch.is-selected { box-shadow: 0 0 0 2px var(--color-bg-elevated), 0 0 0 3.5px var(--color-text-tertiary); }
-.mode-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-self: stretch; }
-.mode-pick__opt { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px; text-align: left; background: var(--surface); transition: background-color var(--dur-fast), box-shadow var(--dur-fast); }
-.mode-pick__opt:hover { background: var(--surface-hover); }
-.mode-pick__opt.is-active { box-shadow: inset 0 0 0 1.5px var(--color-text-primary); }
-.mode-pick__title { font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-sm); color: var(--color-text-primary); }
-.mode-pick__sub { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
 
 /* search palette */
 .modal-root:has(.search-modal) { align-items: flex-start; padding-top: max(24px, 14vh); }

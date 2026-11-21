@@ -49,37 +49,7 @@ export function activityPhrase(live: LiveState, rows: Row[], tick: number): stri
   return list[tick % list.length];
 }
 
-/** One or two words for the status pill under the bot's name. */
-const STATUS: Record<ActivityKind, string> = {
-  thinking: 'Thinking',
-  working: 'Working',
-  searching_web: 'Searching',
-  reading_web: 'Reading',
-  browsing_web: 'Browsing',
-  on_its_computer: 'On its computer',
-  running_commands: 'Running commands',
-  waiting_on_command: 'Waiting on results',
-  messaging_named: 'Checking in',
-  connecting_service: 'Using an app',
-  waiting_for_you: 'Needs you',
-  drafting_file: 'Writing',
-  remembering: 'Remembering',
-};
-
 /** True when the bot is waiting for the person (it asked a question). */
 export function isWaitingForYou(live: LiveState | undefined): boolean {
   return live?.activity?.kind === 'waiting_for_you';
-}
-
-/** Short status word for the pill: "Thinking", "Browsing", "Working in Gmail", "Needs you". */
-export function activityStatus(live: LiveState, rows: Row[]): string {
-  if (isWaitingForYou(live)) return 'Needs you';
-  const a = live.activity;
-  if (!a) return 'Thinking';
-  if (a.kind === 'messaging_named') {
-    const name = messagedName(live, rows);
-    return name ? `Checking with ${name}` : STATUS.messaging_named;
-  }
-  if (a.kind === 'connecting_service') return nice(a.detail) ? `Working in ${a.detail}` : STATUS.connecting_service;
-  return STATUS[a.kind] ?? 'Working';
 }
