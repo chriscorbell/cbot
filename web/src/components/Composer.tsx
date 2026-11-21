@@ -19,7 +19,7 @@ const drafts = new Map<string, string>();
  * stop at one line with CSS, and the empty box is one line tall (a long bot name on a phone would
  * otherwise wrap out of sight). Measured with the box's own font, again when it resizes or fonts load.
  */
-function useFittedPlaceholder(ref: RefObject<HTMLTextAreaElement>, text: string) {
+function useFittedPlaceholder(ref: RefObject<HTMLTextAreaElement | null>, text: string) {
   const [fitted, setFitted] = useState(text);
   useLayoutEffect(() => {
     const el = ref.current;

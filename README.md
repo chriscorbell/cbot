@@ -106,7 +106,7 @@ Dispatch's bots run as one ordinary account that can use sudo, so they can still
 ### Stack
 
 - TypeScript, Node, Hono, SQLite and zod
-- React 18, Vite and zustand
+- React 19, Vite and zustand
 - Hermes Agent for each bot's model calls, memory and tools
 - TigerVNC, Chrome and noVNC for the desktops
 - sherpa-onnx with Parakeet, Nemotron and Silero VAD for speech recognition, Phonon 31M for text-to-speech
