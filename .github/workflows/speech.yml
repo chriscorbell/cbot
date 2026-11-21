@@ -19,7 +19,8 @@ concurrency:
 jobs:
   speech:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # Compiling sherpa-onnx with nothing cached takes more than an hour on a hosted runner.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -28,4 +29,6 @@ jobs:
           context: speech
           push: false
           cache-from: type=gha,scope=speech
-          cache-to: type=gha,scope=speech,mode=max
+          # Only main writes the cache. GitHub keeps 10 GB a repository and a pull request's copy is
+          # no use to anything else, so writing one from each pull request pushed main's out.
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,scope=speech,mode=max' || '' }}

@@ -28,4 +28,6 @@ jobs:
           context: .
           push: false
           cache-from: type=gha,scope=app
-          cache-to: type=gha,scope=app,mode=max
+          # Only main writes the cache. GitHub keeps 10 GB a repository and a pull request's copy is
+          # no use to anything else, so writing one from each pull request pushed main's out.
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,scope=app,mode=max' || '' }}

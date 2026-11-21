@@ -35,7 +35,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # Compiling sherpa-onnx with nothing cached takes more than an hour on a hosted runner.
+    timeout-minutes: 150
     permissions:
       contents: write # the draft release
       packages: write # the speech image
@@ -84,8 +85,8 @@ jobs:
           tags: ${{ steps.name.outputs.image }}:${{ steps.name.outputs.version }}
           # Links the package to this repository, whose visibility it then follows.
           labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          # main's cache (speech.yml). A tag's own copy would be no use to anything else.
           cache-from: type=gha,scope=speech
-          cache-to: type=gha,scope=speech,mode=max
 
       # One key a line: the installer reads version and commit with sed, before anything is unpacked.
       - name: Write the manifest and checksums
