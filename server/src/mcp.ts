@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { conversation, getBotRow } from './store.js';
 import { mcpToken } from './engine.js';
 import { claimToolRow, enqueueBotMessage, turnDepth } from './agent/turns.js';
@@ -72,20 +73,28 @@ async function callTool(botId: string, rawName: string, rawArgs: unknown): Promi
   }
 }
 
-const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
+type RpcId = string | number;
+const rpcError = (id: RpcId | null | undefined, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
+
+// JSON-RPC 2.0, as the engines' MCP clients send it. Each method's params are checked where it reads them.
+const RpcIdSchema = z.union([z.string(), z.number()]);
+const RpcRequest = z.object({ jsonrpc: z.literal('2.0'), id: RpcIdSchema.nullish(), method: z.string(), params: z.unknown().optional() });
+const InitializeParams = z.object({ protocolVersion: z.string() });
+const CallParams = z.object({ name: z.string().min(1), arguments: z.unknown().optional() });
 
 /** Answer one JSON-RPC message; null for notifications (they get no answer). */
-async function handle(msg: any, botId: string): Promise<object | null> {
-  if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') {
+async function handle(msg: unknown, botId: string): Promise<object | null> {
+  const req = RpcRequest.safeParse(msg);
+  if (!req.success) {
     // A response to something we never asked; nothing to do with it.
-    if (msg && typeof msg === 'object' && ('result' in msg || 'error' in msg)) return null;
-    return rpcError(msg?.id, -32600, 'Invalid request');
+    if (typeof msg === 'object' && msg !== null && ('result' in msg || 'error' in msg)) return null;
+    return rpcError(z.object({ id: RpcIdSchema }).safeParse(msg).data?.id, -32600, 'Invalid request');
   }
-  const { id, method, params } = msg;
+  const { id, method, params } = req.data;
   if (id === undefined || id === null) return null;
   switch (method) {
     case 'initialize': {
-      const asked = String(params?.protocolVersion ?? '');
+      const asked = InitializeParams.safeParse(params).data?.protocolVersion ?? '';
       return {
         jsonrpc: '2.0', id,
         result: {
@@ -101,10 +110,11 @@ async function handle(msg: any, botId: string): Promise<object | null> {
     case 'tools/list':
       return { jsonrpc: '2.0', id, result: { tools: listTools() } };
     case 'tools/call': {
-      const name = params?.name;
-      if (typeof name !== 'string' || !name) return rpcError(id, -32602, 'Missing tool name');
-      const args = params?.arguments && typeof params.arguments === 'object' ? params.arguments : {};
-      return { jsonrpc: '2.0', id, result: await callTool(botId, name, args) };
+      const call = CallParams.safeParse(params);
+      if (!call.success) return rpcError(id, -32602, 'Missing tool name');
+      // The tool checks its arguments against its own schema (runTool); none at all is an empty object.
+      const args = call.data.arguments;
+      return { jsonrpc: '2.0', id, result: await callTool(botId, call.data.name, args && typeof args === 'object' ? args : {}) };
     }
     case 'resources/list':
       return { jsonrpc: '2.0', id, result: { resources: [] } };
@@ -122,7 +132,7 @@ export const mcpApi = new Hono();
 mcpApi.post('/:bot', async (c) => {
   const who = caller(c.req.param('bot'), c.req.header('authorization'));
   if (!who) return c.json(rpcError(null, -32001, 'Unauthorized'), 401);
-  let body: any;
+  let body: unknown;
   try { body = await c.req.json(); } catch { return c.json(rpcError(null, -32700, 'Parse error'), 400); }
   if (Array.isArray(body)) {
     const answers = (await Promise.all(body.map((m) => handle(m, who.botId)))).filter(Boolean);
