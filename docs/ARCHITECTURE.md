@@ -181,7 +181,7 @@ The server runs on the time zone in `TZ` (UTC when unset), set in `/etc/cbot/env
 |---|---|
 | Anthropic, OpenAI, xAI, GitHub Copilot, Google, OpenRouter, DeepSeek, or a self-hosted server | Model calls from each bot's Hermes, on a subscription token or sign-in, or an API key. cbot itself asks the Anthropic API and the self-hosted server which models they list, and asks GitHub for the Copilot sign-in's code and token |
 | SearXNG | `web_search`, when its address is set in Settings > Providers |
-| GitHub | On a machine the installer set up, the newest commit of the branch it installed from, every six hours (`updates.ts`), and the installer and release when the user clicks Update |
+| GitHub | On a machine the installer set up, the newest commit of the branch it installed from, every six hours (`updates.ts`), and the installer and release when the user clicks Update. At a terminal, the installer also downloads gum, a pinned release checked against its checksum, for its full-screen questions |
 | Open-Meteo | `show_weather`'s forecast cards, called by cbot directly (`weather.ts`) |
 
 Hermes still fetches the models.dev registry and installs missing Python packages from PyPI when a tool needs one, and Chrome keeps its own Google traffic. Provisioning pulls Chrome, Node and Docker from their makers' apt repositories and Hermes and its Copilot plugin from GitHub at pinned commits, and each release runs `npm ci` against the npm registry. Building the speech image pulls sherpa-onnx's source from GitHub and the models from Hugging Face and GitHub, each at a pinned revision; at runtime the container has no network route out.

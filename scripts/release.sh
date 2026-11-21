@@ -46,6 +46,7 @@ if ! docker image inspect "$speech" >/dev/null 2>&1; then
 fi
 SPEECH_IMAGE="$speech" docker compose -f "$rel/deploy/speech.compose.yaml" up -d --quiet-pull --remove-orphans 2>&1 | grep -v '^ *Container .* Running$' || true
 
+say "starting $commit"
 before="$(readlink /srv/cbot/current 2>/dev/null || true)"
 ln -sfn "releases/$commit" /srv/cbot/current.new
 mv -T /srv/cbot/current.new /srv/cbot/current

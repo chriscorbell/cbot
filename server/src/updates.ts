@@ -84,6 +84,7 @@ export function stepFrom(log: string): string | null {
     else if (line.startsWith('Hermes Agent ')) step = `Installing ${line}`;
     else if (line.startsWith('building cbot-speech')) step = 'Building the speech service, which takes about ten minutes';
     else if (line.startsWith('building ')) step = 'Building cbot';
+    else if (line.startsWith('starting ')) step = 'Starting cbot';
   }
   return step;
 }

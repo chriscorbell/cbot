@@ -60,6 +60,7 @@ test("the installer's log says what the update is doing", () => {
   expect(stepFrom(`[release] building ${NEWER}\nadded 306 packages\n`)).toBe('Building cbot');
   expect(stepFrom(`[release] building ${NEWER}\n[release] building cbot-speech:0123456789ab (the first build takes about ten minutes)\n`))
     .toBe('Building the speech service, which takes about ten minutes');
+  expect(stepFrom(`[release] building ${NEWER}\n[release] starting ${NEWER}\n`)).toBe('Starting cbot');
 });
 
 test('a check finds a newer commit on the branch, and none when GitHub names the running one', async () => {

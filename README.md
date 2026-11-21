@@ -75,9 +75,11 @@ On the target machine, run:
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
 ```
 
+The installer takes over the terminal: you pick the bots' time zone from a list you can search, how many bots the machine can run, and whether to add Tailscale, then it shows each step as it installs. A first install takes 15 to 30 minutes.
+
 After installation is complete, open `https://<ip-address>:8787` in your browser (accept the certificate warning), create your account, then follow the setup wizard.
 
-cbot signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, answer yes to the installer's Tailscale question.
+cbot signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, choose **Set it up** at the installer's Tailscale question.
 
 When a new version is out, **Update available** shows in the sidebar, and one click installs it.
 
@@ -90,6 +92,8 @@ On the target machine, run this to remove cbot and all its data (Chrome, Node.js
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/uninstall.sh | bash
 ```
+
+It asks once before removing anything, then shows each step as it goes.
 
 ## Development
 

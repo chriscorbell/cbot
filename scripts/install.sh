@@ -14,6 +14,13 @@
 # this script unattended (server/src/updates.ts), and /etc/cbot/source tells it the repository and
 # branch to follow.
 #
+# At a terminal it takes the whole screen, as an editor does: a screen for each question, with gum's
+# lists and buttons (a pinned release from GitHub, checked against its checksum and deleted when the
+# installer ends), then the install's steps with their times. When it ends, the terminal gets its
+# screen back and the outcome is printed there, so the address to open stays in the scrollback.
+# Without gum, on a terminal smaller than 64 by 20, or with nobody at it, it prints its steps line by
+# line instead.
+#
 # Unattended, the answers come from the environment, CBOT_TZ, CBOT_MAX_BOTS and CBOT_TAILSCALE (1 or
 # 0), with the defaults for any left out. CBOT_YES=1 takes them without asking even at a terminal.
 # CBOT_REF installs a branch, tag or commit other than main, CBOT_REPO a fork, and GITHUB_TOKEN reads
@@ -25,22 +32,33 @@
 
 ui_init() {
   if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then
-    B=$'\e[1m' D=$'\e[2m' R=$'\e[0m' G=$'\e[32m' Y=$'\e[33m' E=$'\e[31m' fancy=true
+    B=$'\e[1m' D=$'\e[2m' R=$'\e[0m' G=$'\e[32m' Y=$'\e[33m' E=$'\e[31m' A=$'\e[38;5;69m' fancy=true
   else
-    B='' D='' R='' G='' Y='' E='' fancy=false
+    B='' D='' R='' G='' Y='' E='' A='' fancy=false
   fi
   case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
-    *UTF-8* | *utf8* | *UTF8* | *utf-8*) OK='✓' NO='✗' SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) ;;
-    *) OK='+' NO='x' SPIN=('|' '/' '-' "\\") ;;
+    *UTF-8* | *utf8* | *UTF8* | *utf-8*) OK='✓' NO='✗' NOW='●' LATER='○' LINE='─' BAR='│' DOT='·' SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) ;;
+    *) OK='+' NO='x' NOW='*' LATER='o' LINE='-' BAR='|' DOT='-' SPIN=('|' '/' '-' "\\") ;;
   esac
-  steps=0
+  steps=0 tui=false tty3=false watcher='' reported=false machine='' gum_dir='' LOG=''
 }
 
 step() { steps=$((steps + 1)); printf '\n%s%s. %s%s\n' "$B" "$steps" "$1" "$R"; }
 info() { printf '   %s\n' "$*"; }
 note() { printf '   %s%s%s\n' "$D" "$*" "$R"; }
 warn() { printf '   %s!%s %s\n' "$Y" "$R" "$*"; }
-die() { printf '\n%s%s%s %s\n' "$E" "$NO" "$R" "$*" >&2; exit 1; }
+
+# The message goes to the terminal even while a step's output goes to the log (quietly), after the
+# full screen has given the terminal back.
+die() {
+  local fd=2
+  if $tty3; then fd=3; fi
+  stop_watcher USR1
+  tui_end
+  printf '\n%s%s%s %s\n' "$E" "$NO" "$R" "$*" >&"$fd"
+  reported=true
+  exit 1
+}
 
 # ask <question> <default> [<preset>]: the preset (from the environment) or, with nobody at a
 # terminal, the default, shown as the answer; otherwise what the person types, Enter taking the
@@ -70,19 +88,380 @@ confirm() {
 
 clock() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
 
+# At full screen, what a step prints goes to the log, and the screen shows the step.
+quietly() { if $tui; then "$@" >>"$LOG" 2>&1; else "$@"; fi; }
+
+# mark <key> <words>: one of the installer's own steps. A numbered heading, or at full screen a line
+# in the log, where the screen finds it as it finds release.sh's (describe).
+mark() { if $tui; then echo "[install] $1" >>"$LOG"; else step "$2"; fi; }
+
+# The full screen or the spinner stops and the terminal is put back, whatever ends the installer.
+on_exit() {
+  local status=$? fd=2
+  if $tty3; then fd=3; fi
+  stop_watcher USR1
+  tui_end
+  if [ "$status" -ne 0 ] && ! $reported; then
+    printf '\n%s%s%s Stopped. Run the installer again to pick up where it stopped.%s\n' "$E" "$NO" "$R" "${LOG:+ The log is $LOG.}" >&"$fd"
+  fi
+  [ -z "$gum_dir" ] || rm -rf "$gum_dir"
+}
+
+# ---------------------------------------------------------------- the full screen
+
+# gum, for the questions: a pinned release, checked against its checksum, in a temporary folder that
+# on_exit removes.
+gum_fetch() {
+  local version=0.17.0 sum=69ee169bd6387331928864e94d47ed01ef649fbfe875baed1bbf27b5377a6fdb
+  local name="gum_${version}_Linux_x86_64"
+  gum_dir="$(mktemp -d)"
+  curl -fsL --max-time 60 -o "$gum_dir/gum.tar.gz" "https://github.com/charmbracelet/gum/releases/download/v$version/$name.tar.gz" &&
+    echo "$sum  $gum_dir/gum.tar.gz" | sha256sum -c --status - &&
+    tar -xzf "$gum_dir/gum.tar.gz" -C "$gum_dir" --strip-components=1 "$name/gum" &&
+    [ -x "$gum_dir/gum" ]
+}
+
+tui_size() {
+  local size
+  size="$(stty size </dev/tty 2>/dev/null)" || return 1
+  rows=${size% *} cols=${size#* }
+}
+
+# Full screen when someone is at a terminal big enough and gum downloads; otherwise line by line.
+# Drawing goes to fd 3, the terminal, so it stays on screen while steps write to the log.
+tui_start() {
+  { $interactive && $fancy && tui_size && [ "$rows" -ge 20 ] && [ "$cols" -ge 64 ]; } || return 0
+  if ! gum_fetch 2>/dev/null; then
+    note "The full-screen installer didn't download, so this one asks line by line."
+    return 0
+  fi
+  GUM="$gum_dir/gum"
+  gum_filter=(--indicator '›' --indicator.foreground 69 --match.foreground 69 --prompt '› ' --prompt.foreground 69 --placeholder.foreground 244 --header '' --padding '0 2')
+  gum_choose=(--cursor '› ' --cursor.foreground 69 --selected.foreground 69 --header '' --padding '0 2')
+  gum_confirm=(--prompt.foreground '' --selected.foreground 255 --selected.background 69 --unselected.foreground 244 --unselected.background '' --padding '0 1')
+  exec 3>/dev/tty
+  tty3=true tui=true
+  printf '\e[?1049h\e[?25l' >&3
+  stty -echo </dev/tty 2>/dev/null || true
+}
+
+tui_end() {
+  $tui || return 0
+  tui=false
+  printf '\e[?25h\e[?1049l' >&3
+  stty echo </dev/tty 2>/dev/null || true
+  if [ -s "$gum_dir/steps" ]; then
+    { echo; cat "$gum_dir/steps"; } >&3
+    rm -f "$gum_dir/steps"
+  fi
+}
+
+# The top of every screen, into $head (six rows): cbot, what it's doing and where, and the stages.
+tui_head() {
+  local i plain="  cbot  $doing" right=$machine gap stepper='' rule
+  gap=$((cols - ${#plain} - ${#right} - 2))
+  if [ "$gap" -lt 4 ]; then right='' gap=0; fi
+  for i in "${!stages[@]}"; do
+    [ "$i" -eq 0 ] || stepper+="  $D$LINE$LINE$R  "
+    if [ "$i" -lt "$stage" ]; then stepper+="$G$OK$R ${stages[i]}"
+    elif [ "$i" -eq "$stage" ]; then stepper+="$A$NOW$R $B${stages[i]}$R"
+    else stepper+="$D$LATER ${stages[i]}$R"; fi
+  done
+  printf -v rule '%*s' $((cols - 4)) ''
+  printf -v head '\e[K\n  %s%scbot%s  %s%*s%s%s%s\e[K\n\e[K\n  %s\e[K\n  %s%s%s\e[K\n\e[K\n' \
+    "$A" "$B" "$R" "$doing" "$gap" '' "$D" "$right" "$R" "$stepper" "$D" "${rule// /$LINE}" "$R"
+}
+
+# tui_screen <title> [<line>...]: a fresh screen for a question: its title, then lines about it,
+# wrapped to the screen. "" is a blank line, and one starting with ! a warning. Sets avail, the rows
+# left below for gum.
+tui_screen() {
+  local title=$1 line l text='' w n=0 warning first
+  shift
+  tui_size || true
+  tui_head
+  w=$((cols - 8))
+  [ "$w" -le 76 ] || w=76
+  for line in "$@"; do
+    if [ -z "$line" ]; then text+=$'\e[K\n' n=$((n + 1)); continue; fi
+    warning=false first=true
+    if [ "${line:0:1}" = '!' ]; then warning=true line=${line:1}; fi
+    while IFS= read -r l; do
+      if $warning && $first; then text+="  $Y!$R $l"; elif $warning; then text+="    $l"; else text+="  $l"; fi
+      text+=$'\e[K\n' first=false n=$((n + 1))
+    done < <(printf '%s\n' "$line" | fold -s -w "$w")
+  done
+  printf '\e[?25l\e[H\e[2J%s  %s%s%s\e[K\n%s\e[K\n' "$head" "$B" "$title" "$R" "$text" >&3
+  avail=$((rows - 6 - 1 - n - 1 - 1))
+}
+
+# Someone left at a question (Ctrl+C, or Esc twice): nothing is installed yet.
+quit() {
+  tui_end
+  printf '\nStopped. Nothing was installed.\n' >&3
+  reported=true
+  exit 130
+}
+
+# gum_ask <question> <yes> <no> <default true|false>: 0 for yes, 1 for no; anything else quits.
+gum_ask() {
+  local status=0
+  "$GUM" confirm "$1" --affirmative "$2" --negative "$3" --default="$4" "${gum_confirm[@]}" </dev/tty 2>&3 || status=$?
+  [ "$status" -le 1 ] || quit
+  return "$status"
+}
+
+# One line for each time zone, to pick from: the name with spaces for underscores (so typing "new
+# york" finds it), the time there now and its offset from UTC. The given zone comes first.
+zone_line() {
+  local now off abbr h m sign
+  TZ=$1 printf -v now '%(%-I:%M %p)T' -1
+  TZ=$1 printf -v off '%(%z)T' -1
+  TZ=$1 printf -v abbr '%(%Z)T' -1
+  sign=${off:0:1} h=$((10#${off:1:2})) m=${off:3:2}
+  if [ "$h$m" = 000 ]; then off=UTC; else off="UTC$sign$h"; [ "$m" = 00 ] || off+=":$m"; fi
+  case "$abbr" in "$off" | *[!A-Za-z]*) abbr='' ;; esac
+  printf '%-33s %8s   %s\n' "${1//_/ }" "$now" "${abbr:+$abbr $DOT }$off"
+}
+
+zone_lines() {
+  local z
+  zone_line "$1"
+  for z in $(timedatectl list-timezones 2>/dev/null); do
+    case "$z" in "$1" | Etc/*) ;; *) zone_line "$z" ;; esac
+  done
+}
+
+pick_tz() {
+  local line
+  tui_screen "Time zone" "The bots' clocks, routines and check-ins run on it. Type a city or region to find yours."
+  line="$(zone_lines "$tz" | "$GUM" filter --height "$avail" --placeholder 'Chicago, Berlin, Tokyo…' "${gum_filter[@]}" 2>&3)" || quit
+  line=${line%%  *}
+  tz=${line// /_}
+}
+
+pick_bots() {
+  local most i label current='' pick opts=()
+  # About 1 GB each, after 2 GB for voice; at least the four the app defaults to, and at most twelve.
+  most=$((ram_gb - 2))
+  [ "$most" -le 12 ] || most=12
+  [ "$most" -ge 4 ] || most=4
+  for ((i = 1; i <= most; i++)); do
+    printf -v label '%-9s about %d GB of memory' "$i bot$([ "$i" -eq 1 ] || echo s)" $((i + 2))
+    opts+=("$label")
+    [ "$i" -ne "$max_bots" ] || current=$label
+  done
+  tui_screen "How many bots at most" "Each bot has a desktop, Chrome and an agent of its own, and takes about 1 GB of memory. Voice calls take 2 GB more. This machine has $ram_gb GB."
+  pick="$("$GUM" choose "${opts[@]}" --selected "$current" --height "$((avail - 1))" "${gum_choose[@]}" </dev/tty 2>&3)" || quit
+  max_bots=${pick%% *}
+}
+
+pick_tailscale() {
+  tui_screen "Tailscale" \
+    "cbot serves HTTPS with a certificate of its own, which browsers warn about once on each device." "" \
+    "Tailscale adds an address with no warning that works from anywhere on your tailnet. It needs a free Tailscale account."
+  if gum_ask "Set up Tailscale too?" "Set it up" "Skip" "$([ "$tailscale_too" = 1 ] && echo true || echo false)"; then
+    tailscale_too=1
+  else
+    tailscale_too=0
+  fi
+}
+
+# The answers on one screen before anything is installed. Change asks every question again.
+review() {
+  local now
+  TZ=$tz printf -v now '%(%-I:%M %p)T' -1
+  tui_screen "Ready to install" \
+    "${D}Time zone$R   ${tz//_/ } ($now there now)" \
+    "${D}Bots$R        up to $max_bots" \
+    "${D}Tailscale$R   $([ "$tailscale_too" = 1 ] && echo yes || echo no)" "" \
+    "This installs Chrome, Node.js, Docker, Hermes Agent and cbot's speech service, and runs cbot as a service. It takes 15 to 30 minutes, and can be left to finish."
+  gum_ask "Install cbot now?" Install Change true
+}
+
+# tui_progress <offset> <note> <key>...: the install screen, from the log after <offset>, until TERM
+# (it finished) or USR1 (it stopped). The keys are the steps expected, shown ahead and dimmed; other
+# steps are added where they come, and expected ones that never come are dropped.
+tui_progress() {
+  local offset=$1 note=$2
+  shift 2
+  local keys=("$@") words=() states=() began=() took=() k d cur=-1 tick=0 shown=0 begun=$SECONDS size='' url='' marks=() tail=()
+  for k in "${keys[@]}"; do
+    d="$(describe "$k")"
+    words+=("${d#*|}") states+=(later) began+=(0) took+=(0)
+  done
+  trap 'end_steps "done"; stage=${#stages[@]}; draw_progress; record_steps; exit 0' TERM
+  trap 'end_steps failed; draw_progress; record_steps; exit 0' USR1
+  while :; do
+    [ $((tick % 6)) -ne 0 ] || read_progress
+    draw_progress
+    tick=$((tick + 1))
+    sleep 0.15
+  done
+}
+
+# The steps so far, the newest lines after the last one (a ring of 40 in awk), and a link Tailscale
+# is waiting on. Called inside tui_progress, whose locals it fills.
+read_progress() {
+  local got=() line d
+  mapfile -t got < <(tail -c "+$((offset + 1))" "$LOG" 2>/dev/null | awk -v n=40 '
+    /^\[(install|provision|release)\] / { print "M" substr($0, index($0, "] ") + 2); c = 0; url = ""; next }
+    {
+      gsub(/\033\[[0-9;?]*[ -\/]*[@-~]/, ""); sub(/.*\r/, ""); gsub(/[[:cntrl:]]/, ""); sub(/^ +/, "")
+      if (match($0, /https:\/\/login\.tailscale\.com\/[^ ]+/)) url = substr($0, RSTART, RLENGTH)
+      if ($0 != "") buf[c++ % n] = $0
+    }
+    END { if (url != "") print "U" url; for (i = (c > n ? c - n : 0); i < c; i++) print "L" buf[i % n] }')
+  marks=() tail=() url=''
+  for line in "${got[@]}"; do
+    case "$line" in M*) marks+=("${line:1}") ;; U*) url=${line:1} ;; L*) tail+=("${line:1}") ;; esac
+  done
+  while [ "$shown" -lt "${#marks[@]}" ]; do
+    d="$(describe "${marks[shown]}")"
+    shown=$((shown + 1))
+    [ -z "$d" ] || begin_step "${d%%|*}" "${d#*|}"
+  done
+}
+
+# begin_step <key> <words>: the current step is done, and this one runs: the next expected one with
+# its key (any expected before it never came), or a new one after the current.
+begin_step() {
+  local key=$1 j=-1 i
+  if [ "$cur" -ge 0 ]; then states[cur]='done' took[cur]=$((SECONDS - began[cur])); fi
+  for ((i = cur + 1; i < ${#keys[@]}; i++)); do
+    if [ "${keys[i]}" = "$key" ]; then j=$i; break; fi
+  done
+  if [ "$j" -ge 0 ]; then
+    for ((i = cur + 1; i < j; i++)); do states[i]=skipped; done
+  else
+    j=$((cur + 1))
+    keys=("${keys[@]:0:j}" "$key" "${keys[@]:j}") words=("${words[@]:0:j}" '' "${words[@]:j}")
+    states=("${states[@]:0:j}" '' "${states[@]:j}") began=("${began[@]:0:j}" 0 "${began[@]:j}") took=("${took[@]:0:j}" 0 "${took[@]:j}")
+  fi
+  words[j]=$2 states[j]=running began[j]=$SECONDS cur=$j
+}
+
+# end_steps done|failed: the current step ends so; at done, expected steps that never came go.
+end_steps() {
+  local i
+  if [ "$cur" -ge 0 ]; then states[cur]=$1 took[cur]=$((SECONDS - began[cur])); fi
+  if [ "$1" = "done" ]; then
+    for i in "${!states[@]}"; do [ "${states[i]}" != later ] || states[i]=skipped; done
+  fi
+}
+
+# The steps as lines for the terminal's own screen, which tui_end prints there, so they outlast the
+# full screen.
+record_steps() {
+  local i t icon
+  for i in "${!keys[@]}"; do
+    case "${states[i]}" in "done") icon="$G$OK$R" ;; failed) icon="$E$NO$R" ;; *) continue ;; esac
+    t=${took[i]}
+    printf '   %s %s %s%d:%02d%s\n' "$icon" "${words[i]}" "$D" $((t / 60)) $((t % 60)) "$R"
+  done >"$gum_dir/steps"
+}
+
+draw_progress() {
+  local s out i icon text time t w pad room n=0 total
+  s="$(stty size </dev/tty 2>/dev/null)" || s="$rows $cols"
+  rows=${s% *} cols=${s#* }
+  out=$'\e[?25l\e[H'
+  if [ "$s" != "$size" ]; then out+=$'\e[2J'; size=$s; fi
+  tui_head
+  out+=$head
+  w=$((cols - 4))
+  [ "$w" -le 80 ] || w=80
+  if [ -n "$note" ] && [ "$stage" -lt "${#stages[@]}" ]; then out+="  $D${note:0:w}$R"$'\e[K\n\e[K\n' n=2; fi
+  for i in "${!keys[@]}"; do
+    case "${states[i]}" in
+      done) icon="$G$OK$R" t=${took[i]} ;;
+      failed) icon="$E$NO$R" t=${took[i]} ;;
+      running) icon="$A${SPIN[tick % ${#SPIN[@]}]}$R" t=$((SECONDS - began[i])) ;;
+      later) icon=' ' t=-1 ;;
+      *) continue ;;
+    esac
+    time=''
+    [ "$t" -lt 0 ] || printf -v time '%d:%02d' $((t / 60)) $((t % 60))
+    text=${words[i]}
+    [ "${#text}" -le $((w - 12)) ] || text="${text:0:w-13}…"
+    pad=$((w - 4 - ${#text} - ${#time}))
+    case "${states[i]}" in later) text="$D$text$R" ;; running) text="$B$text$R" ;; esac
+    printf -v text '  %s %s%*s%s%s%s' "$icon" "$text" "$pad" '' "$D" "$time" "$R"
+    out+="$text"$'\e[K\n'
+    n=$((n + 1))
+  done
+  out+=$'\e[K\n'
+  # What the running step is doing: the link Tailscale waits on, or the newest lines of the log.
+  room=$((rows - 6 - n - 1 - 3))
+  if [ "$cur" -ge 0 ] && [ "${states[cur]}" = running ]; then
+    if [ "${keys[cur]}" = tailscale ] && [ -n "$url" ]; then
+      out+="    Tailscale is waiting for you. Open this link:"$'\e[K\n'"    $A$url$R"$'\e[K\n'
+    elif [ "$room" -gt 0 ]; then
+      for ((i = ${#tail[@]} > room ? ${#tail[@]} - room : 0; i < ${#tail[@]}; i++)); do
+        out+="    $D$BAR ${tail[i]:0:w-6}$R"$'\e[K\n'
+      done
+    fi
+  fi
+  out+=$'\e[J'
+  # The foot: how long it has taken, and where the whole log is.
+  total=$((SECONDS - begun))
+  printf -v time '%d:%02d' $((total / 60)) $((total % 60))
+  if [ "$stage" -ge "${#stages[@]}" ]; then time="Done in $time"; else time="$time so far"; fi
+  pad=$((cols - 4 - ${#time} - ${#LOG} - 5))
+  [ "$pad" -ge 2 ] || pad=2
+  printf -v s '\e[%d;1H  %s%s%*sLog: %s%s\e[K' "$rows" "$D" "$time" "$pad" '' "$LOG" "$R"
+  printf '%s%s' "$out" "$s" >&3
+}
+
+# The install screen starts with the steps a fresh install or an update has ahead of it.
+work_begin() {
+  $tui || return 0
+  local keys=() note offset
+  stage=$((${#stages[@]} - 2))
+  if [ "${tailscale_too:-0}" = 1 ]; then keys+=(tailscale); fi
+  if $installed; then
+    keys+=(download build start)
+    note="cbot keeps running until the new version is ready."
+  else
+    keys+=(download provision packages hermes build speech start)
+    note="This takes 15 to 30 minutes, and can be left to finish."
+  fi
+  # Measured here, not in the background job, which could start after the first step is written.
+  offset="$(stat -c %s "$LOG")"
+  tui_progress "$offset" "$note" "${keys[@]}" &
+  watcher=$!
+}
+
+# Every step done: a moment on the finished screen, then the terminal's own again.
+work_end() {
+  $tui || return 0
+  stop_watcher TERM
+  sleep 1
+  tui_end
+}
+
+# stop_watcher TERM|USR1: the progress display, finished or failed.
+stop_watcher() {
+  [ -n "${watcher:-}" ] || return 0
+  kill "-$1" "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
+  watcher=''
+}
+
 # ---------------------------------------------------------------- root
 
 # Everything here installs system-wide, so it runs as root. Run as someone else, it starts again
 # under sudo. Piped from curl, the script is gone from stdin by now, so it writes itself to a private
 # file from `declare -f` (the same code, not a second download), with the settings from the
-# environment, which stay out of the process list that way. sudo gets the terminal as stdin: given
+# environment, which stay out of the process list that way, and the locale, which decides whether the
+# screen draws with Unicode. sudo gets the terminal as stdin: given
 # curl's pipe, Ubuntu's sudo-rs stops the questions' reads from the terminal.
 become_root() {
   command -v sudo >/dev/null || die "Run this as root."
   local self v status=0
   self="$(mktemp)"
   {
-    for v in CBOT_YES CBOT_TZ CBOT_MAX_BOTS CBOT_TAILSCALE CBOT_REF CBOT_REPO GITHUB_TOKEN; do
+    for v in CBOT_YES CBOT_TZ CBOT_MAX_BOTS CBOT_TAILSCALE CBOT_REF CBOT_REPO GITHUB_TOKEN LANG LC_ALL LC_CTYPE; do
       [ -z "${!v:-}" ] || printf 'export %s=%q\n' "$v" "${!v}"
     done
     declare -f
@@ -122,7 +501,8 @@ check_machine() {
   local disk_gb cpus
   disk_gb="$(df -BG --output=avail / | awk 'NR == 2 { print $1 + 0 }')"
   cpus="$(nproc)"
-  info "$name, $cpus CPUs, $ram_gb GB of memory, $disk_gb GB free"
+  machine="$name $DOT $cpus CPUs $DOT $ram_gb GB"
+  $tui || info "$name, $cpus CPUs, $ram_gb GB of memory, $disk_gb GB free"
 
   case "|$tested|" in *"|$id $version|"*) ;; *) problems+=("cbot is made for Ubuntu 26.04 and tested on Ubuntu 22.04 and 24.04 and Debian 12 and 13. ${name:-This system} may work, but isn't tested.") ;; esac
   [ "$ram_gb" -ge 4 ] || problems+=("cbot wants about 2 GB of memory for voice and 1 GB per bot, and this machine has $ram_gb GB.")
@@ -130,8 +510,16 @@ check_machine() {
   if ! $installed && ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q .; then
     die "Something else is using port $PORT, which cbot needs: $(ss -Hltnp "sport = :$PORT" | grep -o 'users:.*' | head -1)"
   fi
-  for p in "${problems[@]}"; do warn "$p"; done
-  [ ${#problems[@]} -eq 0 ] || confirm "Continue anyway?" || die "Stopped."
+  [ ${#problems[@]} -gt 0 ] || return 0
+  if $tui; then
+    local lines=()
+    for p in "${problems[@]}"; do lines+=("!$p"); done
+    tui_screen "This machine" "$name, $cpus CPUs, $ram_gb GB of memory and $disk_gb GB free." "" "${lines[@]}"
+    gum_ask "Continue anyway?" Continue Quit false || quit
+  else
+    for p in "${problems[@]}"; do warn "$p"; done
+    confirm "Continue anyway?" || die "Stopped."
+  fi
 }
 
 valid_tz() {
@@ -143,17 +531,22 @@ ask_settings() {
   local tz_default suggested
   tz_default="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
   case "$tz_default" in '' | Etc/UTC | Etc/Universal) tz_default=UTC ;; esac
-  tz="$(ask "Time zone for the bots' clocks and routines" "$tz_default" "${CBOT_TZ:-}")"
+  # About 1 GB each, after 2 GB for voice; the app's own default is 4.
+  suggested=$((ram_gb - 2))
+  [ "$suggested" -ge 1 ] || suggested=1
+  [ "$suggested" -le 4 ] || suggested=4
+  if $tui; then
+    ask_settings_tui "$tz_default" "$suggested"
+    return
+  fi
+
+  tz="$(ask "Time zone for the bots' clocks and routines, like America/New_York" "$tz_default" "${CBOT_TZ:-}")"
   while ! valid_tz "$tz"; do
     { $interactive && [ -z "${CBOT_TZ:-}" ]; } || die "$tz is not a time zone. Use a name like Europe/London or America/New_York."
     warn "$tz is not a time zone. Use a name like Europe/London or America/New_York."
     tz="$(ask "Time zone" "$tz_default")"
   done
 
-  # About 1 GB each, after 2 GB for voice; the app's own default is 4.
-  suggested=$((ram_gb - 2))
-  [ "$suggested" -ge 1 ] || suggested=1
-  [ "$suggested" -le 4 ] || suggested=4
   max_bots="$(ask "How many bots at most (about 1 GB of memory each)" "$suggested" "${CBOT_MAX_BOTS:-}")"
   while ! [[ "$max_bots" =~ ^[1-9][0-9]?$ ]]; do
     { $interactive && [ -z "${CBOT_MAX_BOTS:-}" ]; } || die "The number of bots has to be a number from 1 to 99."
@@ -171,6 +564,21 @@ ask_settings() {
   else
     tailscale_too=0
   fi
+}
+
+# At full screen: a screen per question, skipping those the environment answers, then the review.
+ask_settings_tui() {
+  tz=${CBOT_TZ:-$1} max_bots=${CBOT_MAX_BOTS:-$2} tailscale_too=${CBOT_TAILSCALE:-0}
+  valid_tz "$tz" || die "$tz is not a time zone. Use a name like Europe/London or America/New_York."
+  [[ "$max_bots" =~ ^[1-9][0-9]?$ ]] || die "The number of bots has to be a number from 1 to 99."
+  while :; do
+    [ -n "${CBOT_TZ:-}" ] || pick_tz
+    [ -n "${CBOT_MAX_BOTS:-}" ] || pick_bots
+    [ -n "${CBOT_TAILSCALE:-}" ] || pick_tailscale
+    review && break
+    # Change: every question again, the environment's answers too.
+    CBOT_TZ='' CBOT_MAX_BOTS='' CBOT_TAILSCALE=''
+  done
 }
 
 write_settings() {
@@ -205,6 +613,7 @@ write_source() {
 
 tailscale_up() { tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"'; }
 
+# At full screen its output goes to the log, and the screen shows the link Tailscale waits on.
 setup_tailscale() {
   if ! command -v tailscale >/dev/null; then
     info "Installing Tailscale"
@@ -252,9 +661,10 @@ fetch_release() {
   script="$releases/$commit.new/scripts/release.sh"
 }
 
-# progress <offset>: release.sh's steps as they reach the log after <offset>. At a terminal the
-# current one has a spinner and its time, and TERM marks it done, USR1 failed; otherwise each step is
-# a line as it starts. Until release.sh names its first step, the spinner says Starting.
+# progress <offset>: release.sh's steps as they reach the log after <offset>, line by line (the full
+# screen has tui_progress). At a terminal the current one has a spinner and its time, and TERM marks
+# it done, USR1 failed; otherwise each step is a line as it starts. Until release.sh names its first
+# step, the spinner says Starting.
 progress() {
   local offset=$1 shown=0 tick=0 since=$SECONDS current='Starting' started=false line lines=()
   ended() {
@@ -267,6 +677,7 @@ progress() {
       mapfile -t lines < <(tail -c "+$((offset + 1))" "$LOG" | sed -nE 's/^\[(provision|release)\] //p')
       while [ "$shown" -lt "${#lines[@]}" ]; do
         line="$(describe "${lines[shown]}")"
+        line=${line#*|}
         shown=$((shown + 1))
         [ -n "$line" ] || continue
         if $started; then ended "$G$OK$R"; fi
@@ -275,40 +686,50 @@ progress() {
       done
     fi
     if $fancy; then
-      printf '\r\e[K   %s %s %s%s%s' "${SPIN[tick % ${#SPIN[@]}]}" "$current" "$D" "$(clock $((SECONDS - since)))" "$R"
+      # Cut to the terminal's width: a line that wraps can't be redrawn in place.
+      tui_size || cols=80
+      printf '\r\e[K   %s %s %s%s%s' "${SPIN[tick % ${#SPIN[@]}]}" "${current:0:cols-12}" "$D" "$(clock $((SECONDS - since)))" "$R"
     fi
     tick=$((tick + 1))
     sleep 0.25
   done
 }
 
-# What release.sh and provision.sh say, in words for someone installing. Empty skips a line.
+# What this script's steps (mark), release.sh and provision.sh say, as key|words for someone
+# installing; empty skips the line. The key places a step among those the full screen expects
+# (work_begin), whose words come from here too.
 describe() {
   case "$1" in
-    'provisioning the host') echo 'Setting up the machine' ;;
-    packages) echo 'Installing Chrome, Node, Docker and the desktop packages' ;;
-    'Hermes Agent '*) echo "Installing $1" ;;
+    tailscale) echo 'tailscale|Setting up Tailscale' ;;
+    download) echo 'download|Downloading cbot' ;;
+    'provisioning the host' | provision) echo 'provision|Setting up the machine' ;;
+    packages) echo 'packages|Installing Chrome, Node, Docker and the desktop packages' ;;
+    'Hermes Agent '*) echo "hermes|Installing $1" ;;
+    hermes) echo 'hermes|Installing Hermes Agent' ;;
     done | 'cbot runs '*) ;;
-    'building cbot-speech'*) echo 'Building the speech service (about ten minutes)' ;;
-    'building '*) echo 'Building cbot' ;;
-    *) echo "$1" ;;
+    'building cbot-speech'* | speech) echo 'speech|Building the speech service (about ten minutes)' ;;
+    'building '* | build) echo 'build|Building cbot' ;;
+    'starting '* | start) echo 'start|Starting cbot' ;;
+    *) echo "other|$1" ;;
   esac
 }
 
-# release.sh's output goes to the log, and progress shows its steps. The watcher is global so the
-# EXIT trap still finds it when the installer stops early.
+# release.sh's output goes to the log, and the full screen or progress shows its steps.
 run_release() {
-  progress "$(stat -c %s "$LOG")" &
-  watcher=$!
-  trap '[ -z "${watcher:-}" ] || kill "$watcher" 2>/dev/null' EXIT
+  if ! $tui; then
+    if $installed; then step "Updating"; else step "Installing"; fi
+    $installed || note "The first install takes 15 to 30 minutes, and can be left to finish."
+    note "The full log is $LOG"
+    local offset
+    offset="$(stat -c %s "$LOG")"
+    progress "$offset" &
+    watcher=$!
+  fi
   if bash "$script" >>"$LOG" 2>&1 </dev/null; then
-    kill -TERM "$watcher"
-    wait "$watcher" 2>/dev/null || true
-    watcher=''
+    $tui || stop_watcher TERM
   else
-    kill -USR1 "$watcher"
-    wait "$watcher" 2>/dev/null || true
-    watcher=''
+    stop_watcher USR1
+    tui_end
     printf '\n%sThe last lines of %s:%s\n' "$D" "$LOG" "$R" >&2
     tail -n 30 "$LOG" | sed 's/^/   /' >&2
     die "cbot didn't install. Fix what the log says and run the installer again; it picks up where it stopped."
@@ -342,7 +763,11 @@ tailscale_url() {
 
 finish() {
   local url address listening lan=false scheme=http
-  printf '\n%s%s cbot is running%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
+  if $up_to_date; then
+    printf '\n%s%s cbot is up to date%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
+  else
+    printf '\n%s%s cbot is running%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
+  fi
   # An install can keep the server to 127.0.0.1 (HOST in /etc/cbot/env), or to plain HTTP (HTTPS).
   listening="$(ss -Hltn "sport = :$PORT" | awk '{ print $4 }')"
   case "$listening" in '' | 127.0.0.1:*) ;; *) lan=true ;; esac
@@ -403,29 +828,43 @@ main() {
   install -d -m 0755 /var/log/cbot
   LOG=/var/log/cbot/install.log
   : >"$LOG"
+  trap on_exit EXIT
+  # Ctrl+C and hang-ups end it through on_exit too, with their status: untrapped, on_exit would see 0.
+  trap 'exit 130' INT
+  trap 'exit 129' HUP
+  trap 'exit 143' TERM
 
+  local host
+  host="$(hostname)"
   if $installed; then
-    printf '%sUpdating cbot%s on %s\n' "$B" "$R" "$(hostname)"
+    doing="Updating on $host" stages=(Machine Update Done)
+    printf '%sUpdating cbot%s on %s\n' "$B" "$R" "$host"
   else
-    printf '%sInstalling cbot%s on %s\n' "$B" "$R" "$(hostname)"
+    doing="Installing on $host" stages=(Machine Settings Install Done)
+    printf '%sInstalling cbot%s on %s\n' "$B" "$R" "$host"
   fi
+  tui_start
 
-  step "Checking this machine"
+  stage=0
+  $tui || step "Checking this machine"
   check_machine
 
   if ! $installed; then
-    step "Settings"
+    stage=1
+    $tui || step "Settings"
     ask_settings
-    if [ "$tailscale_too" = 1 ]; then
-      step "Tailscale"
-      setup_tailscale
-    fi
   fi
 
-  step "Downloading cbot"
-  fetch_release
+  work_begin
+  if [ "${tailscale_too:-0}" = 1 ]; then
+    mark tailscale "Tailscale"
+    quietly setup_tailscale
+  fi
+  mark download "Downloading cbot"
+  quietly fetch_release
   write_source
   if $up_to_date; then
+    work_end
     finish
     return
   fi
@@ -433,11 +872,8 @@ main() {
     : "${tz:=UTC}" "${max_bots:=4}"
     write_settings
   fi
-
-  if $installed; then step "Updating"; else step "Installing"; fi
-  $installed || note "The first install takes 15 to 30 minutes, and can be left to finish."
-  note "The full log is $LOG"
   run_release
+  work_end
   finish
 }
 
