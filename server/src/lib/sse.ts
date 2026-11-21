@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * Reading a Hermes gateway's event streams (chat turns in agent/turns.ts, voice turns in voice-relay.ts).
+ * Reading a Hermes gateway's event streams (a run's events, in agent/runs.ts).
  * The data is JSON of unknown shape here; agent/run-events.ts checks what a run's events say.
  */
 

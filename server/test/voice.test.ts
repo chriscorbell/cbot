@@ -24,7 +24,9 @@ vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
   const { pathname } = new URL(url);
   hermesCalls.push({ method: init?.method ?? 'GET', path: pathname, body: init?.body ? JSON.parse(String(init.body)) : null });
   if (pathname === '/v1/runs') return Response.json({ run_id: 'run_1', status: 'started' });
-  if (pathname === '/v1/runs/run_1') return Response.json({ status: 'completed', output: 'Tokyo weather check\nAsked about the weather in Tokyo.' });
+  if (pathname === '/v1/runs/run_1/events') {
+    return new Response(`data: ${JSON.stringify({ event: 'run.completed', output: 'Tokyo weather check\nAsked about the weather in Tokyo.' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+  }
   return new Response('not found', { status: 404 });
 });
 

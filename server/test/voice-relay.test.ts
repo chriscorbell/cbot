@@ -16,7 +16,7 @@ test('speech gets no markdown, links or bullets', () => {
 });
 
 const reply = (p: { state?: 'active' | 'done' | 'cancelled'; modelDone?: boolean; tools?: number; runId?: string | null }) =>
-  ({ state: p.state ?? 'active', modelDone: p.modelDone ?? false, tools: new Set(Array.from({ length: p.tools ?? 0 }, (_, i) => String(i))), runId: 'runId' in p ? p.runId ?? null : 'run_1' });
+  ({ state: p.state ?? 'active', modelDone: p.modelDone ?? false, tools: new Set(Array.from({ length: p.tools ?? 0 }, (_, i) => String(i))), run: { id: 'runId' in p ? p.runId ?? null : 'run_1' } });
 
 test('what the user saying something does to the reply in progress', () => {
   expect(planAnswer(null)).toBe('new');

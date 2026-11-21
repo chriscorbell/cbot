@@ -259,3 +259,13 @@ test('each run hears what is new in the text chat, and a run stopped before it s
   expect(runs[1].input).toBe(`${news}\nIs it done yet? Hello?`);
   c.client.emit('close');
 });
+
+test('a run Hermes stops on its own is no answer: the bot says it could not get one', async () => {
+  fakeGateway({ run_1: [{ event: 'message.delta', delta: 'The weather in Ro' }, { event: 'run.interrupted', error: 'Gateway shutdown interrupted the run.' }] }, gate().opened);
+  const c = startCall();
+  c.utter(1, 'What is the weather in Rome?');
+  await vi.waitFor(() => expect(c.done('resp_1')).toBe('completed'));
+  expect(c.spoken()).toEqual(['Sorry, I couldn’t get an answer just then.']);
+  expect(c.events().some((e) => e.type === 'error' && e.error.code === 'model_error')).toBe(true);
+  c.client.emit('close');
+});

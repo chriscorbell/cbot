@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * What a Hermes run sends (GET /v1/runs/<id>/events) and answers (POST /v1/runs, its stop and status),
- * checked where it enters: agent/turns.ts and voice-relay.ts read runs, agent/approvals.ts their prompts.
+ * checked where it enters: agent/runs.ts reads runs, agent/approvals.ts their prompts.
  *
  * A known event that isn't shaped as expected is logged and passed on as `other`, which every reader
  * ignores, so the run goes on as it would without it. An event Hermes added that Dispatch doesn't know
@@ -39,6 +39,9 @@ const Known = z.discriminatedUnion('event', [
 
 export type RunEvent = z.infer<typeof Known> | { event: 'other'; name: string };
 export type ApprovalRequest = Extract<RunEvent, { event: 'approval.request' }>;
+/** The events that end a run. agent/runs.ts reads them; the surfaces get the rest. */
+export type EndEvent = Extract<RunEvent, { event: 'run.completed' | 'run.failed' | 'run.cancelled' | 'run.interrupted' }>;
+export type StepEvent = Exclude<RunEvent, EndEvent>;
 
 const KNOWN = new Set<string>(Known.options.map((o) => o.shape.event.value));
 const Named = z.object({ event: z.string() });

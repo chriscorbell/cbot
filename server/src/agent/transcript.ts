@@ -2,12 +2,12 @@ import { markUnread, type Conversation } from '../store.js';
 import type { ActivityKind, MessageBody, ToolCallBody } from '../types.js';
 import * as live from './live.js';
 import { activityFor, appToolName } from './tools.js';
-import type { RunEvent } from './run-events.js';
+import type { StepEvent } from './run-events.js';
 
 /**
  * What one turn writes into the chat, from the events of its Hermes run (GET /v1/runs/<id>/events).
- * agent/turns.ts feeds it events; it writes rows through the turn's Conversation and moves the bot's
- * live state. test/turn.test.ts pins its behaviour with scripted runs.
+ * agent/turns.ts feeds it events, then how the run ended (agent/runs.ts); it writes rows through the
+ * turn's Conversation and moves the bot's live state. test/turn.test.ts pins its behaviour with scripted runs.
  *
  * Text the model writes is held until it is clear what it is:
  *
@@ -69,37 +69,29 @@ export class TurnTranscript {
 
   // ---------- events ----------
 
-  /** Apply one event of the run. True when the run is over; throws when it failed or was cut short. */
-  onRunEvent(d: RunEvent): boolean {
+  /** Apply one event of the run (its end comes to `completed` or `failed`). */
+  onRunEvent(d: StepEvent) {
     switch (d.event) {
       case 'message.delta':
         this.textDelta(d.delta);
-        return false;
+        return;
       case 'message.interim':
         this.commentary(d.text, !!d.already_streamed);
-        return false;
+        return;
       case 'reasoning.available':
         if (d.text.trim()) {
           live.doing(this.botId, 'thinking', { unlessAlready: true });
           this.caption(captionFrom(d.text.slice(-4000)));
         }
-        return false;
+        return;
       case 'tool.started':
         this.toolStarted(d);
-        return false;
+        return;
       case 'tool.completed':
         this.toolOutput(d);
-        return false;
-      case 'run.completed':
-        this.completed(d.output);
-        return true;
-      case 'run.failed':
-        throw new Error(typeof d.error === 'string' && d.error ? d.error : 'the agent run failed');
-      case 'run.cancelled':
-      case 'run.interrupted':
-        throw new Error(typeof d.error === 'string' && d.error ? d.error : 'the run was stopped');
+        return;
       default:
-        return false;
+        return;
     }
   }
 
@@ -113,7 +105,7 @@ export class TurnTranscript {
     if (this.msgSeq === null ? this.text.length >= HOLD : this.clock() - this.lastFlush > FLUSH_MS) this.flush(true);
   }
 
-  private toolStarted(d: Extract<RunEvent, { event: 'tool.started' }>) {
+  private toolStarted(d: Extract<StepEvent, { event: 'tool.started' }>) {
     // Text written before this call was the bot thinking aloud: a note, not a message.
     this.closeMessage(true);
     const raw = d.tool ?? '';
@@ -138,20 +130,19 @@ export class TurnTranscript {
     } else this.note(text);
   }
 
-  /** The run's end, with its final answer: shown here only if it never streamed. */
-  private completed(output: unknown) {
+  /** The run completed, with its final answer: shown here only if it never streamed. */
+  completed(out: string) {
     if (this.msgSeq !== null || this.text.trim()) {
       this.closeMessage();
       return;
     }
-    const out = typeof output === 'string' ? output.trim() : '';
     const last = this.notes.length ? this.convo.get(this.notes[this.notes.length - 1]) : null;
     // The answer is the note it already wrote; finish() turns that into the message.
     if (!out || (last?.body.type === 'message' && last.body.text === out)) return;
     this.say(out);
   }
 
-  private toolOutput(d: Extract<RunEvent, { event: 'tool.completed' }>) {
+  private toolOutput(d: Extract<StepEvent, { event: 'tool.completed' }>) {
     const callId = d.tool_call_id ?? '';
     if (!callId || this.outputsSeen.has(callId)) return;
     this.outputsSeen.add(callId);

@@ -1,15 +1,13 @@
 import { db, type RowRecord } from '../db.js';
-import { failureText, sseEvents } from '../lib/sse.js';
 import { appendRow, conversation, emitBot, getBotRow, requireBot, type Conversation } from '../store.js';
 import { screenForWork } from '../computer.js';
-import { engineFor, runSlot, type Engine } from '../engine.js';
+import type { Engine } from '../engine.js';
 import type { RowBody } from '../types.js';
-import { askApproval, runEnded, runMoved } from './approvals.js';
 import { instructionsFor } from './prompt.js';
 import { callNews, markTold } from './catchup.js';
 import * as live from './live.js';
 import { TurnTranscript, type ToolClaim } from './transcript.js';
-import { eventName, runEvent, startedRun } from './run-events.js';
+import { HermesRun } from './runs.js';
 
 /**
  * Turns: each one hands a message to the bot's Hermes gateway and streams the answer into the chat.
@@ -26,12 +24,12 @@ import { eventName, runEvent, startedRun } from './run-events.js';
  * started is skipped, and a running one writes only into its own conversation (store.ts Conversation),
  * so nothing of an old chat appears in a new one.
  *
- * The turn itself: make sure the bot's screen is ready (its browser tools point at it), make sure its
- * gateway runs, start a Hermes run (POST /v1/runs) on the conversation's session and feed the run's
- * events to a TurnTranscript (transcript.ts). Stop asks Hermes to stop the run, which a dropped
- * connection alone would not. When Hermes asks before an action, the prompt becomes a card in the
- * chat (approvals.ts) and the run waits for the user's answer. The input starts with what the chat
- * missed on voice calls (catchup.ts).
+ * The turn itself: make sure the bot's screen is ready (its browser tools point at it), then start a
+ * Hermes run (agent/runs.ts) on the conversation's session and feed the run's events to a
+ * TurnTranscript (transcript.ts). Stop asks Hermes to stop the run, which a dropped connection alone
+ * would not. When Hermes asks before an action, the prompt becomes a card in the chat (approvals.ts)
+ * and the run waits for the user's answer. The input starts with what the chat missed on voice calls
+ * (catchup.ts).
  */
 
 export type Trigger =
@@ -207,14 +205,13 @@ async function runTurn(botId: string, running: Running) {
   const { signal } = running.abort;
   live.turnStarted(botId);
   let outcome: 'done' | 'failed' | 'stopped' = 'done';
-  let run: { engine: Engine; id: string } | null = null;
-  let slot: ((event?: unknown) => void) | null = null;
+  const run = new HermesRun(botId, 'chat');
 
   try {
     // The screen first: the engine's browser and computer tools point at it.
     await screenForWork(bot.user_id, botId).catch((e) => console.warn(`[computer] screen not ready for ${botId}: ${e?.message ?? e}`));
     if (signal.aborted) throw new Error('interrupted');
-    const engine = await engineFor(botId);
+    const engine = await run.gateway();
     if (signal.aborted) throw new Error('interrupted');
 
     let input = triggerText(running.job.trigger);
@@ -227,65 +224,36 @@ async function runTurn(botId: string, running: Running) {
     if (news?.note) input = `${news.note}\n\n${input}`;
     input = `${await recapFor(engine, convo)}${input}`;
     if (signal.aborted) throw new Error('interrupted');
-    // Right after its gateway starts, a bot's first run goes alone for a moment (runSlot).
-    slot = await runSlot(botId);
-    if (signal.aborted) throw new Error('interrupted');
 
-    // Not aborted with the turn: a run Hermes started that nobody knows the id of could not be stopped.
-    const res = await fetch(`${engine.url}/v1/runs`, {
-      method: 'POST',
-      headers: authHeaders(engine),
-      signal: AbortSignal.timeout(30_000),
-      body: JSON.stringify({
-        model: bot.model || 'hermes-agent',
-        ...(bot.provider ? { provider: bot.provider } : {}),
-        input,
-        instructions: await instructionsFor(bot.user_id, botId),
-        session_id: sessionFor(botId, convo.generation),
-        model_options: { reasoning_effort: bot.effort ?? 'medium' },
-      }),
-    });
-    if (!res.ok) throw new Error(await failureText(res));
-    const runId = startedRun(await res.json());
-    if (!runId) throw new Error('Hermes started no run');
-    run = { engine, id: runId };
+    const started = await run.start({
+      model: bot.model, provider: bot.provider, input, instructions: await instructionsFor(bot.user_id, botId),
+      session: sessionFor(botId, convo.generation), effort: bot.effort ?? 'medium',
+    }, signal);
+    if (!started) throw new Error('interrupted');
     sessions.set(botId, convo.generation);
     // Hermes has the run and its input: the news in it is told.
     if (news) markTold(botId, convo.generation, news.upTo);
     if (signal.aborted) throw new Error('interrupted');
 
-    const events = await fetch(`${engine.url}/v1/runs/${runId}/events`, { headers: authHeaders(engine), signal });
-    if (!events.ok || !events.body) throw new Error(await failureText(events));
     running.transcript = transcript;
-    for await (const raw of sseEvents(events.body)) {
-      const d = runEvent(raw.data);
-      if (!d) continue;
-      slot(eventName(d));
-      if (d.event === 'approval.request') {
-        const tool = transcript.awaitingApproval();
-        const seq = tool?.seq ?? null;
-        askApproval({ convo, engine, runId, event: d, tool, onSettled: (o) => transcript.approvalSettled(seq, o) });
-        continue;
+    const end = await run.follow(signal, (d) => {
+      if (d.event !== 'approval.request') {
+        transcript.onRunEvent(d);
+        return;
       }
-      if (d.event !== 'approval.responded') runMoved(runId);
-      if (transcript.onRunEvent(d)) break;
-    }
+      const tool = transcript.awaitingApproval();
+      const seq = tool?.seq ?? null;
+      run.askApproval(d, { convo, tool, onSettled: (o) => transcript.approvalSettled(seq, o) });
+    });
+    if (end.how === 'failed') throw new Error(end.error);
+    if (end.how === 'completed') transcript.completed(end.output);
   } catch (e) {
     outcome = signal.aborted ? 'stopped' : 'failed';
     if (outcome === 'failed') console.error('[agent]', botId, e);
     transcript.failed(outcome === 'stopped', e);
   } finally {
-    slot?.();
-    if (run) {
-      runEnded(run.id);
-      // Stopped by the user (or New chat): Hermes would carry on with a run whose stream nobody reads.
-      if (outcome === 'stopped') {
-        const id = run.id;
-        void fetch(`${run.engine.url}/v1/runs/${id}/stop`, { method: 'POST', headers: authHeaders(run.engine), body: '{}', signal: AbortSignal.timeout(10_000) })
-          .then((r) => { if (!r.ok) console.warn(`[agent] ${botId}: Hermes refused to stop run ${id} (HTTP ${r.status}); it may still be running`); })
-          .catch((e) => console.warn(`[agent] ${botId}: couldn't stop run ${id}; it may still be running:`, (e as Error)?.message ?? e));
-      }
-    }
+    // Stopped by the user (or New chat): Hermes would carry on with a run whose stream nobody reads.
+    run.close();
     running.transcript = null;
     transcript.finish(outcome);
     live.turnEnded(botId);

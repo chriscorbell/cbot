@@ -24,6 +24,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/db.ts` | The whole schema, migrations, and a record type per table |
 | `server/src/store.ts` | Bots and rows: reading, appending, rewriting, `Conversation` handles, unread counts |
 | `server/src/agent/turns.ts` | Each bot's turn runner and the turn itself |
+| `server/src/agent/runs.ts` | A Hermes run, for a chat turn, a voice reply or a call summary: starting it, following its events, stopping it |
 | `server/src/agent/run-events.ts` | What a Hermes run sends and answers, checked with zod as it arrives |
 | `server/src/agent/transcript.ts` | What the events of a turn's Hermes run become in the chat |
 | `server/src/agent/live.ts` | What each bot is doing right now |
@@ -63,6 +64,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A turn's text and tool rows | `agent/transcript.ts` | text: nothing, holding, streaming, closed as a message or a note. Tool rows: running, done or error |
 | What a bot is doing | `agent/live.ts` | idle, running. `LiveState` in `types.ts` allows only those two shapes |
 | A conversation | `store.ts` | generation N, then N+1 on New chat. Rows are addressed by bot, generation and seq |
+| A Hermes run | `agent/runs.ts` | started, then completed, failed (Hermes failed or stopped it on its own) or left, or stopped from here; `close` stops one that hasn't ended |
 | A bot's gateway | `engine.ts` | none, starting, ready, error (diagram in the file header). The process is `dispatch-gateway@<bot>.service`, which systemd restarts when it crashes and keeps across server restarts; `units.ts` names the units |
 | A provider sign-in | `signin.ts` | starting, waiting (link and code shown), then done, failed or cancelled once. One per bot, one for Copilot; in memory |
 | A bot's screen | `computer.ts` | lease, display (`displays.ts`, `dispatch-display@<n>.target`), dressed (`desk.ts`). A dressing job (its own scope) holds the display's lock (`held_lock` in `dispatchlib.py`); undressing waits for it, then stops it. What runs on the screen runs as units in the bot's slice, which systemd knows, so nothing searches the process table for it |

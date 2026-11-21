@@ -13,7 +13,8 @@ import type { AuthVars } from './lib/auth.js';
 import { appendRow, conversation, emitBot, getBotRow, ownBot, requireBot, updateRow } from './store.js';
 import { getLive } from './agent/live.js';
 import { computerState, screenForWork } from './computer.js';
-import { engineFor, runSlot } from './engine.js';
+import { engineFor } from './engine.js';
+import { HermesRun } from './agent/runs.js';
 import { instructionsFor } from './agent/prompt.js';
 import { ago, callLength, chatCursor, type ChatCursor } from './agent/catchup.js';
 import type { ActivityKind, CardBody, EventBody, RowBody, VoiceCallRecord } from './types.js';
@@ -228,55 +229,36 @@ voiceApi.post('/session', async (c) => {
 
 /** How long a call's summary may take before the call record keeps no summary. */
 const SUMMARY_WAIT_MS = 120_000;
-const RUN_ENDED = new Set(['failed', 'cancelled', 'interrupted']);
 
 /**
  * A call's title and one-line summary, written by the bot's own agent on the model the call used: one
- * short Hermes run on a session of its own beside the call's, given the transcript. Hermes holds the
- * bot's model access (keys, subscriptions, sign-ins), so whatever model answers the call can summarise
- * it. The run is polled until it ends rather than streamed; only its final answer matters.
+ * short Hermes run (agent/runs.ts) on a session of its own beside the call's, given the transcript.
+ * Hermes holds the bot's model access (keys, subscriptions, sign-ins), so whatever model answers the
+ * call can summarise it. Only the run's final answer matters.
  */
 async function summarizeCall(call: ActiveCall, transcript: { role: string; text: string }[]): Promise<{ title: string | null; summary: string } | null> {
   if (!transcript.length) return null;
   const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : call.botName}: ${t.text}`).join('\n').slice(-12_000);
-  const engine = await engineFor(call.botId);
-  const hermes = (path: string, init: { body?: unknown; timeout: number }) => fetch(`${engine.url}${path}`, {
-    method: init.body === undefined ? 'GET' : 'POST',
-    headers: { 'content-type': 'application/json', ...(engine.key ? { authorization: `Bearer ${engine.key}` } : {}) },
-    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-    signal: AbortSignal.timeout(init.timeout),
-  });
-  const slot = await runSlot(call.botId);
-  let runId = '';
+  const run = new HermesRun(call.botId, 'summary');
   try {
-    const res = await hermes('/v1/runs', {
-      timeout: 30_000,
-      body: {
-        model: call.model || 'hermes-agent',
-        ...(call.provider ? { provider: call.provider } : {}),
-        input: `The voice call between the user and you (${call.botName}) has ended. Its transcript:\n\n${lines}`,
-        instructions: `Describe the voice call in the input in two lines. Line 1: a title of two to four words, sentence case, no period (for example "Tokyo weather check"). Line 2: one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${call.botName} to…"). No labels, no preamble. Use no tools: answer with the two lines only.`,
-        session_id: `${call.conversation}-summary`,
-        model_options: { reasoning_effort: 'low' },
-      },
+    await run.start({
+      model: call.model,
+      provider: call.provider,
+      input: `The voice call between the user and you (${call.botName}) has ended. Its transcript:\n\n${lines}`,
+      instructions: `Describe the voice call in the input in two lines. Line 1: a title of two to four words, sentence case, no period (for example "Tokyo weather check"). Line 2: one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${call.botName} to…"). No labels, no preamble. Use no tools: answer with the two lines only.`,
+      session: `${call.conversation}-summary`,
+      effort: 'low',
+    }, new AbortController().signal);
+    // Counted from when Hermes has the run; a run with no answer by then is stopped (close).
+    const wait = AbortSignal.timeout(SUMMARY_WAIT_MS);
+    const end = await run.follow(wait, () => {}).catch((e: unknown) => {
+      throw wait.aborted ? new Error(`no answer in ${SUMMARY_WAIT_MS / 1000} seconds`) : e;
     });
-    if (!res.ok) throw new Error(`Hermes refused the run (${res.status})`);
-    runId = String(((await res.json()) as { run_id?: unknown }).run_id ?? '');
-    if (!runId) throw new Error('Hermes started no run');
+    if (end.how === 'failed') throw new Error(end.error);
+    return end.how === 'completed' ? parseSummary(end.output) : null;
   } finally {
-    slot();
+    run.close();
   }
-  for (const until = now() + SUMMARY_WAIT_MS; now() < until;) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const res = await hermes(`/v1/runs/${encodeURIComponent(runId)}`, { timeout: 10_000 }).catch(() => null);
-    if (!res?.ok) continue;
-    const run = (await res.json()) as { status?: string; output?: unknown; error?: unknown };
-    if (run.status === 'completed') return parseSummary(String(run.output ?? ''));
-    if (run.status && RUN_ENDED.has(run.status)) throw new Error(String(run.error ?? `the run was ${run.status}`));
-  }
-  void hermes(`/v1/runs/${encodeURIComponent(runId)}/stop`, { body: {}, timeout: 10_000 })
-    .catch((e) => console.warn(`[voice] couldn't stop the summary run ${runId}; it may still be running:`, (e as Error)?.message ?? e));
-  throw new Error(`no answer in ${SUMMARY_WAIT_MS / 1000} seconds`);
 }
 
 /** The model's two lines as a title and a summary. One that ignores the format keeps its sentence as the summary. */

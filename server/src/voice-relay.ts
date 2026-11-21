@@ -27,17 +27,15 @@ import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import { authenticate, crossSite, headerOf } from './lib/auth.js';
-import { engineFor, runSlot, type Engine } from './engine.js';
-import { failureText, sseEvents } from './lib/sse.js';
 import { activityFor, appToolName } from './agent/tools.js';
-import { askApproval, runEnded, runMoved } from './agent/approvals.js';
+import { HermesRun } from './agent/runs.js';
 import { conversation, getBotRow } from './store.js';
 import { SAMPLE_RATE, listenUrl, speak } from './speech.js';
 import { claimCall, type ActiveCall } from './voice.js';
 import { chatNews } from './agent/catchup.js';
 import type { ClientEvent, RealtimeResponse, RelayEvent, SpeechEvent } from './voice-protocol.js';
 import { errorText } from './lib/errors.js';
-import { eventName, runEvent, startedRun, stoppedStatus, type RunEvent } from './agent/run-events.js';
+import type { StepEvent } from './agent/run-events.js';
 
 /** The browser's events, checked as they arrive (voice-protocol.ts describes them). */
 const ClientEventSchema = z.discriminatedUnion('type', [
@@ -86,12 +84,9 @@ interface Reply {
   /** The sentence being spoken right now; aborted on barge-in without ending the turn. */
   tts: AbortController | null;
   state: 'active' | 'done' | 'cancelled';
-  /** The Hermes run behind the reply, once it exists, and its stop request. */
-  runId: string | null;
-  engine: Engine | null;
+  /** The Hermes run behind the reply (agent/runs.ts), once one is being made, and what stopping it found. */
+  run: HermesRun | null;
   stopped: Promise<boolean> | null;
-  /** Settles once the request that creates the run has been answered (or was never sent). */
-  created: Promise<void> | null;
   /** Tool calls running now: words the user says meanwhile are steered into the turn. */
   tools: Set<string>;
   /** The tool started last, which an approval prompt is about. */
@@ -159,9 +154,9 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
  *   stop-speaking  the answer is complete and being spoken: stop it and answer the new words
  *   new            nothing is in progress
  */
-export function planAnswer(r: Pick<Reply, 'state' | 'modelDone' | 'tools' | 'runId'> | null): 'steer' | 'stop-thinking' | 'stop-speaking' | 'new' {
+export function planAnswer(r: (Pick<Reply, 'state' | 'modelDone' | 'tools'> & { run: Pick<HermesRun, 'id'> | null }) | null): 'steer' | 'stop-thinking' | 'stop-speaking' | 'new' {
   if (!r || r.state !== 'active') return 'new';
-  if (!r.modelDone && r.tools.size && r.runId) return 'steer';
+  if (!r.modelDone && r.tools.size && r.run?.id) return 'steer';
   return r.modelDone ? 'stop-speaking' : 'stop-thinking';
 }
 
@@ -390,7 +385,7 @@ export class Relay {
     const n = ++this.replies;
     const r: Reply = {
       id: `resp_${n}`, itemId: `${this.call.id}_a${n}`, items: 1, said, notes: [], abort: new AbortController(), tts: null, state: 'active',
-      runId: null, engine: null, stopped: null, created: null, tools: new Set(), lastTool: null,
+      run: null, stopped: null, tools: new Set(), lastTool: null,
       buffer: '', sentences: [], spoken: [], starts: [], itemText: '', modelDone: false, speaking: false, announced: false,
       hangup: false, held: false, timing: { ...timing, start: Date.now() },
     };
@@ -427,59 +422,31 @@ export class Relay {
     });
   }
 
-  /** A request to the bot's gateway. */
-  private hermes(engine: Engine, path: string, body?: object, signal?: AbortSignal) {
-    return fetch(`${engine.url}${path}`, {
-      method: body ? 'POST' : 'GET',
-      signal,
-      headers: {
-        ...(body ? { 'content-type': 'application/json' } : { accept: 'text/event-stream' }),
-        ...(engine.key ? { authorization: `Bearer ${engine.key}` } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
-  }
-
   /**
-   * One turn of the bot's agent as a Hermes run on the call's own session, then its events. A run,
-   * unlike a streamed /v1/responses request, can be stopped and steered.
+   * One turn of the bot's agent as a Hermes run on the call's own session (agent/runs.ts), then its
+   * events. A run, unlike a streamed /v1/responses request, can be stopped and steered.
    */
   private async run(r: Reply, input: string) {
     if (r.state !== 'active') return;
-    let created = () => {};
-    r.created = new Promise<void>((res) => { created = res; });
-    let slot: ((event?: unknown) => void) | null = null;
+    const run = new HermesRun(this.call.botId, 'voice');
+    r.run = run;
     try {
-      const engine = await engineFor(this.call.botId);
+      await run.gateway();
       if (r.state !== 'active') return;
-      // Right after its gateway starts, a bot's first run goes alone for a moment (runSlot).
-      slot = await runSlot(this.call.botId);
+      // A reply cancelled while the run is being made stops it once it exists (stopRun).
+      const started = await run.start({
+        model: this.call.model, provider: this.call.provider, input, instructions: this.call.instructions,
+        session: this.call.conversation, effort: this.call.effort,
+      }, r.abort.signal);
+      if (!started || r.state !== 'active') return;
+      const end = await run.follow(r.abort.signal, (ev) => {
+        // A reply stopped or finished meanwhile (it hung up) hears no more of its run.
+        if (r.state !== 'active') return true;
+        this.onRunEvent(r, ev);
+      });
       if (r.state !== 'active') return;
-      r.engine = engine;
-      // Not aborted with the reply: a run Hermes created but nobody knows the id of would hold the
-      // call's session until it finished. A reply cancelled meanwhile stops the run once it exists.
-      const res = await this.hermes(engine, '/v1/runs', {
-        model: this.call.model || 'hermes-agent',
-        ...(this.call.provider ? { provider: this.call.provider } : {}),
-        input,
-        instructions: this.call.instructions,
-        session_id: this.call.conversation,
-        model_options: { reasoning_effort: this.call.effort },
-      }, AbortSignal.timeout(30_000));
-      if (!res.ok) throw new Error(await failureText(res));
-      r.runId = startedRun(await res.json());
-      if (!r.runId) throw new Error('Hermes started no run');
-      created();
-      if (r.state !== 'active') return;
-      const events = await this.hermes(engine, `/v1/runs/${r.runId}/events`, undefined, r.abort.signal);
-      if (!events.ok || !events.body) throw new Error(await failureText(events));
-      for await (const raw of sseEvents(events.body)) {
-        const ev = runEvent(raw.data);
-        if (!ev) continue;
-        slot(eventName(ev));
-        if (r.state !== 'active') return;
-        if (this.onRunEvent(r, ev)) break;
-      }
+      if (end.how === 'failed') throw new Error(end.error);
+      if (end.how === 'completed') this.completed(r, end.output);
     } catch (e) {
       if (r.state !== 'active') return; // cancelled
       console.warn(`[voice] ${this.call.id} ${r.id}: the turn failed: ${errorText(e)}`);
@@ -487,10 +454,7 @@ export class Relay {
       // Say so rather than going quiet.
       if (!r.spoken.length && !r.sentences.length) r.buffer = 'Sorry, I couldn’t get an answer just then.';
     } finally {
-      slot?.();
-      created();
-      // Its prompts can't be answered once nobody follows the run.
-      if (r.runId) runEnded(r.runId);
+      run.close();
     }
     if (r.state !== 'active' || r.modelDone) return;
     this.say(r, [r.buffer]); // the last words, with or without a full stop
@@ -499,17 +463,24 @@ export class Relay {
     void this.pump(r);
   }
 
-  /** Handles one event of the run. True when the run is over. */
-  private onRunEvent(r: Reply, d: RunEvent): boolean {
-    if (r.runId && d.event !== 'approval.request' && d.event !== 'approval.responded') runMoved(r.runId);
+  /** The run completed. Text that never streamed (rare) is in its final answer. */
+  private completed(r: Reply, output: string) {
+    if (output && !r.hangup && !r.buffer && !r.spoken.length && !r.sentences.length) {
+      const [done, rest] = cutSentences(`${output}\n`);
+      this.say(r, [...done, rest]);
+    }
+  }
+
+  /** Handles one event of the run. */
+  private onRunEvent(r: Reply, d: StepEvent): void {
     switch (d.event) {
       case 'message.delta': {
-        if (r.hangup) return false;
+        if (r.hangup) return;
         r.timing.firstToken ??= Date.now();
         const [done, rest] = cutSentences(r.buffer + d.delta);
         r.buffer = rest;
         this.say(r, done);
-        return false;
+        return;
       }
       case 'tool.started': {
         // Text before a tool call is finished: speak it now.
@@ -525,61 +496,43 @@ export class Relay {
           r.hangup = true;
           r.modelDone = true;
           void this.pump(r);
-          return false;
+          return;
         }
         r.lastTool = { name, label: activityFor(raw).label };
         if (name !== 'tool_search' && name !== 'tool_describe') this.send({ type: 'dispatch.activity', response_id: r.id, label: r.lastTool.label });
-        return false;
+        return;
       }
       case 'tool.completed':
         r.tools.delete(d.tool_call_id ?? d.tool ?? '');
-        return false;
+        return;
       case 'approval.request': {
         // Hermes asks before an action: the card shows in the bot's chat and the call waits for the
         // answer there (agent/approvals.ts), for as long as Hermes waits.
         const bot = getBotRow(this.call.botId);
         const tool = r.lastTool;
-        const asked = bot && r.engine && r.runId ? askApproval({
-          convo: conversation(bot.id, bot.generation), engine: r.engine, runId: r.runId, event: d, tool,
+        const asked = bot && r.run ? r.run.askApproval(d, {
+          convo: conversation(bot.id, bot.generation), tool,
           onSettled: (o) => { if (r.state === 'active') this.send({ type: 'dispatch.activity', response_id: r.id, label: o === 'denied' ? '' : tool?.label ?? '' }); },
         }) : null;
         console.log(`[voice] ${this.call.id} ${r.id}: ${asked ? 'asked in the chat' : 'could not ask'} before: ${clip(d.command ?? d.description ?? '', 160)}`);
         if (asked) this.send({ type: 'dispatch.activity', response_id: r.id, label: 'Waiting for you in the chat' });
-        return false;
+        return;
       }
-      case 'approval.responded':
-        return false;
-      case 'run.completed': {
-        // Text that never streamed (rare) is in the run's output.
-        const out = typeof d.output === 'string' ? d.output.trim() : '';
-        if (out && !r.hangup && !r.buffer && !r.spoken.length && !r.sentences.length) {
-          const [done, rest] = cutSentences(`${out}\n`);
-          this.say(r, [...done, rest]);
-        }
-        return true;
-      }
-      case 'run.cancelled':
-      case 'run.interrupted':
-        return true;
-      case 'run.failed':
-        throw new Error(typeof d.error === 'string' && d.error ? d.error : 'the run failed');
       default:
-        return false;
+        return;
     }
   }
 
   /** Tells the running turn what the user just said. Falls back to a new turn if it won't take it. */
   private async steer(r: Reply, text: string, timing?: Timing) {
     this.cutNote = null; // what was cut off was said before this work; it doesn't matter now
-    let cause = '';
-    const res = await this.hermes(r.engine!, `/v1/runs/${r.runId}/steer`, { input: `[Said on the call while you were working]\n${text}` })
-      .catch((e) => { cause = String((e as Error)?.message ?? e); return null; });
-    if (res?.ok && r.state === 'active') {
+    const res = await r.run!.steer(`[Said on the call while you were working]\n${text}`);
+    if (res.ok && r.state === 'active') {
       console.log(`[voice] ${this.call.id} ${r.id}: steered "${clip(text, 80)}" into the running turn`);
       this.release(r);
       return;
     }
-    console.log(`[voice] ${this.call.id} ${r.id}: the run took no steer (${res ? `HTTP ${res.status}` : cause}); asking again`);
+    console.log(`[voice] ${this.call.id} ${r.id}: the run took no steer (${res.why}); asking again`);
     // Something newer may own the call by now (another utterance started a turn while this steer was
     // in flight): decide again against that reply, so two replies never run at once.
     if (this.reply !== r) return this.answer(text, timing);
@@ -589,16 +542,7 @@ export class Relay {
 
   /** Stops the turn's run. True when the user's words stay in the agent's history (the run had started). */
   private stopRun(r: Reply): Promise<boolean> {
-    r.stopped ??= (async () => {
-      await r.created;
-      if (!r.engine || !r.runId) return false;
-      const res = await this.hermes(r.engine, `/v1/runs/${r.runId}/stop`, {}).catch((e) => {
-        console.warn(`[voice] ${this.call.id} ${r.id}: couldn't stop run ${r.runId}; it may still be running:`, (e as Error)?.message ?? e);
-        return null;
-      });
-      const status = res?.ok ? stoppedStatus(await res.json().catch(() => null)) : '';
-      return status !== 'cancelled' && status !== '';
-    })();
+    r.stopped ??= (r.run?.stop() ?? Promise.resolve('')).then((status) => status !== 'cancelled' && status !== '');
     return r.stopped;
   }
 
