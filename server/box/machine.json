@@ -1,0 +1,13 @@
+{
+  "//": "Where things live on the computer the bots share, and how screens map to displays and ports. server/src/machine.ts and server/box/dispatchlib.py both read this file, so the server and the box scripts can't disagree. scripts/provision.sh creates botsRoot, boxRoot and hermesRoot.",
+  "botsRoot": "/root/dispatch",
+  "boxRoot": "/opt/dispatch",
+  "hermesRoot": "/opt/hermes",
+  "logs": "/var/log/dispatch",
+  "homePort": 7391,
+  "enginePortBase": 8650,
+  "cdpPortBase": 9200,
+  "vncPortBase": 5900,
+  "primaryDisplay": 99,
+  "firstBotDisplay": 100
+}

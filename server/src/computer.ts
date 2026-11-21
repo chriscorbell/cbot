@@ -2,7 +2,7 @@ import { db, now, type BotRecord, type ScreenRecord } from './db.js';
 import { hub } from './lib/hub.js';
 import { dressScreen, resetScreen, undressScreen, type DeskBot } from './desk.js';
 import { box } from './box.js';
-import { cdpPortFor, displayNumber, libraryDir, LIBRARY_ROOT, profileDir, PROFILES_ROOT } from './machine.js';
+import { cdpPortFor, displayNumber, FIRST_BOT_DISPLAY, libraryDir, LIBRARY_ROOT, profileDir, PROFILES_ROOT } from './machine.js';
 import { ensureDisplay, SCREEN_SIZE, stopDisplay } from './displays.js';
 import type { ComputerState } from './types.js';
 import { errorText } from './lib/errors.js';
@@ -59,7 +59,7 @@ function claim(userId: string, botId: string): { screenId: string; fresh: boolea
   const taken = new Set(db.prepare<[], Pick<ScreenRecord, 'screen_id'>>('SELECT screen_id FROM screens').all().map((r) => r.screen_id));
   let screenId = 'default';
   if (!isPrimaryBot(botId) || taken.has(screenId)) {
-    let n = 100;
+    let n = FIRST_BOT_DISPLAY;
     while (taken.has(`screen-${n}`)) n++;
     screenId = `screen-${n}`;
   }

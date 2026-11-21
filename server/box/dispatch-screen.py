@@ -232,7 +232,10 @@ def build_extension(warnings):
     digest = hashlib.sha256(der).digest()
     ext_id = ''.join(chr(97 + (b >> 4)) + chr(97 + (b & 15)) for b in digest[:16])
     names = sorted(os.listdir(src))
-    content = hashlib.sha256()
+    # The pages name the home screen server as __HOME_URL__; the port comes from machine.json, so a
+    # change there repacks the extension too.
+    home_url = dispatchlib.HOME_URL.encode()
+    content = hashlib.sha256(home_url + b'\0')
     for name in names:
         content.update(name.encode() + b'\0' + open(os.path.join(src, name), 'rb').read() + b'\0')
     src_hash = content.hexdigest()
@@ -243,7 +246,7 @@ def build_extension(warnings):
     packed = io.BytesIO()
     with zipfile.ZipFile(packed, 'w', zipfile.ZIP_DEFLATED) as z:
         for name in names:
-            data = open(os.path.join(src, name), 'rb').read()
+            data = open(os.path.join(src, name), 'rb').read().replace(b'__HOME_URL__', home_url)
             if name == 'manifest.json':
                 manifest = json.loads(data.decode('utf-8'))
                 manifest['version'] = version

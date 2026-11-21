@@ -20,6 +20,7 @@ const ROOT = BOX_ROOT;
 const SCRIPT = `${ROOT}/dispatch-screen.py`;
 /** Source file under server/box/ -> where it lives under /opt/dispatch on the computer. */
 const BOX_FILES: Record<string, string> = {
+  'machine.json': 'machine.json',
   'dispatchlib.py': 'dispatchlib.py',
   'dispatch-screen.py': 'dispatch-screen.py',
   'dispatch-shell.py': 'dispatch-shell.py',

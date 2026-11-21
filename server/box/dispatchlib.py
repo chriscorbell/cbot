@@ -16,15 +16,20 @@ import subprocess
 import time
 import urllib.request
 
-ROOT = '/opt/dispatch'
+# Where things live on the computer, and the port and display numbers: machine.json beside this file,
+# which server/src/machine.ts reads too (desk.ts installs it here with the scripts).
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'machine.json'), encoding='utf-8') as _f:
+    MACHINE = json.load(_f)
+
+ROOT = MACHINE['boxRoot']
 SCREENS = ROOT + '/screens'
 JOBS = ROOT + '/jobs'
 EXT = ROOT + '/ext'
-LOGS = '/var/log/dispatch'
-# The bots' Chrome profiles and Libraries. server/src/machine.ts has the same paths (test/machine.test.ts checks).
-PROFILES = '/root/dispatch/profiles'
-LIBRARY = '/root/dispatch/files'
-HOME_PORT = 7391
+LOGS = MACHINE['logs']
+# The bots' Chrome profiles and Libraries.
+PROFILES = MACHINE['botsRoot'] + '/profiles'
+LIBRARY = MACHINE['botsRoot'] + '/files'
+HOME_PORT = MACHINE['homePort']
 HOME_URL = 'http://127.0.0.1:%d' % HOME_PORT
 BROWSER_CLASS = 'DispatchBrowser'
 SCREEN_FLAG = '--dispatch-screen'
@@ -809,7 +814,7 @@ def stop_browser(bot_id, started_by_us=False):
 
 
 def cdp_port(n):
-    return 9200 + int(n)
+    return MACHINE['cdpPortBase'] + int(n)
 
 
 def cdp(n, path, method='GET', timeout=3):

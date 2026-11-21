@@ -1,26 +1,35 @@
-// The box scripts keep their own copies of a few of machine.ts's values; they must agree.
+// machine.ts and the box scripts read the same server/box/machine.json (server/box/test_dispatchlib.py
+// checks the Python side reads it the same way).
 import { expect, test } from 'vitest';
 import fs from 'node:fs';
-import path from 'node:path';
-import { BOX_ROOT, cdpPortFor, displayFor, displayNumber, LIBRARY_ROOT, PROFILES_ROOT } from '../src/machine.js';
+import {
+  BOX_ROOT, BOTS_ROOT, cdpPortFor, displayFor, displayNumber, ENGINE_PORT_BASE, FIRST_BOT_DISPLAY, HERMES_ROOT, HOME_PORT,
+  LIBRARY_ROOT, LOGS_ROOT, MACHINE_FILE, PROFILES_ROOT, vncPortFor,
+} from '../src/machine.js';
 
-const dispatchlib = fs.readFileSync(path.join(import.meta.dirname, '../box/dispatchlib.py'), 'utf8');
-const pyString = (name: string) => new RegExp(`^${name} = '([^']*)'`, 'm').exec(dispatchlib)?.[1];
+const machine = JSON.parse(fs.readFileSync(MACHINE_FILE, 'utf8'));
 
-test('the box scripts use the same folders', () => {
-  expect(pyString('PROFILES')).toBe(PROFILES_ROOT);
-  expect(pyString('LIBRARY')).toBe(LIBRARY_ROOT);
-  expect(pyString('ROOT')).toBe(BOX_ROOT);
+test('the folders and ports come from machine.json', () => {
+  expect(BOTS_ROOT).toBe(machine.botsRoot);
+  expect(PROFILES_ROOT).toBe(`${machine.botsRoot}/profiles`);
+  expect(LIBRARY_ROOT).toBe(`${machine.botsRoot}/files`);
+  expect(BOX_ROOT).toBe(machine.boxRoot);
+  expect(HERMES_ROOT).toBe(machine.hermesRoot);
+  expect(LOGS_ROOT).toBe(machine.logs);
+  expect(HOME_PORT).toBe(machine.homePort);
+  expect(ENGINE_PORT_BASE).toBe(machine.enginePortBase);
+  expect(FIRST_BOT_DISPLAY).toBe(machine.firstBotDisplay);
 });
 
-test('the box scripts compute the same DevTools port', () => {
-  expect(dispatchlib).toMatch(/def cdp_port\(n\):\n {4}return 9200 \+ int\(n\)/);
-  expect(cdpPortFor('default')).toBe(9299);
-  expect(cdpPortFor('screen-101')).toBe(9301);
-});
-
-test('screen ids name displays', () => {
-  expect(displayFor('default')).toBe(':99');
+test('screen ids name displays, and displays name ports', () => {
+  expect(displayFor('default')).toBe(`:${machine.primaryDisplay}`);
   expect(displayFor(null)).toBe(':99');
   expect(displayNumber('screen-100')).toBe(100);
+  expect(cdpPortFor('default')).toBe(9299);
+  expect(cdpPortFor('screen-101')).toBe(machine.cdpPortBase + 101);
+  expect(vncPortFor(101)).toBe(machine.vncPortBase + 101);
+});
+
+test('the box scripts get machine.json with them', () => {
+  expect(fs.readFileSync(new URL('../src/desk.ts', import.meta.url), 'utf8')).toMatch(/'machine\.json': 'machine\.json'/);
 });

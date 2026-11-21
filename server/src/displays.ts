@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import { ByteQueue, rfbHandshake } from './lib/rfb.js';
-import { vncPortFor } from './machine.js';
+import { LOGS_ROOT as LOGS, vncPortFor } from './machine.js';
 
 /**
  * The bots' screens. Each one is an X display of its own on this machine: TigerVNC's Xvnc (the X
@@ -19,7 +19,6 @@ import { vncPortFor } from './machine.js';
 export const SCREEN_SIZE = { width: 1440, height: 900 };
 
 
-const LOGS = '/var/log/dispatch';
 const busDir = (n: number) => `/run/dispatch/display-${n}`;
 const busAddress = (n: number) => `unix:path=${busDir(n)}/bus`;
 const xLock = (n: number) => `/tmp/.X${n}-lock`;
