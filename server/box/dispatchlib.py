@@ -1,7 +1,15 @@
 """Shared helpers for the Dispatch desk scripts (dispatch-screen.py, dispatch-home.py, dispatch-shell.py).
 
-Everything here is per X display: display :N is "screen N". Whatever we start for a screen carries
-DISPATCH_SCREEN=N in its environment, which is how we find it again later.
+Everything here is per X display: display :N is "screen N". What we start for a screen runs as a
+systemd unit, outside the server's own (server/src/units.ts has the layout), so a restart of the
+server leaves it running and systemd knows where it is:
+
+  dispatch-chrome-<bot>.service          the bot's Chrome, in the bot's slice
+  dispatch-shell-<n>.service             screen n's wallpaper and dock, in the slice of its bot
+  dispatch-term|files|app-<n>-<ms>.scope a terminal, file manager or app opened on screen n
+  dispatch-termbus-<n>.service           the small bus screen n's terminals use
+  dispatch-home.service                  the home screen server, one for the machine
+  dispatch-job-<job>.scope               a dressing or setup job (dispatch-screen.py)
 """
 import configparser
 import contextlib
@@ -26,6 +34,7 @@ SCREENS = ROOT + '/screens'
 JOBS = ROOT + '/jobs'
 EXT = ROOT + '/ext'
 LOGS = MACHINE['logs']
+RUN = MACHINE['run']
 # The bots' Chrome profiles and Libraries.
 PROFILES = MACHINE['botsRoot'] + '/profiles'
 LIBRARY = MACHINE['botsRoot'] + '/files'
@@ -200,12 +209,6 @@ def display_procs(n, names):
     return found
 
 
-def marked_pids(n):
-    """Everything we started for screen n (carries DISPATCH_SCREEN=n)."""
-    me = os.getpid()
-    return [pid for pid in all_pids() if pid != me and environ_of(pid).get('DISPATCH_SCREEN') == str(int(n))]
-
-
 def stop_pids(pids, grace=4.0):
     pids = [p for p in pids if alive(p)]
     for p in pids:
@@ -224,6 +227,91 @@ def stop_pids(pids, grace=4.0):
                 pass
 
 
+# ---------------------------------------------------------------- systemd
+
+# The slices (server/src/units.ts): a display's pieces, and the machine-wide ones like the home server.
+DISPLAYS_SLICE = 'dispatch-displays.slice'
+MACHINE_SLICE = 'dispatch.slice'
+HOME_UNIT = 'dispatch-home.service'
+
+
+def unit_key(bot_id):
+    """A bot id as part of a unit name, escaped as systemd-escape does it (units.ts unitKey): a slice's
+    name is a path, and `-` in it would make a slice inside a slice."""
+    return ''.join(c if (c.isascii() and (c.isalnum() or c == '_')) or (c == '.' and i > 0) else '\\x%02x' % ord(c)
+                   for i, c in enumerate(bot_id))
+
+
+def bot_slice(bot_id):
+    return 'dispatch-bot-%s.slice' % unit_key(bot_id)
+
+
+def chrome_unit(bot_id):
+    return 'dispatch-chrome-%s.service' % unit_key(bot_id)
+
+
+def shell_unit(n):
+    return 'dispatch-shell-%d.service' % int(n)
+
+
+def termbus_unit(n):
+    return 'dispatch-termbus-%d.service' % int(n)
+
+
+def screen_slice(n):
+    """Where what runs on screen n goes: the slice of the bot the screen is dressed for, so it counts
+    against that bot's memory, or the displays' own when the screen wears no bot's look."""
+    bot_id = ((look_for(n) or {}).get('bot') or {}).get('id')
+    return bot_slice(bot_id) if bot_id else DISPLAYS_SLICE
+
+
+def systemctl(*args, timeout=60):
+    return run(['systemctl'] + list(args), timeout=timeout)
+
+
+def unit_active(unit):
+    return systemctl('is-active', '--quiet', unit, timeout=15)[0] == 0
+
+
+def unit_main_pid(unit):
+    code, out = systemctl('show', '-p', 'MainPID', '--value', unit, timeout=15)
+    out = out.strip()
+    return int(out) if code == 0 and out.isdigit() and int(out) > 1 else None
+
+
+def active_units(pattern):
+    """Names of the running units that match a glob, such as dispatch-chrome-*."""
+    code, out = systemctl('list-units', '--plain', '--no-legend', '--state=active', pattern, timeout=15)
+    return [line.split()[0] for line in out.splitlines() if line.strip()] if code == 0 else []
+
+
+def stop_units(*units):
+    """Stop units (globs allowed) and wait for them; ones that aren't there count as stopped."""
+    if units:
+        systemctl('stop', *units, timeout=120)
+
+
+def service_argv(unit, slice_, argv, env, cwd=None):
+    """systemd-run for a long-lived program as a service of its own: its environment, its folder, its
+    slice. Its output goes to the journal (journalctl -u <unit>), and once it stops it is forgotten."""
+    out = ['systemd-run', '--quiet', '--collect', '--unit=' + unit, '--slice=' + slice_,
+           '--property=TimeoutStopSec=10', '--working-directory=' + (cwd or env.get('HOME') or '/')]
+    out += ['--setenv=%s=%s' % (k, v) for k, v in sorted(env.items())]
+    return out + ['--'] + list(argv)
+
+
+def start_service(unit, slice_, argv, env, cwd=None):
+    code, out = run(service_argv(unit, slice_, argv, env, cwd), timeout=30)
+    if code != 0:
+        raise RuntimeError('could not start %s: %s' % (unit, out.strip()[-200:]))
+
+
+def scope_argv(unit, slice_, argv):
+    """systemd-run --scope: the program runs as this process's child, exec'd in place (same pid), in a
+    scope of its own in the slice, so it outlives the script that starts it and the server's restarts."""
+    return ['systemd-run', '--scope', '--quiet', '--collect', '--unit=' + unit, '--slice=' + slice_, '--'] + list(argv)
+
+
 # ---------------------------------------------------------------- look and feel of things we start
 
 def light_theme():
@@ -240,15 +328,22 @@ def icon_theme():
     return 'hicolor'
 
 
+def display_bus(n):
+    """The session bus of display :n that the server starts with it (deploy/dispatch-bus@.service)."""
+    return '%s/display-%d/bus' % (RUN, int(n))
+
+
 def session_bus(n):
     """D-Bus session bus for screen n.
 
-    A display that runs a desktop session (panel, settings daemon, or just the window manager the app
-    starts with each display) keeps that session's bus. A bare display gets its own small bus, so
-    single-instance apps (file manager, terminal) started there open on that display instead of
+    A display the server runs has its own session bus at a fixed address. Another display that runs a
+    desktop session (panel, settings daemon) keeps that session's bus. A bare display gets its own small
+    bus, so single-instance apps (file manager, terminal) started there open on that display instead of
     joining an instance on another screen.
     """
-    for pid in display_procs(n, ('xfce4-panel', 'xfsettingsd', 'xfdesktop', 'xfce4-session', 'xfwm4')):
+    if os.path.exists(display_bus(n)):
+        return 'unix:path=' + display_bus(n)
+    for pid in display_procs(n, ('xfce4-panel', 'xfsettingsd', 'xfdesktop', 'xfce4-session')):
         address = environ_of(pid).get('DBUS_SESSION_BUS_ADDRESS')
         if address:
             return address
@@ -257,31 +352,43 @@ def session_bus(n):
 
 def private_bus(n):
     """A small bus that belongs to screen n alone, with its own settings store. Terminals always use it,
-    so they can look light without changing the terminal settings of the main desktop."""
+    so they can look light without changing the terminal settings of the main desktop. It runs as
+    dispatch-termbus-<n>.service at a fixed address beside the screen's other state."""
     state_path = screen_dir(n) + '/bus.json'
+    socket = screen_dir(n) + '/termbus'
+    address = 'unix:path=' + socket
+    unit = termbus_unit(n)
     state = read_json(state_path) or {}
-    if state.get('address') and alive(state.get('pid')) and comm(int(state['pid'])) == 'dbus-daemon':
-        if state.get('made') == BUS_MADE:
-            return state['address']
-        stop_pids([int(state['pid'])], grace=1.0)      # made by an older version of this code
+    if state.get('made') == BUS_MADE and unit_active(unit) and os.path.exists(socket):
+        return address
     daemon = shutil.which('dbus-daemon')
     if not daemon:
         return None
+    stop_units(unit)
     env = base_env(n)
     # Services this bus starts (the Xfce settings store) keep their files in the screen's own folder,
     # so what we set for this screen never changes the settings of the main desktop.
     env['XDG_CONFIG_HOME'] = screen_dir(n) + '/config'
     os.makedirs(env['XDG_CONFIG_HOME'], exist_ok=True)
-    code, out = run([daemon, '--session', '--fork', '--print-address=1', '--print-pid=1'], env=env, timeout=10)
-    lines = [l.strip() for l in out.splitlines() if l.strip()]
-    if code != 0 or len(lines) < 2 or not lines[1].isdigit():
+    try:
+        os.unlink(socket)
+    except OSError:
+        pass
+    try:
+        start_service(unit, DISPLAYS_SLICE, [daemon, '--session', '--nofork', '--nopidfile', '--address=' + address], env)
+    except RuntimeError:
         return None
-    write_json(state_path, {'address': lines[0], 'pid': int(lines[1]), 'made': BUS_MADE})
-    _light_terminal(dict(base_env(n), DBUS_SESSION_BUS_ADDRESS=lines[0]))
-    return lines[0]
+    end = time.time() + 5
+    while not os.path.exists(socket) and time.time() < end:
+        time.sleep(0.05)
+    if not os.path.exists(socket):
+        return None
+    write_json(state_path, {'address': address, 'made': BUS_MADE})
+    _light_terminal(dict(base_env(n), DBUS_SESSION_BUS_ADDRESS=address))
+    return address
 
 
-BUS_MADE = 2
+BUS_MADE = 3
 _TERMINAL_LOOK = (
     ('/background-mode', 'string', 'TERMINAL_BACKGROUND_SOLID'),
     ('/color-use-theme', 'bool', 'false'),
@@ -314,7 +421,6 @@ def base_env(n):
         'LANG': os.environ.get('LANG') or 'C.UTF-8',
         'TZ': os.environ.get('TZ') or 'UTC',
         'DISPLAY': ':%d' % int(n),
-        'DISPATCH_SCREEN': str(int(n)),
         'GTK_THEME': light_theme(),
         'XDG_CURRENT_DESKTOP': 'XFCE',
         'NO_AT_BRIDGE': '1',
@@ -334,8 +440,9 @@ def screen_env(n):
     return env
 
 
-def spawn(argv, env, log_name, cwd=None):
-    """Start a long-lived program fully detached from us. Returns its pid."""
+def spawn(argv, env, log_name, unit, slice_, cwd=None):
+    """Start a long-lived program in a scope of its own (scope_argv), its output in LOGS/<log_name>.log.
+    Returns its pid."""
     os.makedirs(LOGS, exist_ok=True)
     for child in list(_children):          # reap what has exited since last time
         if child.poll() is not None:
@@ -348,12 +455,24 @@ def spawn(argv, env, log_name, cwd=None):
         pass
     log = open(path, 'ab')
     try:
-        p = subprocess.Popen(argv, env=env, cwd=cwd or env.get('HOME') or '/', stdin=subprocess.DEVNULL,
-                             stdout=log, stderr=log, start_new_session=True, close_fds=True)
+        p = subprocess.Popen(scope_argv(unit, slice_, argv), env=env, cwd=cwd or env.get('HOME') or '/',
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
     finally:
         log.close()
     _children.append(p)
     return p.pid
+
+
+def spawn_on_screen(n, kind, argv, env, cwd=None):
+    """A terminal, file manager or app on screen n, in the slice of the screen's bot (screen_slice).
+    `kind` names its scope (dispatch-<kind>-<n>-<ms>.scope) and its log, so undressing finds it."""
+    unit = 'dispatch-%s-%d-%d.scope' % (kind, int(n), int(time.time() * 1000))
+    return spawn(argv, env, '%s-%d' % (kind, int(n)), unit, screen_slice(n), cwd=cwd)
+
+
+def screen_scopes(n):
+    """Globs for every scope spawn_on_screen started on screen n."""
+    return ['dispatch-%s-%d-*.scope' % (kind, int(n)) for kind in ('term', 'files', 'app')]
 
 
 _children = []
@@ -662,7 +781,7 @@ def open_terminal(n, command=None, title=None):
             argv += ['-e', 'bash -c %s' % shlex.quote(keep)]
     else:
         raise RuntimeError('no terminal program on this computer')
-    pid = spawn(argv, env, 'term-%d' % int(n))
+    pid = spawn_on_screen(n, 'term', argv, env)
     settle_window(n, pid)
     return pid
 
@@ -693,9 +812,9 @@ def open_files(n):
     start = LIBRARY if os.path.isdir(LIBRARY) else env['HOME']
     for name in ('thunar', 'nautilus', 'nemo', 'pcmanfm', 'caja'):
         if shutil.which(name):
-            return spawn([name, start], env, 'files-%d' % int(n))
+            return spawn_on_screen(n, 'files', [name, start], env)
     if shutil.which('xdg-open'):
-        return spawn(['xdg-open', start], env, 'files-%d' % int(n))
+        return spawn_on_screen(n, 'files', ['xdg-open', start], env)
     raise RuntimeError('no file manager on this computer')
 
 
@@ -716,7 +835,7 @@ def launch_app(n, app_id):
         return open_files(n)
     if app['rank'] == 2:
         return open_terminal(n)
-    return spawn(app['argv'], screen_env(n), 'app-%d' % int(n), cwd=app['cwd'])
+    return spawn_on_screen(n, 'app', app['argv'], screen_env(n), cwd=app['cwd'])
 
 
 # ---------------------------------------------------------------- Chrome
@@ -732,13 +851,6 @@ def chrome_bin():
 
 def profile_dir(bot_id):
     return '%s/%s' % (PROFILES, bot_id)
-
-
-def _user_data_dir(args):
-    for a in args:
-        if a.startswith('--user-data-dir='):
-            return a.split('=', 1)[1].rstrip('/')
-    return None
 
 
 def _marked_screen(args):
@@ -762,54 +874,36 @@ def x_display_of(pid, candidates=None):
     return None
 
 
-def browser_procs():
-    """Main (browser) processes of every running Chrome: [(pid, user data dir, display number)].
-
-    The display is known for the Chromes we start (they carry our screen flag) and for browsers whose
-    environment is still readable; for the rest it is None (see x_display_of).
-    """
-    found = []
-    for pid in all_pids():
-        args = cmdline(pid)
-        if not args:
-            continue
-        # For a moment after launch the process is still the wrapper script run by a shell.
-        prog = args[1] if os.path.basename(args[0]) in ('bash', 'sh', 'dash') and len(args) > 1 else args[0]
-        if 'chrom' not in os.path.basename(prog).lower():
-            continue
-        if any(a.startswith('--type=') for a in args):
-            continue
-        if 'crashpad' in prog:
-            continue
-        disp = _marked_screen(args)
-        if disp is None:
-            disp = display_number(environ_of(pid).get('DISPLAY'))
-        found.append((pid, _user_data_dir(args), disp))
-    return found
+def _browser_of(unit):
+    """(main pid, display) of the Chrome a running unit holds, or None."""
+    pid = unit_main_pid(unit)
+    return (pid, _marked_screen(cmdline(pid))) if pid else None
 
 
 def our_browser(bot_id):
-    """[(pid, display)] of the Chrome we run for this bot (matched by its profile folder)."""
-    want = profile_dir(bot_id)
-    return [(pid, disp) for pid, udd, disp in browser_procs() if udd == want]
+    """[(pid, display)] of the Chrome we run for this bot (its unit, dispatch-chrome-<bot>.service)."""
+    unit = chrome_unit(bot_id)
+    found = _browser_of(unit) if unit_active(unit) else None
+    return [found] if found else []
 
 
-def stop_browser(bot_id, started_by_us=False):
-    """Stop the Chrome that uses this bot's profile. Never touches any other Chrome.
+def chrome_units():
+    """[(unit, pid, display)] of every bot's Chrome that runs."""
+    found = []
+    for unit in active_units('dispatch-chrome-*.service'):
+        browser = _browser_of(unit)
+        if browser:
+            found.append((unit,) + browser)
+    return found
 
-    With started_by_us only a Chrome that carries our screen flag counts, so a browser somebody else
-    runs on that profile is left alone.
-    """
-    want = '--user-data-dir=%s' % profile_dir(bot_id)
-    mains = [pid for pid, _ in our_browser(bot_id)]
-    if started_by_us:
-        mains = [pid for pid in mains if _marked_screen(cmdline(pid)) is not None]
-    if not mains:
+
+def stop_browser(bot_id):
+    """Stop the Chrome we run for this bot, every process of it. Never touches any other Chrome.
+    Returns whether it was running."""
+    unit = chrome_unit(bot_id)
+    if not unit_active(unit):
         return False
-    stop_pids(mains, grace=6.0)
-    if not started_by_us:
-        leftovers = [pid for pid in all_pids() if any(a.rstrip('/') == want for a in cmdline(pid))]
-        stop_pids(leftovers, grace=1.0)
+    stop_units(unit)
     return True
 
 
@@ -910,10 +1004,10 @@ def start_browser(n, bot_id, accent=None, restart=False, log=None):
         stop_browser(bot_id)
         running = []
     # A Chrome of ours left on this screen for a bot that no longer lives here would fight over the DevTools port.
-    for pid, udd, disp in browser_procs():
-        if disp == n and udd and udd.startswith(PROFILES + '/') and udd != profile_dir(bot_id):
-            say('stopping stale Chrome %d (%s) on screen %d' % (pid, udd, n))
-            stop_browser(os.path.basename(udd))
+    for unit, pid, disp in chrome_units():
+        if disp == n and unit != chrome_unit(bot_id):
+            say('stopping stale Chrome %d (%s) on screen %d' % (pid, unit, n))
+            stop_units(unit)
     started = False
     if not running:
         prepare_profile(bot_id, accent)
@@ -928,7 +1022,8 @@ def start_browser(n, bot_id, accent=None, restart=False, log=None):
             '--start-maximized',
             '%s=%d' % (SCREEN_FLAG, n),     # ours: lets us tell later which screen this Chrome is on
         ]
-        spawn(argv, env, 'chrome-%d' % n)
+        # In the bot's slice, under its memory limit, outside the server's control group.
+        start_service(chrome_unit(bot_id), bot_slice(bot_id), argv, env)
         started = True
     # Wait until DevTools answers; that is when the browser is really up.
     deadline = time.time() + (40 if started else 6)
@@ -944,7 +1039,7 @@ def start_browser(n, bot_id, accent=None, restart=False, log=None):
             time.sleep(0.4)
     mains = our_browser(bot_id)
     if not mains:
-        raise RuntimeError('Chrome did not start on screen %d (see %s/chrome-%d.log)' % (n, LOGS, n))
+        raise RuntimeError('Chrome did not start on screen %d (journalctl -u %s says why)' % (n, chrome_unit(bot_id)))
     pid = mains[0][0]
     if not up:
         warnings.append('Chrome is running on screen %d but DevTools port %d does not answer' % (n, cdp_port(n)))
@@ -1011,9 +1106,11 @@ def open_browser(n):
             if wins:
                 activate_window(n, wins[-1]['id'])
                 return mains[0]
-            # Running without a window: ask it for one.
-            return spawn([chrome_bin(), '--user-data-dir=%s' % profile_dir(bot_id), '--class=%s' % BROWSER_CLASS,
-                          '--new-window'], screen_env(n), 'chrome-%d' % int(n))
+            # Running without a window: ask it for one. This second Chrome hands the request to the
+            # running one and exits.
+            run([chrome_bin(), '--user-data-dir=%s' % profile_dir(bot_id), '--class=%s' % BROWSER_CLASS, '--new-window'],
+                env=screen_env(n), timeout=20)
+            return mains[0]
         return start_browser(n, bot_id, (look.get('colors') or {}).get('accent'))['pid']
     # Someone else's browser lives here: only ever raise it, never start or stop one.
     wins = browser_windows(n)

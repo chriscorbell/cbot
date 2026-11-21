@@ -61,12 +61,9 @@ def start_job(name, argv):
         except OSError:
             pass
     job = '%s-%d-%d' % (name, int(now * 1000), os.getpid())
-    env = dict(os.environ)
-    env.pop('DISPATCH_SCREEN', None)
-    os.makedirs(LOGS, exist_ok=True)
-    out = open(LOGS + '/jobs.log', 'ab')
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), '_job', job, name] + argv, env=env,
-                     stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True, close_fds=True)
+    # In a scope of its own, so a restart of the server doesn't cut a dressing or a package install short.
+    dispatchlib.spawn([sys.executable, os.path.abspath(__file__), '_job', job, name] + argv, dict(os.environ), 'jobs',
+                      'dispatch-job-%s.scope' % job, dispatchlib.MACHINE_SLICE, cwd='/')
     return job
 
 
@@ -109,19 +106,23 @@ def run_job(job, name, argv):
 # ---------------------------------------------------------------- one-time machine setup
 
 def home_alive():
-    pid = dispatchlib.read_text(ROOT + '/home.pid', '').strip()
-    return pid.isdigit() and dispatchlib.alive(int(pid)) and any('dispatch-home.py' in a for a in dispatchlib.cmdline(int(pid)))
+    return dispatchlib.unit_active(dispatchlib.HOME_UNIT)
 
 
 def start_home(restart=False):
+    """The home screen server, as dispatch-home.service (journalctl -u dispatch-home says how it went)."""
     if restart:
-        dispatchlib.stop_pids([p for p in dispatchlib.all_pids() if any(a.endswith('dispatch-home.py') for a in dispatchlib.cmdline(p))], grace=2)
+        dispatchlib.stop_units(dispatchlib.HOME_UNIT)
     elif home_alive():
         return True
     env = dispatchlib.base_env(99)
-    for key in ('DISPATCH_SCREEN', 'DISPLAY', 'GTK_THEME'):
+    for key in ('DISPLAY', 'GTK_THEME'):
         env.pop(key, None)
-    dispatchlib.spawn([sys.executable, ROOT + '/dispatch-home.py'], env, 'home')
+    try:
+        dispatchlib.start_service(dispatchlib.HOME_UNIT, dispatchlib.MACHINE_SLICE, [sys.executable, ROOT + '/dispatch-home.py'], env, cwd='/')
+    except RuntimeError as e:
+        log(str(e))
+        return False
     end = time.time() + 8
     while time.time() < end:
         try:
@@ -136,7 +137,7 @@ def gtk_works():
     code, _ = dispatchlib.run([sys.executable, '-c',
                          "import gi; gi.require_version('Gtk','3.0'); gi.require_version('GdkPixbuf','2.0'); "
                          "from gi.repository import Gtk, Gdk, GdkPixbuf; import cairo"],
-                        env={k: v for k, v in dispatchlib.base_env(99).items() if k not in ('DISPLAY', 'DISPATCH_SCREEN')}, timeout=20)
+                        env={k: v for k, v in dispatchlib.base_env(99).items() if k != 'DISPLAY'}, timeout=20)
     return code == 0
 
 
@@ -341,13 +342,13 @@ def do_base(base_hash, warnings):
     policy_files = write_policy(state['id'], warnings) if state.get('id') else []
     write_gtk_settings(warnings)
     if not start_home(restart=True):
-        warnings.append('the home screen server did not start (see %s/home.log)' % LOGS)
+        warnings.append('the home screen server did not start (journalctl -u %s says why)' % dispatchlib.HOME_UNIT)
     # Desktop pieces that are already up run the old code; bring them back on the new one.
-    for pid in [p for p in dispatchlib.all_pids() if any(a.endswith('dispatch-shell.py') for a in dispatchlib.cmdline(p))]:
-        args = dispatchlib.cmdline(pid)
-        dispatchlib.stop_pids([pid], grace=2)
-        if shell_ok and args[-1].isdigit() and dispatchlib.look_for(int(args[-1])):
-            dispatchlib.spawn([sys.executable, ROOT + '/dispatch-shell.py', args[-1]], dispatchlib.screen_env(int(args[-1])), 'shell-' + args[-1])
+    for unit in dispatchlib.active_units('dispatch-shell-*.service'):
+        n = unit[len('dispatch-shell-'):-len('.service')]
+        dispatchlib.stop_units(unit)
+        if shell_ok and n.isdigit() and dispatchlib.look_for(int(n)):
+            start_shell(int(n))
     dispatchlib.write_json(ROOT + '/base.json', {'hash': base_hash, 'shell': shell_ok, 'extension': state.get('id'),
                                            'policy': policy_files, 'installed': installed, 'at': int(time.time())})
     return {'installed': installed, 'policy': policy_files, 'extension': state.get('id'), 'shell': shell_ok}
@@ -359,31 +360,33 @@ def base_current(base_hash):
 
 # ---------------------------------------------------------------- dressing a screen
 
-def shell_pids(n):
-    return [p for p in dispatchlib.all_pids() if dispatchlib.cmdline(p)[-2:] == [ROOT + '/dispatch-shell.py', str(n)]]
+def start_shell(n):
+    """Screen n's wallpaper and dock, as dispatch-shell-<n>.service in the slice of the screen's bot."""
+    dispatchlib.start_service(dispatchlib.shell_unit(n), dispatchlib.screen_slice(n), [sys.executable, ROOT + '/dispatch-shell.py', str(n)],
+                              dispatchlib.screen_env(n))
 
 
 def ensure_shell(n, stamp, warnings):
     if not (dispatchlib.read_json(ROOT + '/base.json') or {}).get('shell'):
         return False
     state_path = dispatchlib.screen_dir(n) + '/shell.json'
-    pids = shell_pids(n)
-    if len(pids) > 1:
-        dispatchlib.stop_pids(pids[1:], grace=2)
-        pids = pids[:1]
-    if not pids:
+    if not dispatchlib.unit_active(dispatchlib.shell_unit(n)):
         try:
             os.unlink(state_path)
         except OSError:
             pass
-        dispatchlib.spawn([sys.executable, ROOT + '/dispatch-shell.py', str(n)], dispatchlib.screen_env(n), 'shell-%d' % n)
+        try:
+            start_shell(n)
+        except RuntimeError as e:
+            warnings.append(str(e))
+            return False
     end = time.time() + 12
     while time.time() < end:
         state = dispatchlib.read_json(state_path) or {}
         if state.get('stamp') == stamp and dispatchlib.alive(state.get('pid')):
             return True
         time.sleep(0.15)
-    warnings.append('the wallpaper and dock did not come up on screen %d (see %s/shell-%d.log)' % (n, LOGS, n))
+    warnings.append('the wallpaper and dock did not come up on screen %d (journalctl -u %s says why)' % (n, dispatchlib.shell_unit(n)))
     return False
 
 
@@ -490,7 +493,7 @@ def do_dress(n, flags, look_b64, warnings):
     shell = ensure_shell(n, stamp, warnings)
     lap('shell')
     if not start_home():
-        warnings.append('the home screen server is not running (see %s/home.log)' % LOGS)
+        warnings.append('the home screen server is not running (journalctl -u %s says why)' % dispatchlib.HOME_UNIT)
     if reset:
         if manage:
             dispatchlib.stop_browser(bot['id'])
@@ -532,13 +535,9 @@ def do_undress(n, bot_id):
     look = dispatchlib.look_for(n) or {}
     env = dispatchlib.screen_env(n) if os.path.isdir(folder) else dispatchlib.base_env(n)
     their = (look.get('bot') or {}).get('id')
-    if their and look.get('manageChrome'):
-        dispatchlib.stop_browser(their)
-    if bot_id and bot_id != their:
-        dispatchlib.stop_browser(bot_id, started_by_us=True)
-    elif bot_id and not look.get('manageChrome'):
-        # This screen's browser belongs to someone else. Only a Chrome we started ourselves may go.
-        dispatchlib.stop_browser(bot_id, started_by_us=True)
+    # Only a Chrome we run goes: its unit holds every process of it. A browser somebody else runs here stays.
+    for owner in {their, bot_id} - {None, ''}:
+        dispatchlib.stop_browser(owner)
     # Taking the look away makes the desktop pieces leave and the home server forget this screen.
     for name in ('look.json', 'stamp.json', 'shell.json'):
         try:
@@ -552,8 +551,8 @@ def do_undress(n, bot_id):
         os.unlink(folder + '/backdrop.json')
     dispatchlib.restore_panels(n, env)
     restore_session(n, env)
-    dispatchlib.stop_pids(shell_pids(n), grace=2)
-    dispatchlib.stop_pids(dispatchlib.marked_pids(n), grace=3)
+    # The dock, what was opened on the screen, and its terminals' bus.
+    dispatchlib.stop_units(dispatchlib.shell_unit(n), dispatchlib.termbus_unit(n), *dispatchlib.screen_scopes(n))
     try:
         os.unlink(folder + '/bus.json')
     except OSError:
@@ -594,12 +593,12 @@ def main(argv):
         wait_job(start_job('base', [argv[1]]), 25)
     elif cmd == 'undress':
         # A dressing job for this display may still be running (its caller gave up waiting). Let it
-        # finish first, so it can't put back what undressing takes away; after a minute go on anyway:
-        # stopping the display then stops the job too (it runs with that DISPLAY).
+        # finish first, so it can't put back what undressing takes away; after a minute stop it.
         n = int(argv[1])
         with dispatchlib.held_lock(dispatchlib.dress_lock(n), timeout=60) as held:
             if not held:
-                log('undress :%d: a dressing job still holds the screen; going on without it' % n)
+                log('undress :%d: a dressing job still holds the screen; stopping it' % n)
+                dispatchlib.stop_units('dispatch-job-dress-%d-*.scope' % n)
             do_undress(n, argv[2] if len(argv) > 2 else '')
         print('DISPATCH_DONE {"ok": true}')
     elif cmd == 'launch':
