@@ -31,7 +31,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order), and the first-run setup that makes the first one |
 | `server/src/reset.ts` | Resetting Dispatch to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
 | `server/src/updates.ts` | Updating Dispatch from GitHub: checking for a newer release (or commit of the branch the installer was told to follow), and running this release's installer again in a unit of its own |
-| `scripts/install.sh`, `scripts/publish.sh` | Installing and updating from signed release tags (`release_signers`, `fetch_signed`), and publishing a release. Changing `release_signers` changes which keys every machine trusts once it updates |
+| `scripts/install/`, `scripts/bundle.sh`, `scripts/publish.sh` | Installing and updating from signed release tags (`release_signers`, `fetch_signed` in `install-release.sh`), and publishing a release. Changing `release_signers` changes which keys every machine trusts once it updates. `curl \| bash` fetches one file, so `scripts/bundle.sh` joins the parts into `scripts/install.sh` and `scripts/uninstall.sh`, which are committed; edit the parts and run it, and CI checks the two match. `common.sh` is in both |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |

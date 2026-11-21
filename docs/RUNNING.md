@@ -98,7 +98,7 @@ Installs and updates take the newest signed `vX.Y.Z` tag. To publish one from a 
 scripts/publish.sh v1.2.0
 ```
 
-It tags `main` as GitHub has it, after `npm run check` passes on that commit, and signs the tag with whichever key in `release_signers` (in `scripts/install.sh`) your ssh-agent holds (`ssh-add -L` lists them). Before pushing, it checks the tag with this commit's installer and with the last release's, since machines updating run the last release's. It then pushes the tag and makes the GitHub release, whose notes list the commits since the last release. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
+It tags `main` as GitHub has it, after `npm run check` passes on that commit, and signs the tag with whichever key in `release_signers` (in `scripts/install/install-release.sh`, part of `scripts/install.sh`) your ssh-agent holds (`ssh-add -L` lists them). Before pushing, it checks the tag with this commit's installer and with the last release's, since machines updating run the last release's. It then pushes the tag and makes the GitHub release, whose notes list the commits since the last release. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
 
 ## Deploying from a checkout
 
@@ -133,7 +133,7 @@ server/   Node server: API, turns, Hermes gateways, screens, voice relay
 web/      React app
 speech/   speech service: recognition, and Phonon's voices
 zonos3/   ZONOS3-Mini voice server (off; speech/README.md says how to run it)
-scripts/  install, uninstall, deploy, release and host provisioning
+scripts/  install, uninstall (both built from scripts/install/ by scripts/bundle.sh), deploy, release and host provisioning
 deploy/   systemd unit and the speech services' Compose file
 tests/    end-to-end scripts
 ```
