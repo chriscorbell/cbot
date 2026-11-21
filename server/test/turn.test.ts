@@ -190,6 +190,40 @@ describe('endings', () => {
     expect(live.getLive(id).isRunning).toBe(false);
   });
 
+  test('a run whose events stop with no end failed: the gateway may be gone, and the run is stopped', async () => {
+    // What a gateway killed for running out of memory leaves: a stream that just stops.
+    const bot = seedBot(userId);
+    const hermes = fakeHermes([ev.toolCall('terminal', 'c1'), ev.text('Half of an answ')]);
+    loop.enqueue(bot.id, { type: 'user', text: 'hi' });
+    await loop.whenIdle(bot.id);
+    expect(rows(bot.id).map((r) => r.body)).toEqual([
+      expect.objectContaining({ type: 'tool-call', status: 'error', summary: 'Did not finish' }),
+      expect.objectContaining({ type: 'message', text: 'Half of an answ' }),
+      { type: 'notice', text: 'Something went wrong: the agent stopped answering before it finished; its gateway may have restarted or run out of memory', tone: 'error' },
+    ]);
+    // Hermes still had it as running: nobody can follow it now.
+    await vi.waitFor(() => expect(hermes.calls).toContainEqual({ method: 'POST', path: '/v1/runs/run_1/stop', body: {} }));
+  });
+
+  test('a stream that breaks after the run finished still shows its whole answer', async () => {
+    const bot = seedBot(userId);
+    const hermes = fakeHermes([ev.text('The answer is'), ev.toolCall('todo', 'c1')]);
+    hermes.states.set('run_1', { status: 'completed', output: 'The answer is 42.' });
+    loop.enqueue(bot.id, { type: 'user', text: 'hi' });
+    await loop.whenIdle(bot.id);
+    expect(rows(bot.id).map((r) => (r.body.type === 'message' ? [msg(r).text, !!msg(r).note] : tool(r).status))).toEqual([['The answer is', true], 'done', ['The answer is 42.', false]]);
+    expect(hermes.calls.some((c) => c.path.endsWith('/stop'))).toBe(false);
+  });
+
+  test('a stream cut short mid-answer is completed from what Hermes kept', async () => {
+    const bot = seedBot(userId);
+    const hermes = fakeHermes([ev.text('The answer')]);
+    hermes.states.set('run_1', { status: 'completed', output: 'The answer is 42.' });
+    loop.enqueue(bot.id, { type: 'user', text: 'hi' });
+    await loop.whenIdle(bot.id);
+    expect(rows(bot.id).map((r) => msg(r))).toEqual([{ type: 'message', role: 'assistant', text: 'The answer is 42.', streaming: false }]);
+  });
+
   test('Stop ends the turn with a quiet notice, stops its tools and asks Hermes to stop the run', async () => {
     const hold = gate();
     const bot = seedBot(userId);

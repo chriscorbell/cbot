@@ -78,6 +78,19 @@ export function stoppedStatus(body: unknown): string {
   return Stopped.safeParse(body).data?.status ?? '';
 }
 
+const State = z.object({ status: z.string(), output: z.unknown().optional(), error: z.unknown().optional() });
+export interface RunState { status: string; output: string; error: string }
+/** Where GET /v1/runs/<id> says the run is (queued, running, completed, failed, …), with its answer or error; null when the answer can't be read. */
+export function runState(body: unknown): RunState | null {
+  const s = State.safeParse(body);
+  if (!s.success) {
+    console.warn(`[hermes] a run's status isn't shaped as expected: ${clip(body)}`);
+    return null;
+  }
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  return { status: s.data.status, output: text(s.data.output), error: text(s.data.error) };
+}
+
 const Status = z.object({ pending_controls: z.array(z.object({ prompt_id: z.string().nullish() })).nullish() });
 /** The prompts GET /v1/runs/<id> says are still waiting for an answer; null when the answer can't be read. */
 export function openPrompts(body: unknown): Set<string> | null {

@@ -1,6 +1,7 @@
-// A stand-in for a bot's Hermes gateway: answers the run API (POST /v1/runs, its events, approvals and
-// stop) and GET /api/sessions/<id>. Each run plays the next script, written the way Hermes sends its
-// run events; a promise in a script holds the stream there until it settles.
+// A stand-in for a bot's Hermes gateway: answers the run API (POST /v1/runs, its events, status,
+// approvals and stop) and GET /api/sessions/<id>. Each run plays the next script, written the way
+// Hermes sends its run events; a promise in a script holds the stream there until it settles. A script
+// with no end event ends its stream as a gateway that went away would.
 import { vi } from 'vitest';
 
 export type HermesEvent = { event: string; [k: string]: unknown };
@@ -39,8 +40,9 @@ export interface HermesCall { method: string; path: string; body: Record<string,
 /**
  * Makes `fetch` answer requests to the engine. Every POST /v1/runs plays the next script on its event
  * stream; aborting the stream (Stop) errors it the way undici does. Returns the bodies of the runs
- * started, with every request in `calls`, the sessions that exist in `sessions`, and `expire` to have
- * Hermes give up on a prompt by itself.
+ * started, with every request in `calls`, the sessions that exist in `sessions`, `expire` to have
+ * Hermes give up on a prompt by itself, and `states` to set what GET /v1/runs/<id> says of a run
+ * (running until its script ends it).
  */
 export function fakeHermes(...scripts: Step[][]) {
   const runs: Record<string, unknown>[] = [];
@@ -49,6 +51,7 @@ export function fakeHermes(...scripts: Step[][]) {
   /** Prompts Hermes is still waiting on, by run. */
   const open = new Map<string, Set<string>>();
   const plays = new Map<string, Step[]>();
+  const states = new Map<string, { status: string; output?: string }>();
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
@@ -79,6 +82,7 @@ export function fakeHermes(...scripts: Step[][]) {
             if (step instanceof Promise) await step;
             else {
               if (step.event === 'approval.request') open.get(runId)?.add(String(step.prompt_id));
+              if (step.event.startsWith('run.')) states.set(runId, { status: step.event.slice(4), output: typeof step.output === 'string' ? step.output : '' });
               c.enqueue(enc.encode(frame(step)));
             }
           }
@@ -88,7 +92,8 @@ export function fakeHermes(...scripts: Step[][]) {
       return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
     }
     if (method === 'GET' && (m = path.match(/^\/v1\/runs\/([^/]+)$/))) {
-      return json({ run_id: m[1], pending_controls: [...(open.get(m[1]) ?? [])].map((id) => ({ kind: 'approval', prompt_id: id })) });
+      if (!plays.has(m[1])) return json({ error: { message: `Run not found: ${m[1]}` } }, 404);
+      return json({ run_id: m[1], status: 'running', ...states.get(m[1]), pending_controls: [...(open.get(m[1]) ?? [])].map((id) => ({ kind: 'approval', prompt_id: id })) });
     }
     if (method === 'POST' && (m = path.match(/^\/v1\/runs\/([^/]+)\/approval$/))) {
       // Hermes takes exactly these three fields for a run's prompt.
@@ -111,6 +116,7 @@ export function fakeHermes(...scripts: Step[][]) {
   return Object.assign(runs, {
     calls,
     sessions,
+    states,
     /** Hermes stops waiting for a prompt (its timeout), as if nobody answered. */
     expire: (promptId: string) => { for (const s of open.values()) s.delete(promptId); },
   });

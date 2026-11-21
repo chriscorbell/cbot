@@ -27,7 +27,7 @@ const { WebSocket } = (await import('ws')) as unknown as { WebSocket: { new (): 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 /**
- * A gateway whose runs stream the events given per run (`event:tool`, or a whole event), whose steer answers when `steered` opens, and whose speech is `ttsBytes` of PCM a sentence.
+ * A gateway whose runs stream the events given per run (`event:tool`, or a whole event; `close` ends the stream as a gateway that went away would), whose steer answers when `steered` opens, and whose speech is `ttsBytes` of PCM a sentence.
  * Its stop says the run was still queued. Returns the requests that started runs.
  */
 function fakeGateway(runs: Record<string, (string | Promise<unknown> | Record<string, unknown>)[]>, steered: Promise<unknown>, ttsBytes = 480) {
@@ -50,6 +50,7 @@ function fakeGateway(runs: Record<string, (string | Promise<unknown> | Record<st
         async start(c) {
           init.signal?.addEventListener('abort', () => c.error(new Error('aborted')), { once: true });
           for (const step of script) {
+            if (step === 'close') return c.close();
             if (typeof step === 'string') c.enqueue(enc.encode(`data: ${JSON.stringify({ event: step.split(':')[0], tool: step.split(':')[1], tool_call_id: step.split(':')[1] })}\n\n`));
             else if (step instanceof Promise) await step;
             else c.enqueue(enc.encode(`data: ${JSON.stringify(step)}\n\n`));
@@ -262,6 +263,16 @@ test('each run hears what is new in the text chat, and a run stopped before it s
 
 test('a run Hermes stops on its own is no answer: the bot says it could not get one', async () => {
   fakeGateway({ run_1: [{ event: 'message.delta', delta: 'The weather in Ro' }, { event: 'run.interrupted', error: 'Gateway shutdown interrupted the run.' }] }, gate().opened);
+  const c = startCall();
+  c.utter(1, 'What is the weather in Rome?');
+  await vi.waitFor(() => expect(c.done('resp_1')).toBe('completed'));
+  expect(c.spoken()).toEqual(['Sorry, I couldn’t get an answer just then.']);
+  expect(c.events().some((e) => e.type === 'error' && e.error.code === 'model_error')).toBe(true);
+  c.client.emit('close');
+});
+
+test('a run whose events stop with no end (its gateway went away) is no answer either', async () => {
+  fakeGateway({ run_1: [{ event: 'message.delta', delta: 'The weather in Ro' }, 'close'] }, gate().opened);
   const c = startCall();
   c.utter(1, 'What is the weather in Rome?');
   await vi.waitFor(() => expect(c.done('resp_1')).toBe('completed'));

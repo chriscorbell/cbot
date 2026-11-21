@@ -130,8 +130,14 @@ export class TurnTranscript {
     } else this.note(text);
   }
 
-  /** The run completed, with its final answer: shown here only if it never streamed. */
-  completed(out: string) {
+  /**
+   * The run completed, with its final answer: shown here only if it never streamed. `recovered`: the
+   * stream broke off and the answer came from Hermes' record, so the text being written may stop
+   * short of it.
+   */
+  completed(out: string, recovered = false) {
+    const t = this.text.trim();
+    if (recovered && t && out.startsWith(t)) this.text = out;
     if (this.msgSeq !== null || this.text.trim()) {
       this.closeMessage();
       return;

@@ -3,7 +3,7 @@ import { errorText } from '../lib/errors.js';
 import { engineFor, runSlot, type Engine } from '../engine.js';
 import type { Conversation } from '../store.js';
 import { askApproval, runEnded, runMoved, type Settled } from './approvals.js';
-import { eventName, runEvent, startedRun, stoppedStatus, type ApprovalRequest, type StepEvent } from './run-events.js';
+import { eventName, runEvent, runState, startedRun, stoppedStatus, type ApprovalRequest, type StepEvent } from './run-events.js';
 
 /**
  * A Hermes run: one turn of a bot's agent on its gateway (POST /v1/runs), whoever asked for it. A chat
@@ -14,6 +14,8 @@ import { eventName, runEvent, startedRun, stoppedStatus, type ApprovalRequest, t
  *   gateway ──start──► started ──follow──► completed   run.completed, with its final answer
  *      │                  │          ├───► failed      run.failed, or run.cancelled / run.interrupted
  *      │                  │          │                 that the caller didn't ask for (Hermes stopped it)
+ *      │                  │          ├───► lost        the stream ended with no end event: Hermes'
+ *      │                  │          │                 record of the run decides, completed or failed
  *      │                  │          └───► left        the caller stopped following
  *      │                  └──stop──► stopped (Hermes was asked; it ends the run on its side)
  *      └──the caller gave up before Hermes had the run: nothing to stop
@@ -35,9 +37,16 @@ export interface RunRequest {
 }
 
 export type RunEnd =
-  | { how: 'completed'; output: string }
+  /** `recovered`: the stream broke before the end and the answer came from Hermes' record, so what streamed may stop short of it. */
+  | { how: 'completed'; output: string; recovered?: boolean }
   | { how: 'failed'; error: string }
   | { how: 'left' };
+
+/** Why a run whose stream ended with no end event failed. */
+const LOST = 'the agent stopped answering before it finished; its gateway may have restarted or run out of memory';
+
+/** Statuses of a run that is over (GET /v1/runs/<id>). */
+const OVER = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
 
 /** Who asked for the run, for the log. */
 export type Surface = 'chat' | 'voice' | 'summary';
@@ -118,29 +127,59 @@ export class HermesRun {
     if (!engine || !id) throw new Error('the run never started');
     const res = await fetch(`${engine.url}/v1/runs/${id}/events`, { headers: headers(engine, false), signal });
     if (!res.ok || !res.body) throw new Error(await failureText(res));
-    for await (const raw of sseEvents(res.body)) {
-      const ev = runEvent(raw.data);
-      if (!ev) continue;
-      this.slot?.(eventName(ev));
-      // A prompt may have ended without an answer (Hermes' own timeout) once the run moves on.
-      if (ev.event !== 'approval.request' && ev.event !== 'approval.responded') runMoved(id);
-      switch (ev.event) {
-        case 'run.completed':
-          this.ended = true;
-          return { how: 'completed', output: typeof ev.output === 'string' ? ev.output.trim() : '' };
-        case 'run.failed':
-          this.ended = true;
-          return { how: 'failed', error: typeof ev.error === 'string' && ev.error ? ev.error : 'the agent run failed' };
-        case 'run.cancelled':
-        case 'run.interrupted':
-          // Not a Stop from here (that aborts `signal`): Hermes, or something else, stopped the run.
-          this.ended = true;
-          return { how: 'failed', error: typeof ev.error === 'string' && ev.error ? ev.error : 'the run was stopped' };
-        default:
-          if (onEvent(ev)) return { how: 'left' };
+    // Set while the caller's handler runs: what it throws is the caller's, not a broken stream.
+    let handling = false;
+    try {
+      for await (const raw of sseEvents(res.body)) {
+        const ev = runEvent(raw.data);
+        if (!ev) continue;
+        this.slot?.(eventName(ev));
+        // A prompt may have ended without an answer (Hermes' own timeout) once the run moves on.
+        if (ev.event !== 'approval.request' && ev.event !== 'approval.responded') runMoved(id);
+        switch (ev.event) {
+          case 'run.completed':
+            this.ended = true;
+            return { how: 'completed', output: typeof ev.output === 'string' ? ev.output.trim() : '' };
+          case 'run.failed':
+            this.ended = true;
+            return { how: 'failed', error: typeof ev.error === 'string' && ev.error ? ev.error : 'the agent run failed' };
+          case 'run.cancelled':
+          case 'run.interrupted':
+            // Not a Stop from here (that aborts `signal`): Hermes, or something else, stopped the run.
+            this.ended = true;
+            return { how: 'failed', error: typeof ev.error === 'string' && ev.error ? ev.error : 'the run was stopped' };
+          default:
+            handling = true;
+            if (onEvent(ev)) return { how: 'left' };
+            handling = false;
+        }
       }
+    } catch (e) {
+      if (signal.aborted || handling) throw e;
+      // A gateway that dies mid-stream usually cuts the connection rather than closing it.
+      console.warn(`[hermes] ${this.botId}: the events of the ${this.surface} run ${id} broke off: ${errorText(e)}`);
     }
-    return { how: 'completed', output: '' };
+    if (signal.aborted) throw new Error('aborted');
+    return this.lost(engine, id);
+  }
+
+  /**
+   * The run's events ended with no end event. A gateway killed by its slice's memory limit (units.ts)
+   * leaves exactly this, and so does one that restarted; rarely, only the stream broke. Hermes' record
+   * of the run decides: an answer it finished is the answer, anything else is a failure. A run Hermes
+   * still has going is stopped when the caller closes it, since nobody can follow it now.
+   */
+  private async lost(engine: Engine, id: string): Promise<RunEnd> {
+    const res = await fetch(`${engine.url}/v1/runs/${id}`, { headers: headers(engine, true), signal: AbortSignal.timeout(5_000) }).catch(() => null);
+    const state = res?.ok ? runState(await res.json().catch(() => null)) : null;
+    if (state?.status === 'completed') {
+      this.ended = true;
+      return { how: 'completed', output: state.output.trim(), recovered: true };
+    }
+    // Over, or the gateway that ran it is gone: nothing is left to stop.
+    if (!state || OVER.has(state.status)) this.ended = true;
+    console.warn(`[hermes] ${this.botId}: the ${this.surface} run ${id} sent no end; Hermes says ${state ? state.status : 'nothing of it'}`);
+    return { how: 'failed', error: LOST };
   }
 
   /** Hermes asks before an action: the card shows in `convo` (agent/approvals.ts). The approval's id, or null when it can't be asked. */

@@ -246,7 +246,7 @@ async function runTurn(botId: string, running: Running) {
       run.askApproval(d, { convo, tool, onSettled: (o) => transcript.approvalSettled(seq, o) });
     });
     if (end.how === 'failed') throw new Error(end.error);
-    if (end.how === 'completed') transcript.completed(end.output);
+    if (end.how === 'completed') transcript.completed(end.output, end.recovered);
   } catch (e) {
     outcome = signal.aborted ? 'stopped' : 'failed';
     if (outcome === 'failed') console.error('[agent]', botId, e);
