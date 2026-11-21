@@ -146,54 +146,13 @@ def gtk_works():
     return code == 0
 
 
-def missing_packages():
-    want = []
-    if not gtk_works():
-        want += ['python3-gi', 'python3-gi-cairo', 'gir1.2-gtk-3.0']
-    if not glob.glob('/usr/lib/*/gdk-pixbuf-2.0/*/loaders/libpixbufloader[-_]svg.so'):
-        want.append('librsvg2-common')
-    if not shutil.which('wmctrl'):
-        want.append('wmctrl')
-    if not shutil.which('xdotool'):
-        want.append('xdotool')
-    if not shutil.which('xprop') or not shutil.which('xdpyinfo'):
-        want.append('x11-utils')
-    if not shutil.which('xsetroot'):
-        want.append('x11-xserver-utils')
-    if not shutil.which('dbus-daemon'):
-        want.append('dbus')
-    if not shutil.which('openssl'):
-        want.append('openssl')
-    if not glob.glob('/usr/share/fonts/*/inter*') and not glob.glob('/usr/share/fonts/*/Inter*'):
-        want.append('fonts-inter')
-    return want
+# What the scripts run on a screen, all installed by scripts/provision.sh. Setup only says when one is
+# missing; installing packages is provisioning's job, not something a dressing should do.
+TOOLS = ('wmctrl', 'xdotool', 'xprop', 'xdpyinfo', 'xsetroot', 'dbus-daemon', 'openssl')
 
 
-def install_packages(warnings):
-    want = missing_packages()
-    if not want:
-        return []
-    if not shutil.which('apt-get'):
-        warnings.append('missing packages and no apt on this computer: %s' % ' '.join(want))
-        return []
-    env = dict(os.environ, DEBIAN_FRONTEND='noninteractive', NEEDRESTART_MODE='a')
-    cmd = ['apt-get', 'install', '-y', '-qq', '--no-install-recommends', '-o', 'Dpkg::Use-Pty=0',
-           '-o', 'DPkg::Lock::Timeout=60'] + want
-    log('installing packages:', ' '.join(want))
-    code, out = dispatchlib.run(cmd, env=env, timeout=300)
-    if code != 0:
-        dispatchlib.run(['apt-get', 'update', '-qq'], env=env, timeout=180)
-        code, out = dispatchlib.run(cmd, env=env, timeout=300)
-    if code != 0:
-        # One bad package must not block the rest.
-        for pkg in want:
-            dispatchlib.run(cmd[:-len(want)] + [pkg], env=env, timeout=180)
-    still = missing_packages()
-    if still:
-        warnings.append('could not install: %s (%s)' % (' '.join(still), out.strip().splitlines()[-1][:160] if out.strip() else 'apt failed'))
-    if 'fonts-inter' in want and 'fonts-inter' not in still:
-        dispatchlib.run(['fc-cache', '-f'], timeout=60)
-    return [p for p in want if p not in still]
+def missing_tools():
+    return [tool for tool in TOOLS if not shutil.which(tool)]
 
 
 def _varint(value):
@@ -340,7 +299,9 @@ def do_base(base_hash, warnings):
     os.makedirs(LOGS, exist_ok=True)
     dispatchlib.makedirs_owned(dispatchlib.PROFILES)
     dispatchlib.makedirs_owned(dispatchlib.LIBRARY)
-    installed = install_packages(warnings)
+    missing = missing_tools()
+    if missing:
+        warnings.append('missing on this computer (scripts/provision.sh installs them): %s' % ' '.join(missing))
     shell_ok = gtk_works()
     if not shell_ok:
         warnings.append('GTK for Python is not available, so screens get a plain colour and no dock')
@@ -356,8 +317,8 @@ def do_base(base_hash, warnings):
         if shell_ok and n.isdigit() and dispatchlib.look_for(int(n)):
             start_shell(int(n))
     dispatchlib.write_json(ROOT + '/base.json', {'hash': base_hash, 'shell': shell_ok, 'extension': state.get('id'),
-                                           'policy': policy_files, 'installed': installed, 'at': int(time.time())})
-    return {'installed': installed, 'policy': policy_files, 'extension': state.get('id'), 'shell': shell_ok}
+                                           'policy': policy_files, 'at': int(time.time())})
+    return {'policy': policy_files, 'extension': state.get('id'), 'shell': shell_ok}
 
 
 def base_current(base_hash):

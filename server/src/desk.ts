@@ -131,11 +131,10 @@ async function setupBase(): Promise<void> {
   if (!r.output.includes('DISPATCH_UNPACKED')) {
     throw new Error(`could not install the desktop scripts on the computer (python3 is needed): ${r.output.trim().slice(-300)}`);
   }
-  // Package installs can take a while on a fresh computer.
-  await finish(await script(['base', b.hash]), 'computer setup', 900);
+  await finish(await script(['base', b.hash]), 'computer setup', 180);
 }
 
-/** One-time machine setup (packages, scripts, home server, Chrome policy/extension). Idempotent, memoised per process, cheap when already done. */
+/** One-time machine setup (scripts, home server, Chrome policy/extension). Idempotent, memoised per process, cheap when already done. */
 export function ensureDeskBase(): Promise<void> {
   if (!basePromise) {
     basePromise = setupBase().catch((e) => { basePromise = null; throw e; });
