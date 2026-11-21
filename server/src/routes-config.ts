@@ -6,6 +6,7 @@ import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
 import fs from 'node:fs';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { emitBot, listRoutines, ownBot } from './store.js';
 import { computerState, resetBotScreen } from './computer.js';
@@ -283,18 +284,25 @@ function safeRel(p: string | undefined): string | null {
   return rel;
 }
 
-const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/**
+ * `rel` inside the Library at `root`, with links followed first, so a link inside the Library can't
+ * reach outside it. Null when it isn't there or is outside.
+ */
+async function inLibrary(root: string, rel: string): Promise<string | null> {
+  try {
+    const [real, top] = await Promise.all([fs.promises.realpath(rel ? `${root}/${rel}` : root), fs.promises.realpath(root)]);
+    return real === top || real.startsWith(`${top}/`) ? real : null;
+  } catch {
+    return null;
+  }
+}
 
-/** Parse `ls -la --time-style=+%s` output. */
-export function parseLs(out: string): LibraryFile[] {
+/** A folder's entries, a link as itself: folders first, then the newest first. */
+async function listFolder(dir: string): Promise<LibraryFile[]> {
   const files: LibraryFile[] = [];
-  for (const line of out.split('\n')) {
-    const m = line.match(/^([-dlcbps])\S*\s+\d+\s+\S+\s+\S+\s+(\d+)\s+(\d+)\s+(.+)$/);
-    if (!m) continue;
-    let name = m[4];
-    if (m[1] === 'l') name = name.replace(/ -> .*$/, '');
-    if (name === '.' || name === '..') continue;
-    files.push({ name, size: Number(m[2]), modifiedAt: Number(m[3]) * 1000, isDir: m[1] === 'd' });
+  for (const name of await fs.promises.readdir(dir)) {
+    const st = await fs.promises.lstat(path.join(dir, name)).catch(() => null);
+    if (st) files.push({ name, size: st.size, modifiedAt: Math.floor(st.mtimeMs), isDir: st.isDirectory() });
   }
   return files.sort((a, b) => Number(b.isDir) - Number(a.isDir) || b.modifiedAt - a.modifiedAt);
 }
@@ -306,10 +314,13 @@ configApi.get('/bots/:id/files', async (c) => {
   const rel = safeRel(c.req.query('path'));
   if (rel === null) return c.json({ error: 'bad path' }, 400);
   try {
-    const dir = `${LIB_ROOT}/${b.id}${rel ? `/${rel}` : ''}`;
-    const r = await box.bash(`mkdir -p ${shq(`${LIB_ROOT}/${b.id}`)} && ls -la --time-style=+%s ${shq(dir)} 2>&1`, 30);
-    if (r.exit_code !== 0) return c.json({ status: 'error', path: rel, files: [], error: (r.output ?? '').slice(0, 300) } satisfies LibraryListing);
-    return c.json({ status: 'ok', path: rel, files: parseLs(r.output ?? '') } satisfies LibraryListing);
+    // A bot's Library is its account's, as every folder in it must be (account.ts).
+    const root = `${LIB_ROOT}/${b.id}`;
+    mkdirOwned(root);
+    const dir = await inLibrary(root, rel);
+    const st = dir ? await fs.promises.stat(dir) : null;
+    if (!dir || !st?.isDirectory()) return c.json({ status: 'error', path: rel, files: [], error: 'No such folder' } satisfies LibraryListing);
+    return c.json({ status: 'ok', path: rel, files: await listFolder(dir) } satisfies LibraryListing);
   } catch (e) {
     return c.json({ status: 'error', path: rel, files: [], error: errorText(e).slice(0, 300) } satisfies LibraryListing);
   }
@@ -326,20 +337,13 @@ configApi.post('/bots/:id/files/download', async (c) => {
   return c.json({ url: `/api/bots/${b.id}/files/raw?path=${encodeURIComponent(rel)}` } satisfies UrlResponse);
 });
 
-configApi.get('/bots/:id/files/raw', (c) => {
+configApi.get('/bots/:id/files/raw', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
   const rel = safeRel(c.req.query('path'));
   if (!rel) return c.json({ error: 'bad path' }, 400);
-  const root = `${LIB_ROOT}/${b.id}`;
-  let file: string;
-  try {
-    // Follow links before checking, so a link inside the library cannot point outside it.
-    file = fs.realpathSync(`${root}/${rel}`);
-    if (!file.startsWith(fs.realpathSync(root) + '/') || !fs.statSync(file).isFile()) throw new Error('outside');
-  } catch {
-    return c.json({ error: 'not found' }, 404);
-  }
+  const file = await inLibrary(`${LIB_ROOT}/${b.id}`, rel);
+  if (!file || !fs.statSync(file).isFile()) return c.json({ error: 'not found' }, 404);
   const name = rel.split('/').pop()!;
   // ?inline=1 sends the types the app shows in place (pictures, PDFs, audio, video); everything else downloads.
   const type = c.req.query('inline') === '1' ? inlineType(name) : undefined;

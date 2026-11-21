@@ -149,6 +149,32 @@ test('a Library file is sent in place only for the types the app previews, and i
   expect(await empty.text()).toBe('');
 });
 
+test("a Library lists its folders first and newest first, makes its folder, and stays inside it", async () => {
+  const bot = seedBot(user.id, { name: 'Lia' });
+  const list = async (path = '') => (await app.request(`/api/bots/${bot.id}/files?path=${encodeURIComponent(path)}`, { headers: auth() })).json();
+  expect(await list()).toEqual({ status: 'ok', path: '', files: [] });
+  expect(fs.statSync(libraryDir(bot.id)).isDirectory()).toBe(true);
+
+  fs.writeFileSync(`${libraryDir(bot.id)}/old.txt`, '12345');
+  fs.utimesSync(`${libraryDir(bot.id)}/old.txt`, 1_000_000, 1_000_000);
+  fs.writeFileSync(`${libraryDir(bot.id)}/new.txt`, 'ab');
+  fs.mkdirSync(`${libraryDir(bot.id)}/uploads`);
+  fs.writeFileSync(`${libraryDir(bot.id)}/uploads/a.txt`, 'a');
+  const root = await list();
+  expect(root.status).toBe('ok');
+  expect(root.files.map((f: { name: string }) => f.name)).toEqual(['uploads', 'new.txt', 'old.txt']);
+  expect(root.files[2]).toMatchObject({ name: 'old.txt', size: 5, isDir: false, modifiedAt: 1_000_000_000 });
+  expect((await list('uploads')).files.map((f: { name: string }) => f.name)).toEqual(['a.txt']);
+
+  // A link out of the Library is listed as itself, and can't be listed through.
+  fs.symlinkSync(fs.mkdtempSync(`${process.env.DATA_DIR}/outside-`), `${libraryDir(bot.id)}/out`);
+  expect((await list()).files.find((f: { name: string }) => f.name === 'out')).toMatchObject({ isDir: false });
+  expect(await list('out')).toEqual({ status: 'error', path: 'out', files: [], error: 'No such folder' });
+  expect(await list('missing')).toEqual({ status: 'error', path: 'missing', files: [], error: 'No such folder' });
+  expect((await list('new.txt')).status).toBe('error');
+  expect((await app.request(`/api/bots/${bot.id}/files?path=..`, { headers: auth() })).status).toBe(400);
+});
+
 test("a group starts with no About, and changing its members keeps the one the user wrote", async () => {
   const a = seedBot(user.id, { name: 'Gil' });
   const b = seedBot(user.id, { name: 'Hal' });

@@ -1,7 +1,8 @@
 import { db, now, type BotRecord, type ScreenRecord } from './db.js';
 import { hub } from './lib/hub.js';
 import { dressScreen, resetScreen, undressScreen, type DeskBot } from './desk.js';
-import { box } from './box.js';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { cdpPortFor, displayNumber, FIRST_BOT_DISPLAY, libraryDir, LIBRARY_ROOT, profileDir, PROFILES_ROOT } from './machine.js';
 import { ensureDisplay, SCREEN_SIZE, stopDisplay } from './displays.js';
 import type { ComputerState } from './types.js';
@@ -182,12 +183,20 @@ export async function releaseScreen(botId: string): Promise<void> {
  */
 export async function forgetBotFiles(botId: string): Promise<void> {
   if (!/^(bot|room)_[\w-]+$/.test(botId)) return;
-  await box.bash(`rm -rf -- ${profileDir(botId)} ${libraryDir(botId)}`, 60);
+  await remove([profileDir(botId), libraryDir(botId)]);
 }
 
 /** Resetting Dispatch (reset.ts): every browser profile and Library folder, including any a bot left behind. */
 export async function forgetAllBotFiles(): Promise<void> {
-  await box.bash(`find ${PROFILES_ROOT} ${LIBRARY_ROOT} -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +`, 120);
+  const inside = async (dir: string) => (await fs.readdir(dir).catch(() => [] as string[])).map((name) => path.join(dir, name));
+  await remove([...await inside(PROFILES_ROOT), ...await inside(LIBRARY_ROOT)]);
+}
+
+/** Delete each of these, every one tried; what could not be deleted is an error that names it. Gone already is fine. */
+async function remove(paths: string[]): Promise<void> {
+  const results = await Promise.allSettled(paths.map((p) => fs.rm(p, { recursive: true, force: true, maxRetries: 2 })));
+  const failed = results.flatMap((r, i) => (r.status === 'rejected' ? [`${paths[i]} (${errorText(r.reason)})`] : []));
+  if (failed.length) throw new Error(`could not delete ${failed.join(', ')}`);
 }
 
 /**
