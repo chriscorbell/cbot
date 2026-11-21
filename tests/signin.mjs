@@ -1,7 +1,9 @@
 // Signs the end-to-end scripts in as DISPATCH_USER / DISPATCH_PASSWORD. On a server with no account yet (a
-// fresh container) it creates that account first, as the first-run screen would, and then does what
-// the setup wizard would: makes the primary bot, named "Main", unless one is there, and finishes setup
-// without a greeting. That bot runs on whatever model the server's keys give it.
+// fresh container) it creates that account first, as the first-run screen would, with the setup code in
+// DISPATCH_SETUP_CODE: the server prints it in its log, and keeps it in DATA_DIR/setup-code
+// (`docker compose -p dispatch-dev exec dispatch cat /data/setup-code` in the dev container). Then it
+// does what the setup wizard would: makes the primary bot, named "Main", unless one is there, and
+// finishes setup without a greeting. That bot runs on whatever model the server's keys give it.
 
 /** Returns the session cookie, "dispatch_session=…", for fetch headers and WebSockets. */
 export async function signIn(base) {
@@ -11,10 +13,12 @@ export async function signIn(base) {
   const me = await fetch(`${base}/api/auth/me`);
   if (!me.ok) throw new Error(`sign-in check failed: ${me.status}`);
   const { needsAccount } = await me.json();
+  const code = process.env.DISPATCH_SETUP_CODE ?? '';
+  if (needsAccount && !code) throw new Error('This server has no account yet: set DISPATCH_SETUP_CODE to the setup code in its log (or DATA_DIR/setup-code) to make one');
   const res = await fetch(`${base}/api/auth/${needsAccount ? 'setup' : 'login'}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(needsAccount ? { username, password, code } : { username, password }),
   });
   if (!res.ok) throw new Error(`sign-in failed: ${res.status} ${(await res.json().catch(() => ({}))).error ?? ''}`);
   const cookie = res.headers.get('set-cookie').split(';')[0];

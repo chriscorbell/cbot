@@ -16,7 +16,7 @@ Dispatch is made for one owner, on a machine of its own. Know this first:
 - **Dispatch is on your local network.** It listens on port 8787 on every address, over HTTPS with a certificate of its own. Don't forward that port to the internet. To reach Dispatch from elsewhere, use Tailscale (the installer can set it up). To keep it off the local network, set `HOST=127.0.0.1` in `/etc/dispatch/env` and restart it; Tailscale Serve still reaches it.
 - **Nobody else can claim a fresh install.** Making the account needs the one-time setup code in the link the installer prints.
 - **Each bot's Chrome runs without Chrome's sandbox**, because it runs as root. A page that exploits a bug in Chrome could take over the machine. Dispatch's updates don't update Chrome, so keep the machine's packages current: `sudo apt update && sudo apt upgrade`.
-- **Provider keys and sign-ins are stored on the machine**, under `/root`, where only root can read them.
+- **Provider keys and sign-ins are stored on the machine**, in Dispatch's data folder (`/var/lib/dispatch`): the keys in its database and in each bot's Hermes home, and each bot's sign-ins in its home. Only root can read that folder.
 
 ## How releases are checked
 
