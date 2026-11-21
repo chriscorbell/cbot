@@ -18,6 +18,7 @@ export function CreateGroupModal() {
   const canCreate = name.trim().length > 0 && picked.length >= 2 && !busy;
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
+  /** Never rejects: a failure shows in `error`. */
   const create = async () => {
     if (!canCreate) return;
     setBusy(true); setError(null);
@@ -36,7 +37,7 @@ export function CreateGroupModal() {
 
   return (
     <Modal onClose={close} className="create-modal" label="New group chat">
-      <form onSubmit={(e) => { e.preventDefault(); create(); }}>
+      <form onSubmit={(e) => { e.preventDefault(); void create(); }}>
         <div className="modal__header">
           <div className="modal__title">New group chat</div>
           <button type="button" className="modal__close" onClick={close} aria-label="Close"><Icon name="close" size={16} /></button>

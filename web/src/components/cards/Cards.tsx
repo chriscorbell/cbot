@@ -11,6 +11,7 @@ type Card<K extends CardBody['card']> = Extract<CardBody, { card: K }>;
 function useBusy() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Never rejects: a failure shows in `error`. */
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key); setError(null);
     try { await fn(); } catch (e) { setError((e as Error).message || 'Something went wrong'); } finally { setBusy(null); }
@@ -83,7 +84,7 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
   const answered = new Set((body.answer ?? '').split(/\s*;\s*/).filter(Boolean));
   const choose = (i: number) => {
     if (!pending || busy) return;
-    if (!body.multiple) { run(String(i), () => api.answer(row.botId, row.seq, row.generation, body.options[i])); return; }
+    if (!body.multiple) { void run(String(i), () => api.answer(row.botId, row.seq, row.generation, body.options[i])); return; }
     setPicked((p) => (p.includes(i) ? p.filter((x) => x !== i) : [...p, i].sort((a, b) => a - b)));
   };
   // "Something else" hands the question to the composer, as a reply.

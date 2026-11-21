@@ -72,8 +72,9 @@ function ScreenThumb({ bot, running }: { bot: Bot; running: boolean }) {
         url = next;
       } catch { /* keep the last picture */ }
     };
-    load();
-    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 12_000);
+    // load keeps the last picture when a request fails, so it never rejects.
+    void load();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') void load(); }, 12_000);
     return () => { alive = false; clearInterval(t); if (url) URL.revokeObjectURL(url); };
   }, [bot.id, running]);
   return (

@@ -14,7 +14,7 @@ export function useMics() {
     const load = () => md.enumerateDevices()
       .then((all) => { if (alive) setMics(all.filter((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default').map((d, i) => ({ id: d.deviceId, label: d.label || `Microphone ${i + 1}` }))); })
       .catch(() => {});
-    load();
+    void load(); // load catches its own failure
     md.addEventListener?.('devicechange', load);
     return () => { alive = false; md.removeEventListener?.('devicechange', load); };
   }, []);

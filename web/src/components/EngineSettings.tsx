@@ -135,7 +135,10 @@ export function EngineSettings({ bot }: { bot: Bot }) {
     if (pending.current.end(botId, action) && stillFor(botId)) setBusy(null);
   };
 
-  /** Saves a provider and model as soon as they are picked; a provider that isn't connected waits for its sign-in or key. */
+  /**
+   * Saves a provider and model as soon as they are picked; a provider that isn't connected waits for its sign-in or key.
+   * Never rejects: `run` shows a failure in the panel's note.
+   */
   const commit = async (nextProvider: string, nextModel: string, force = false) => {
     const p = providers.find((x) => x.id === nextProvider);
     if (p && !p.connected && !force) return;
@@ -157,9 +160,9 @@ export function EngineSettings({ bot }: { bot: Bot }) {
     dirty.current = true; setNote(null); setProvider(id);
     const m = modelForProvider(providers.find((p) => p.id === id), model.trim(), engine);
     setModel(m);
-    commit(id, m);
+    void commit(id, m);
   };
-  const pickModel = (m: string) => { dirty.current = true; setNote(null); setModel(m); commit(provider, m); };
+  const pickModel = (m: string) => { dirty.current = true; setNote(null); setModel(m); void commit(provider, m); };
 
   const save = () => commit(provider, model.trim(), true);
 

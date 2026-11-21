@@ -81,7 +81,7 @@ export function App() {
   const authChecked = useStore((s) => s.authChecked);
   const user = useStore((s) => s.user);
   const needsSetup = useStore((s) => s.needsSetup);
-  useEffect(() => { useStore.getState().checkAuth(); }, []);
+  useEffect(() => { void useStore.getState().checkAuth(); }, []); // checkAuth never rejects: a failure signs out
   if (!authChecked) return <div className="boot" />;
   // The sign-in screen stays over the app while it fades out, so the setup wizard or the chat appears
   // underneath it; the wizard fades the same way into the first bot's chat.

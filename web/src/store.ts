@@ -215,7 +215,7 @@ export const useStore = create<State>((set, get) => ({
     }
     set((s) => ({ transcripts: { ...s.transcripts, [id]: { generation, bySeq, loaded: true } } }));
     if (import.meta.env.DEV && new URLSearchParams(location.search).has('fixtures')) {
-      import('./dev/fixtures').then((m) => m.injectFixtures());
+      import('./dev/fixtures').then((m) => m.injectFixtures()).catch((e: unknown) => console.warn('[fixtures]', e));
     }
   },
 

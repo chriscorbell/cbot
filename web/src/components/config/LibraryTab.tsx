@@ -36,7 +36,7 @@ export function LibraryTab({ bot }: { bot: Bot }) {
   // A search result for a file here: open its folder, then make the file glow once it is listed.
   const jump = useConfigUI((s) => (s.jump?.kind === 'file' && s.jump.botId === bot.id ? s.jump : null));
   useEffect(() => { if (jump?.kind === 'file') setPath(folderOf(jump.path)); }, [jump]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]); // load shows a failure in `error`, so it never rejects
   useEffect(() => {
     if (jump?.kind !== 'file' || loading || !list || list.path !== folderOf(jump.path)) return;
     const name = jump.path.split('/').pop()!;

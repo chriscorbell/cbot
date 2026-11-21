@@ -17,6 +17,7 @@ export function MembersCard({ room }: { room: Bot }) {
   }, [room.id]);
   useEffect(load, [load]);
 
+  /** Never rejects: a failure shows in `error`. */
   const save = async (ids: string[]) => {
     setError(null);
     try { await api.setRoomMembers(room.id, ids); load(); } catch (e) { setError((e as Error).message); }
@@ -54,7 +55,7 @@ export function MembersCard({ room }: { room: Bot }) {
       {adding ? (
         <div className="members__add">
           {candidates.length ? candidates.map((b) => (
-            <button key={b.id} type="button" className="panel-row panel-row--link" onClick={() => { setAdding(false); save([...ids, b.id]); }}>
+            <button key={b.id} type="button" className="panel-row panel-row--link" onClick={() => { setAdding(false); void save([...ids, b.id]); }}>
               <BotAvatarFor bot={b} size={20} />
               <span className="panel-row__title" style={{ flex: 1 }}>{b.name}</span>
             </button>

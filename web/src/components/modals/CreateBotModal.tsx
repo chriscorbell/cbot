@@ -30,6 +30,7 @@ export function CreateBotModal() {
   const canCreate = name.trim().length > 0 && !busy;
   const shown = { shape: preview?.shape ?? shape, color: preview?.color ?? color };
 
+  /** Never rejects: a failure shows in `error`. */
   const create = async () => {
     if (!canCreate) return;
     setBusy(true); setError(null);
@@ -47,7 +48,7 @@ export function CreateBotModal() {
 
   return (
     <Modal onClose={close} className="create-modal" label="Create New Bot">
-      <form onSubmit={(e) => { e.preventDefault(); create(); }}>
+      <form onSubmit={(e) => { e.preventDefault(); void create(); }}>
         <div className="modal__header">
           <div className="modal__title">Create New Bot</div>
           <button type="button" className="modal__close" onClick={close} aria-label="Close"><Icon name="close" size={16} /></button>

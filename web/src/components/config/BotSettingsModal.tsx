@@ -381,6 +381,7 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Skill; o
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const can = name.trim() && body.trim() && !busy;
+  /** Never rejects: a failure shows in `error`. */
   const save = async () => {
     if (!can) return;
     setBusy(true); setError(null);
@@ -391,7 +392,7 @@ function SkillEditor({ botId, skill, onDone }: { botId: string; skill?: Skill; o
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
   return (
-    <form className="cfg-editor" onSubmit={(e) => { e.preventDefault(); save(); }}>
+    <form className="cfg-editor" onSubmit={(e) => { e.preventDefault(); void save(); }}>
       <input className="text-input" placeholder="Skill name, e.g. Weekly report" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} autoFocus aria-label="Skill name" />
       <input className="text-input" placeholder="When to use it, e.g. Before any call on my calendar (optional)" value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} aria-label="Skill description" />
       <textarea className="text-input cfg-textarea cfg-textarea--tall" rows={8} placeholder={'Write the steps to follow:\n1. …\n2. …'} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Skill steps" />

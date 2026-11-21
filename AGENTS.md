@@ -8,7 +8,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 |---|---|
 | `npm run check` | Typecheck both workspaces, lint, and run every unit test. Run it before every commit. GitHub Actions runs it, with shellcheck, on every pull request (`.github/workflows/check.yml`) and `main` requires it to pass; `scripts/deploy.sh` and `scripts/publish.sh` refuse a commit that fails it |
 | `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`), the speech service's (`npm run test:speech`) and the installer's release check and `release.sh`'s rollback (`npm run test:install`, which needs git and ssh-keygen), all stdlib only. Seconds, no services needed |
-| `npm run lint` | ESLint: floating promises and non-exhaustive switches on the server, hooks rules on the web app |
+| `npm run lint` | ESLint: floating promises and non-exhaustive switches in both workspaces, and React's hooks rules in the web app. One TypeScript version (root `package.json`) serves both workspaces and the lint |
 | `DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
 | `node tests/e2e.mjs`, `tests/voice-*.mjs` | End-to-end scripts against a running app (real gateways, screens and speech). See their headers |
 
@@ -77,8 +77,8 @@ Each lifecycle has one owner module. Its states are written down there; other co
 - **Live state through `live.ts`.** Only `agent/turns.ts` and `agent/transcript.ts` call its transitions.
 - **Validate at the boundary.** Route bodies go through `body(c, schema)` from `lib/validate.ts`. Tool arguments are the tool's zod `params`. Inside, trust the types.
 - **Contracts are shared, not restated.** A route's response type lives in `contract.ts` and the handler returns `{ ... } satisfies ThatType`; the web call names the same type. Server events are `ServerEvent` in `types.ts`; voice messages are in `voice-protocol.ts`. `types.ts`, `contract.ts` and `voice-protocol.ts` import nothing from the server, because the web app bundles them.
-- **Exhaustive switches.** A switch over a union ends with `default: { const x: never = ev; ... }` where it must handle every case (`lib/events.ts`, `voice/call.ts`). Lint enforces it on the server.
-- **No floating promises.** Await it, `.catch` it, or write `void` when it is deliberate and cannot reject. An unhandled rejection stops the server.
+- **Exhaustive switches.** A switch over a union ends with `default: { const x: never = ev; ... }` where it must handle every case (`lib/events.ts`, `voice/call.ts`). Lint enforces it in both workspaces.
+- **No floating promises.** Await it, `.catch` it, or write `void` when it is deliberate and cannot reject. An unhandled rejection stops the server; in the browser it fails without a word.
 - **Exact versions.** Every dependency is pinned to one version in `package.json`, and Dependabot proposes the updates. TypeScript, Vite and Vitest are declared once, at the root.
 - **Constants in one place.** Paths, ports and display numbers are in `machine.ts`. The box scripts keep copies in `server/box/dispatchlib.py`; `test/machine.test.ts` checks them, so change both.
 - **The MCP tool list is a contract with every bot's model.** `test/fixtures/mcp-tools.json` records what Hermes is offered. Changing a tool's name, description or parameters changes that file on purpose. Renaming or adding a tool restarts every gateway on the next deploy (the settings hash covers tool names).

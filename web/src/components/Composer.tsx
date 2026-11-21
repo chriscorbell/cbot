@@ -137,6 +137,7 @@ export function Composer({ bot, running, rows }: { bot: Bot; running: boolean; r
   const uploading = files.some((f) => f.status === 'uploading');
   const ready = files.flatMap((f) => (f.status === 'done' && f.att ? [f.att] : []));
 
+  /** Never rejects: a failure shows under the composer. */
   const send = async () => {
     const t = text.trim();
     if ((!t && !ready.length) || sending || uploading) return;
@@ -241,7 +242,7 @@ export function Composer({ bot, running, rows }: { bot: Bot; running: boolean; r
             onPaste={(e) => { if (e.clipboardData.files.length) { e.preventDefault(); attach(e.clipboardData.files); } }}
             onKeyDown={(e) => {
               const mod = e.metaKey || e.ctrlKey;
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (sendWithMod ? mod : !mod)) { e.preventDefault(); send(); }
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (sendWithMod ? mod : !mod)) { e.preventDefault(); void send(); }
               else if (e.key === 'Escape' && reply) { e.preventDefault(); setReply(null); }
               else if (e.key === 'Backspace' && reply && !text) setReply(null);
             }}
