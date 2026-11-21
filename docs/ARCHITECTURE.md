@@ -166,7 +166,7 @@ On the dev machine, with the primary bot on `deepseek-flash`, the answer's first
 
 | Production | Dev container | Holds |
 |---|---|---|
-| `/var/lib/dispatch` (`DATA_DIR`) | volume `data` at `/data` | `dispatch.db` (SQLite in WAL mode, schema in `db.ts`: the user and sessions, bots, rows, approvals and policies, routines, skills, screen leases, check-ins; older databases also keep tables nothing reads), `secret` (signs the MCP tokens), `auth-fingerprint`, `setup-code` while no account exists, and `engines/<botId>`, each bot's Hermes home with its gateway log |
+| `/var/lib/dispatch` (`DATA_DIR`) | volume `data` at `/data` | `dispatch.db` (SQLite in WAL mode, schema in `db.ts`: the user and sessions, bots, rows, approvals, routines, skills, screen leases, check-ins and settings), `secret` (signs the MCP tokens), `auth-fingerprint`, `setup-code` while no account exists, and `engines/<botId>`, each bot's Hermes home with its gateway log |
 | `/root/dispatch` | volume `root` at `/root` | `profiles/<botId>` (Chrome profiles), `files/<botId>` (the Library, also the bot's working folder), the home-screen extension key |
 
 Hermes (`/opt/hermes`) and the packages come from `provision.sh`, the box scripts are copied into `/opt/dispatch`, and the display and Chrome logs go to `/var/log/dispatch`. On the host all of it stays, along with whatever the bots install; in the dev container only the volumes survive a rebuild. Deleting a bot (`deleteBot` in `bots.ts`) removes its row first, so requests about it fail from then on, then stops its turns, gateway and display, deletes its home, Chrome profile and Library folder, and frees its screen lease last. A deleted group only has its folder of attached files to remove.
