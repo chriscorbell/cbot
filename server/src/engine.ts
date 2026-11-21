@@ -179,12 +179,9 @@ function inheritedHome(botId: string): string | null {
 
 // ---------- assignment ----------
 
-/** Ports of deleted bots' gateways that are still being stopped; nobody gets one until it is free. */
-const retiringPorts = new Set<number>();
-
 function freePort(): number {
-  const used = new Set(db.prepare<[], { engine_port: number }>('SELECT engine_port FROM bots WHERE engine_port IS NOT NULL').all().map((r) => r.engine_port));
-  for (const p of retiringPorts) used.add(p);
+  // A deleted bot's port stays its own until its deletion has finished (deleted_bots, bots.ts): its gateway may still hold it.
+  const used = new Set(db.prepare<[], { engine_port: number }>('SELECT engine_port FROM bots WHERE engine_port IS NOT NULL UNION SELECT engine_port FROM deleted_bots WHERE engine_port IS NOT NULL').all().map((r) => r.engine_port));
   let p = ENGINE_PORT_BASE;
   while (used.has(p)) p++;
   return p;
@@ -792,24 +789,19 @@ export async function restartEngine(botId: string): Promise<void> {
 }
 
 /**
- * The bot is gone (its row already deleted, see deleteBot): stop its gateway and delete its home.
- * `port` is the gateway's port, kept from new bots until the gateway has stopped. Its slice goes last,
- * once its screen is released (units.ts removeBotUnits, from deleteBot).
+ * The bot is gone (its row already deleted, see deleteBot): stop its gateway and delete its home. Its
+ * port stays kept from new bots until the whole deletion is done (freePort). Its slice goes last, once
+ * its screen is released (units.ts removeBotUnits, from deleteBot).
  */
-export async function removeEngine(botId: string, port: number | null): Promise<void> {
-  if (port) retiringPorts.add(port);
-  try {
-    const home = homeFor(botId);
-    if (!fs.existsSync(home)) return;
-    await starting.get(botId)?.catch(() => {});
-    await stopGateway(botId);
-    keys.delete(botId);
-    failures.delete(botId);
-    optionsCache.delete(botId);
-    if (path.resolve(home).startsWith(path.resolve(env.enginesDir) + path.sep)) fs.rmSync(home, { recursive: true, force: true });
-  } finally {
-    if (port) retiringPorts.delete(port);
-  }
+export async function removeEngine(botId: string): Promise<void> {
+  const home = homeFor(botId);
+  if (!fs.existsSync(home)) return;
+  await starting.get(botId)?.catch(() => {});
+  await stopGateway(botId);
+  keys.delete(botId);
+  failures.delete(botId);
+  optionsCache.delete(botId);
+  if (path.resolve(home).startsWith(path.resolve(env.enginesDir) + path.sep)) fs.rmSync(home, { recursive: true, force: true });
 }
 
 /** On server start: bring the gateways up. */

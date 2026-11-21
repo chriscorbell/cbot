@@ -18,8 +18,8 @@ function database(sql = ''): { d: Database.Database; file: string } {
 }
 
 test('a fresh database gets the whole schema and records its version', () => {
-  assert.equal(db.pragma('user_version', { simple: true }), 2);
-  assert.deepEqual(tables(db), ['approvals', 'auth_sessions', 'bots', 'proactivity', 'routines', 'rows', 'runs', 'screens', 'settings', 'skills', 'turns', 'users']);
+  assert.equal(db.pragma('user_version', { simple: true }), 3);
+  assert.deepEqual(tables(db), ['approvals', 'auth_sessions', 'bots', 'deleted_bots', 'proactivity', 'routines', 'rows', 'runs', 'screens', 'settings', 'skills', 'turns', 'users']);
   for (const col of ['kind', 'members', 'voice', 'engine', 'engine_port', 'handback_at', 'sidebar_hidden', 'told_seq']) {
     assert.ok(columns(db, 'bots').includes(col), `bots.${col}`);
   }
@@ -32,7 +32,7 @@ test('migrating a database that is up to date changes nothing', () => {
   const { d, file } = database();
   migrate(d, file);
   migrate(d, file);
-  assert.equal(d.pragma('user_version', { simple: true }), 2);
+  assert.equal(d.pragma('user_version', { simple: true }), 3);
   // References cascade once the migrations are done.
   assert.equal(d.pragma('foreign_keys', { simple: true }), 1);
   d.close();
@@ -42,7 +42,7 @@ test('a database from another version is refused with a way to start over, and l
   // The development versions before the schema was folded into one migration recorded nine.
   const { d, file } = database("CREATE TABLE bots (id TEXT PRIMARY KEY, hidden INTEGER); INSERT INTO bots VALUES ('bot_1', 0); PRAGMA user_version = 9;");
   assert.throws(() => migrate(d, file), (e: Error) => {
-    assert.match(e.message, /was made by another version of Dispatch \(schema 9; this version knows 2\)/);
+    assert.match(e.message, /was made by another version of Dispatch \(schema 9; this version knows 3\)/);
     assert.match(e.message, /docker compose -p dispatch-dev down -v/);
     return true;
   });
@@ -52,7 +52,7 @@ test('a database from another version is refused with a way to start over, and l
 
   // So is one with tables but no version at all, from before versions were recorded.
   const old = database("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); INSERT INTO users VALUES ('usr_1', 'a@localhost');");
-  assert.throws(() => migrate(old.d, old.file), /schema 0; this version knows 2/);
+  assert.throws(() => migrate(old.d, old.file), /schema 0; this version knows 3/);
   assert.deepEqual(tables(old.d), ['users']);
   old.d.close();
 });

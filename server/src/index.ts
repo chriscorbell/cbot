@@ -16,7 +16,7 @@ import { expireStaleApprovals } from './agent/approvals.js';
 import { initEngines } from './engine.js';
 import { initMemoryWatch } from './engine-memory.js';
 import { initScreens } from './computer.js';
-import { ensureOwner } from './bots.js';
+import { ensureOwner, finishDeletions } from './bots.js';
 import { initAuth } from './lib/auth.js';
 import { importEnvironment } from './settings.js';
 import { serveHttps } from './https.js';
@@ -33,7 +33,8 @@ import { initChromeUpdates } from './chrome-updates.js';
  *  4. Routines and check-ins are scheduled, unless DISPATCH_NO_SCHEDULER=1.
  *  5. Gateways, screens and the speech catalog are brought back in the background, and stale
  *     voice calls are swept every 10 minutes. The turns and Hermes runs the last process left are
- *     settled: runs nobody follows any more are stopped, and queued turns run again.
+ *     settled: runs nobody follows any more are stopped, and queued turns run again. Deletions of
+ *     bots it didn't finish are finished.
  *  6. Every bot's memory files are watched, so an open Memories tab shows what the bot saves.
  *  7. On a machine the installer set up, GitHub is checked for a newer Dispatch now and then (updates.ts).
  *  8. Every hour, a bot's Chrome that runs an older version than apt installed starts again once the
@@ -79,6 +80,7 @@ if (process.env.DISPATCH_NO_SCHEDULER !== '1') {
 initEngines();
 resumeTurns().catch((e: unknown) => console.error('[agent] settling what the last process left failed:', e));
 initScreens();
+finishDeletions().catch((e: unknown) => console.error('[bots] finishing deletions failed:', e));
 initSpeech();
 initVoice();
 initMemoryWatch();

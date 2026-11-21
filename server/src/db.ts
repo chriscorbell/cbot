@@ -121,6 +121,12 @@ export interface TurnRecord { id: number; bot_id: string; generation: number; tr
 export interface RunRecord { id: string; bot_id: string; surface: 'chat' | 'voice' | 'summary'; started_at: number }
 
 /**
+ * A bot whose row is gone while what ran for it is still being taken down (deleteBot in bots.ts).
+ * A restart finishes the job; its gateway's port goes to no other bot until then.
+ */
+export interface DeletedBotRecord { id: string; kind: string; engine_port: number | null; deleted_at: number }
+
+/**
  * The schema, one migration per change. The first is the whole schema as it stood before the first
  * release with real installs: the migrations that led there were folded into it once, when the only
  * install was about to be wiped, and the tables and columns nothing used any more went with them.
@@ -269,6 +275,17 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
         surface TEXT NOT NULL,
         started_at INTEGER NOT NULL
+      );
+    `);
+  },
+  // 3. Bots being deleted (bots.ts), so a restart can finish taking down what ran for them.
+  (d) => {
+    d.exec(`
+      CREATE TABLE deleted_bots (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        engine_port INTEGER,
+        deleted_at INTEGER NOT NULL
       );
     `);
   },

@@ -1,4 +1,4 @@
-import { db, now, type BotRecord, type UserRecord } from './db.js';
+import { db, now, type BotRecord, type DeletedBotRecord, type UserRecord } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
@@ -94,24 +94,50 @@ export function finishSetup(user: User, greet: boolean) {
  * from then on requests about it fail, new turns for it are not queued and its MCP token stops
  * working. Then what runs for it on the computer is taken down: its turn, its sign-in, its gateway and home, its
  * screen (whose lease is freed last), its slice with whatever of the bot's still runs in it, and only
- * then its Chrome profile and Library, so nothing is still writing there. A group runs nothing, so only
+ * then its Chrome profile and Library folder, so nothing is still writing there. A group runs nothing, so only
  * its folder of attached files goes. A cleanup step that fails is logged and the rest still runs; the
  * bot is gone either way.
+ *
+ * Taking it down can take minutes (a unit may take two to stop), and the server may stop meanwhile.
+ * So the row's delete also records the bot in `deleted_bots`, which keeps its gateway's port from new
+ * bots (engine.ts freePort) until the job is done, and a restart finishes it (finishDeletions).
  */
 export async function deleteBot(b: BotRecord) {
   const routines = listRoutines(b.id);
   clearTurns(b.id);
   dropCalls(b.id);
   cancelBotSignIns(b.id);
-  db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
+  db.transaction(() => {
+    db.prepare('INSERT OR REPLACE INTO deleted_bots(id,kind,engine_port,deleted_at) VALUES (?,?,?,?)').run(b.id, b.kind, b.engine_port, now());
+    db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
+  })();
   hub.emit(b.user_id, { type: 'roster' });
   for (const r of routines) unscheduleRoutine(r.id);
-  if (b.kind === 'room') {
-    await forgetBotFiles(b.id).catch((e) => console.warn('[computer] cleanup failed', e?.message ?? e));
-    return;
+  await takeDown({ id: b.id, kind: b.kind });
+}
+
+/** What a deleted bot ran on the computer, taken down in deleteBot's order; then its record in `deleted_bots` goes. */
+async function takeDown(b: Pick<DeletedBotRecord, 'id' | 'kind'>) {
+  if (b.kind !== 'room') {
+    await removeEngine(b.id).catch((e) => console.warn('[engine] remove failed', e?.message ?? e));
+    await releaseScreen(b.id).catch((e) => console.warn('[computer] release failed', e?.message ?? e));
+    await removeBotUnits(b.id).catch((e) => console.warn('[units] removing the bot\'s units failed', e?.message ?? e));
   }
-  await removeEngine(b.id, b.engine_port).catch((e) => console.warn('[engine] remove failed', e?.message ?? e));
-  await releaseScreen(b.id).catch((e) => console.warn('[computer] release failed', e?.message ?? e));
-  await removeBotUnits(b.id).catch((e) => console.warn('[units] removing the bot\'s units failed', e?.message ?? e));
   await forgetBotFiles(b.id).catch((e) => console.warn('[computer] cleanup failed', e?.message ?? e));
+  db.prepare('DELETE FROM deleted_bots WHERE id=?').run(b.id);
+}
+
+/**
+ * On server start: deletions the last process didn't finish, one at a time. A screen lease whose bot
+ * is gone with no record of its deletion (left by a version that kept none) is taken down the same
+ * way, so its display number comes back.
+ */
+export async function finishDeletions() {
+  const left = db.prepare<[], DeletedBotRecord>('SELECT * FROM deleted_bots ORDER BY deleted_at').all();
+  const orphans = db.prepare<[], { bot_id: string }>('SELECT bot_id FROM screens WHERE bot_id NOT IN (SELECT id FROM bots) AND bot_id NOT IN (SELECT id FROM deleted_bots)').all();
+  for (const o of orphans) db.prepare("INSERT INTO deleted_bots(id,kind,engine_port,deleted_at) VALUES (?,'agent',NULL,?)").run(o.bot_id, now());
+  for (const b of [...left, ...orphans.map((o) => ({ id: o.bot_id, kind: 'agent' }))]) {
+    console.log(`[bots] finishing the deletion of ${b.id}, which the last process left unfinished`);
+    await takeDown(b);
+  }
 }

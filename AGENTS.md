@@ -32,7 +32,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/agent/catchup.ts` | What a voice call and the text chat are told of each other before each run |
 | `server/src/agent/rooms.ts`, `routines.ts`, `proactive.ts` | Group chats, routines, check-ins |
 | `server/src/agent/approvals.ts` | Hermes' approval prompts as chat cards, and the answers sent back to the run |
-| `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order), and the first-run setup that makes the first one |
+| `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order, recorded in `deleted_bots` so a restart finishes it), and the first-run setup that makes the first one |
 | `scripts/backup.sh`, `scripts/restore.sh`, `server/src/backup-db.ts` | Backing up both places Dispatch keeps data in, while it runs, and putting a backup back |
 | `server/src/reset.ts` | Resetting Dispatch to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
 | `server/src/updates.ts` | Updating Dispatch from GitHub: checking for a newer release (or commit of the branch the installer was told to follow), and running this release's installer again in a unit of its own |
