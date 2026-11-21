@@ -215,7 +215,15 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(url.query)
         path = url.path
         try:
-            if path in ('/', '/home'):
+            if path in ('/', '/home') and self.server.screen is None and self.headers.get('Host') != LOCAL_HOSTS[0]:
+                # A home screen extension packed before the screens had addresses of their own frames
+                # 127.0.0.1, and Chrome takes hours to update it. Sent on to home.localhost, a bot's
+                # Chrome reaches its own screen's page; any other Chrome comes back here by that name.
+                self.send_response(302)
+                self.send_header('Location', dispatchlib.SCREEN_HOME_URL + self.path)
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+            elif path in ('/', '/home'):
                 _, look = self._look()
                 self._send(200, render_home(look), 'text/html; charset=utf-8')
             elif path == '/stamp':

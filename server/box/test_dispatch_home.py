@@ -100,6 +100,19 @@ class Listeners(unittest.TestCase):
         self.assertNotIn(b'Ada', page)
         self.assertEqual(json.loads(self.request(self.main, 'GET', '/stamp')[1])['screen'], None)
 
+    def test_the_page_by_its_old_address_sends_a_chrome_on_to_its_screens_own(self):
+        conn = http.client.HTTPConnection(*self.main.server_address, timeout=5)
+        conn.request('GET', '/home', headers={'Host': home.LOCAL_HOSTS[1]})          # 127.0.0.1:<port>
+        r = conn.getresponse()
+        r.read()
+        conn.close()
+        self.assertEqual(r.status, 302)
+        self.assertEqual(r.getheader('Location'), dispatchlib.SCREEN_HOME_URL + '/home')
+        # By that name, a Chrome without a screen of its own comes back here and gets the plain page.
+        status, page = self.request(self.main, 'GET', '/home')
+        self.assertEqual(status, 200)
+        self.assertNotIn(b'Ada', page)
+
     def test_a_request_that_names_another_host_gets_nothing(self):
         status, _ = self.request(home._listeners[100], 'GET', '/home', headers={'Host': 'evil.example:%d' % dispatchlib.HOME_PORT})
         self.assertEqual(status, 403)
