@@ -1,6 +1,6 @@
 # Removes Dispatch from a machine that scripts/install.sh set up, with all its data:
 #
-#   curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/uninstall.sh | bash
+#   curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/uninstall.sh | bash
 #
 # It stops the service and everything it started (the bots' screens, Chromes and Hermes gateways),
 # then deletes the releases, the database and the bots' homes, Chrome profiles and Library files,

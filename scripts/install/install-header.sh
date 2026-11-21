@@ -1,6 +1,6 @@
 # Installs Dispatch on a machine of its own, or updates it:
 #
-#   curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
+#   curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/install.sh | bash
 #
 # It checks the machine (Ubuntu or Debian on x86-64, with systemd), asks three things (the bots' time
 # zone, how many bots at most, and whether to set up Tailscale too), then downloads the newest release

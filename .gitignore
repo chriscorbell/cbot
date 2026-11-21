@@ -16,4 +16,7 @@ docs/SPEC.md
 web/screenshots/
 tests/out/
 __pycache__/
+# Joined from scripts/install/ by scripts/bundle.sh for each build, not kept in the source.
+scripts/install.sh
+scripts/uninstall.sh
 brag-output/

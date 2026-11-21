@@ -9,7 +9,7 @@ Dispatch checks GitHub for a new release a minute after it starts and every six 
 The button runs the installer of the version you have again. Running the installer yourself does the same: it downloads the newest release, already built, checks that one of Dispatch's release keys signed it ([SECURITY.md](../SECURITY.md#how-releases-are-checked)), unpacks it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. A release brings its own Node, so it doesn't depend on the machine's. The settings, bots and chats stay. A release that isn't signed, or is older than the one running, isn't installed.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
+curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/install.sh | bash
 ```
 
 The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. A branch is downloaded as source and built on the machine. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why. That includes a new version that installs but doesn't answer within a minute of starting: Dispatch goes back to the version before it, and **Settings** > **General** > **Updates** says which one didn't start. Running the installer again tries it again.
@@ -138,7 +138,7 @@ Every pull request runs `npm run check` and shellcheck in GitHub Actions, and `m
 server/   Node server: API, turns, Hermes gateways, screens, voice relay
 web/      React app
 speech/   speech service: recognition, and Phonon's voices
-scripts/  install, uninstall (both built from scripts/install/ by scripts/bundle.sh), deploy, release and host provisioning
+scripts/  install and uninstall (parts in scripts/install/, joined by scripts/bundle.sh), build, publish, deploy, release and host provisioning
 deploy/   systemd unit and the speech services' Compose file
 tests/    end-to-end scripts
 ```

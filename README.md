@@ -72,7 +72,7 @@ Other Ubuntu and Debian derivatives may work; the installer warns that they're u
 On the target machine, run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
+curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/install.sh | bash
 ```
 
 The installer takes over the terminal: you pick the bots' time zone from a list you can search, how many bots the machine can run, and whether to add Tailscale, then it shows each step as it installs. A first install takes 15 to 30 minutes.
@@ -90,7 +90,7 @@ When a new version is out, **Update available** shows in the sidebar, and one cl
 On the target machine, run this to remove Dispatch and all its data (Chrome, Node.js, Docker, the desktop packages and Tailscale stay installed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/uninstall.sh | bash
+curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/uninstall.sh | bash
 ```
 
 It asks once before removing anything, then shows each step as it goes.

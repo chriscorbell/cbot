@@ -34,7 +34,7 @@ So GitHub Actions is trusted to build, and the publisher's own build checks it; 
 The first install trusts what GitHub serves when you run it. To read the installer before it runs, download it, read it, then run it:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh
+curl -fsSLO https://github.com/chriscorbell/dispatch/releases/latest/download/install.sh
 less install.sh
 bash install.sh
 ```

@@ -11,7 +11,8 @@ import subprocess
 import tempfile
 import unittest
 
-INSTALL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install.sh")
+# install.sh isn't committed: each run tests a fresh join of its parts, as a build makes it.
+BUNDLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bundle.sh")
 
 # install.sh without its last line (main), with die saying why on stderr, and the keys made here in
 # place of Dispatch's.
@@ -31,7 +32,8 @@ class ReleaseCheckTest(unittest.TestCase):
         cls.dir = tempfile.mkdtemp(prefix="dispatch-install-")
         # Nobody's own git settings or ssh-agent take part.
         cls.env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1", SSH_AUTH_SOCK="",
-                       INSTALL=INSTALL, SIGNERS=os.path.join(cls.dir, "signers"))
+                       INSTALL=os.path.join(cls.dir, "bundle", "install.sh"), SIGNERS=os.path.join(cls.dir, "signers"))
+        cls.run_ok(["bash", BUNDLE, os.path.join(cls.dir, "bundle")])
         for key in ("release", "stranger"):
             cls.run_ok(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "", "-f", os.path.join(cls.dir, key)])
         with open(os.path.join(cls.dir, "release.pub")) as f:

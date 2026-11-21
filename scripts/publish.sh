@@ -45,15 +45,16 @@ echo "Checking $(git log -1 --format='%h %s' "$commit")"
 git worktree add --detach --quiet "$work/tree" "$commit"
 (cd "$work/tree" && npm ci --no-audit --no-fund --loglevel=error && npm run check) || die "The checks failed; nothing was published."
 
-# installer_of <commit> <file>: that commit's install.sh, joined from its parts as releases have it.
+# installer_of <commit> <file>: that commit's install.sh: committed, in releases before it was joined
+# from its parts at build time, and otherwise joined here as its build joins it.
 installer_of() {
-  if git cat-file -e "$1:scripts/install/install-main.sh" 2>/dev/null; then
+  if git cat-file -e "$1:scripts/install.sh" 2>/dev/null; then
+    git show "$1:scripts/install.sh" >"$2"
+  else
     mkdir -p "$work/parts-$1"
     git archive "$1" scripts | tar -x -C "$work/parts-$1"
-    bash "$work/parts-$1/scripts/bundle.sh"
-    cp "$work/parts-$1/scripts/install.sh" "$2"
-  else
-    git show "$1:scripts/install.sh" >"$2"
+    bash "$work/parts-$1/scripts/bundle.sh" "$work/parts-$1/out"
+    cp "$work/parts-$1/out/install.sh" "$2"
   fi
 }
 installer_of "$commit" "$work/install-new.sh"

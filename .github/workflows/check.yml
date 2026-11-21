@@ -28,10 +28,11 @@ jobs:
       # needs git and ssh-keygen, which the runner has.
       - run: npm ci --no-audit --no-fund
       - run: npm run check
-      # install.sh and uninstall.sh are built from scripts/install/ (scripts/bundle.sh) and must match.
-      - run: scripts/bundle.sh --check
-      # Notes (client-side expansion in deploy.sh, unfollowed /etc/os-release) are by design.
-      - run: shellcheck --severity=warning $(git ls-files '*.sh' ':!scripts/install/')
+      # Notes (client-side expansion in deploy.sh, unfollowed /etc/os-release) are by design. install.sh
+      # and uninstall.sh aren't committed; they are checked as scripts/bundle.sh joins them.
+      - run: |
+          scripts/bundle.sh "$RUNNER_TEMP/bundle"
+          git ls-files -z '*.sh' ':!scripts/install/' | xargs -0 shellcheck --severity=warning "$RUNNER_TEMP"/bundle/*.sh
       # The parts are pieces of one script each: a variable set in one part and used in another
       # (SC2034, SC2154) is checked in the bundles above instead.
       - run: shellcheck --severity=warning --shell=bash --exclude=SC2034,SC2154 scripts/install/*.sh

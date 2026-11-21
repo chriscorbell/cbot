@@ -11,8 +11,8 @@
 #   - the dev image (Dockerfile)
 #
 # It downloads the Node that .node-version names from nodejs.org, checked against scripts/node.sha256
-# (update both together), and builds with that Node's npm in this source tree: npm ci, npm run build,
-# and install.sh and uninstall.sh from their parts (scripts/bundle.sh). <out> is emptied, then gets:
+# (update both together), and builds with that Node's npm in this source tree: npm ci and npm run build.
+# <out> is emptied, then gets:
 #
 #   node/          Node itself, which deploy/dispatch.service runs the server with
 #   server/        dist/ (the compiled server), box/ (the scripts for the bots' screens), package.json
@@ -76,7 +76,6 @@ say "building $version ($commit) with Node $node_version"
 cd "$src"
 npm ci --loglevel=error
 npm run build --silent
-bash scripts/bundle.sh
 
 # The server's production dependencies alone: a fresh install of the server workspace, so nothing
 # the web app needs only to build (React, its fonts and icons) ships.
@@ -107,9 +106,10 @@ cp -a server/dist server/box server/package.json "$out/server/"
 cp -a web/dist "$out/web/dist"
 cp web/src/avatar/shapes.gen.ts "$out/web/src/avatar/"
 cp -a deploy "$out/deploy"
-cp scripts/install.sh scripts/uninstall.sh scripts/release.sh scripts/provision.sh scripts/build-release.sh \
-  scripts/bundle.sh scripts/node.sha256 "$out/scripts/"
+cp scripts/release.sh scripts/provision.sh scripts/build-release.sh scripts/bundle.sh scripts/node.sha256 "$out/scripts/"
 cp -a scripts/install "$out/scripts/install"
+# install.sh and uninstall.sh, joined from their parts: the app's updates run this release's.
+bash scripts/bundle.sh "$out/scripts"
 [ ! -d speech ] || cp -a speech "$out/speech"
 cp LICENSE .node-version "$out/"
 find "$out" -name __pycache__ -type d -prune -exec rm -rf {} +
