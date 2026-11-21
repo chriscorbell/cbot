@@ -10,9 +10,11 @@
 #      or else one built here from its speech/, named for what is in it. The image goes in the
 #      release's SPEECH_IMAGE, for a rollback to start it again. Compose stops anything its file no
 #      longer lists,
-#   4. points /srv/dispatch/current at the release and restarts Dispatch, whose bots keep running.
-#      When it doesn't answer within a minute, it goes back to the release before it and that
-#      release's speech image, writes /etc/dispatch/last-update for the app to say so, and fails.
+#   4. stops Dispatch, copies its database aside, points /srv/dispatch/current at the release and
+#      starts it, whose bots keep running. When it doesn't answer within a minute, it puts the
+#      database back as it was (the new release may have migrated it, and the release before can't
+#      open a newer schema), goes back to the release before it and that release's speech image,
+#      writes /etc/dispatch/last-update for the app to say so, and fails.
 #      Provisioning stays: it only adds to the machine, and the release before runs on it too,
 #   5. keeps the running release, the one before it and four more, and each image in use and one more.
 #
@@ -28,6 +30,11 @@ etc="$root/etc/dispatch"
 releases="$srv/releases"
 final="$releases/$commit"
 say() { echo "[release] $*"; }
+# setting <name> <default>: a variable from /etc/dispatch/env, which overrides the unit's own.
+setting() { local v; v="$(sed -n "s/^$1=//p" "$etc/env" 2>/dev/null | tail -n 1)"; echo "${v:-$2}"; }
+# The database, and the copy of it taken before the switch (reset.ts erases dispatch.db*).
+db="$root$(setting DATA_DIR /var/lib/dispatch)/dispatch.db"
+saved="$db.before-update"
 export NPM_CONFIG_UPDATE_NOTIFIER=false
 
 want="$(cat "$rel/scripts/provision.sh" "$rel/deploy/dispatch.service" | sha256sum | cut -c1-16)"
@@ -56,6 +63,14 @@ fi
 # speech_up <release> <image>
 speech_up() {
   SPEECH_IMAGE="$2" docker compose --env-file "$1/deploy/speech.env" -f "$1/deploy/speech.compose.yaml" up -d --quiet-pull --remove-orphans 2>&1 | grep -v '^ *Container .* Running$' || true
+}
+# copy_db <from> <to>: the database at <from>, with its write-ahead log, put at <to>, with Dispatch
+# stopped so the files agree. A file <from> doesn't have is removed at <to>.
+copy_db() {
+  local s
+  for s in '' -wal -shm; do
+    if [ -f "$1$s" ]; then cp -p "$1$s" "$2$s"; else rm -f "$2$s"; fi
+  done
 }
 # start <link>: point current at releases/<commit> and restart Dispatch on it. Fails when it doesn't
 # answer within a minute.
@@ -92,6 +107,16 @@ echo "$speech" >"$rel/SPEECH_IMAGE"
 before="$(readlink "$srv/current" 2>/dev/null || true)"
 speech_up "$rel" "$speech"
 
+# The new release migrates the database when it starts, and the release before refuses a schema
+# newer than its own, so going back needs the database as it was. Dispatch stops first, so the copy
+# is whole.
+switching=''
+if [ -n "$before" ] && [ "$before" != "releases/$commit" ] && [ -f "$db" ]; then
+  switching=1
+  systemctl stop dispatch
+  copy_db "$db" "$saved"
+fi
+
 say "starting $commit"
 if ! start "releases/$commit"; then
   journalctl -u dispatch -n 40 --no-pager >&2 || true
@@ -101,6 +126,10 @@ if ! start "releases/$commit"; then
   fi
   old="${before#releases/}"
   say "going back to $old"
+  if [ -n "$switching" ]; then
+    systemctl stop dispatch
+    copy_db "$saved" "$db"
+  fi
   speech_up "$srv/$before" "$(cat "$srv/$before/SPEECH_IMAGE")"
   # The app reads this when it starts (server/src/updates.ts), so it is there before the old release is.
   version="$(cat "$final/VERSION" 2>/dev/null || true)"

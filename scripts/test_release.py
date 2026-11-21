@@ -27,10 +27,14 @@ mkdir -p "$out/node/bin" && echo '#!/bin/sh' >"$out/node/bin/node" && chmod +x "
 """
 
 # The stand-ins log each call to $CALLS. curl answers the health check unless the release `current`
-# points at is listed in $BROKEN. Images built here are there already; one named by digest is there
-# once pulled.
+# points at is listed in $BROKEN. Starting a release listed in $MIGRATES rewrites the database, as a new schema would.
+# Images built here are there already; one named by digest is there once pulled.
 SHIMS = {
-    "systemctl": 'echo "systemctl $*" >>"$CALLS"',
+    "systemctl": """echo "systemctl $*" >>"$CALLS"
+cur="$(readlink "$DISPATCH_ROOT/srv/dispatch/current" 2>/dev/null)"
+if [ "$1" = restart ] && grep -qx "${cur#releases/}" "$MIGRATES"; then
+  echo "schema of ${cur#releases/}" >"$DB"; rm -f "$DB-wal"
+fi""",
     "journalctl": 'echo "the journal"',
     "sleep": ":",
     "curl": 'cur="$(readlink "$DISPATCH_ROOT/srv/dispatch/current")"; grep -qx "${cur#releases/}" "$BROKEN" && exit 7; exit 0',
@@ -55,11 +59,15 @@ class ReleaseTest(unittest.TestCase):
                 f.write(f"#!/usr/bin/env bash\n{body}\n")
             os.chmod(path, 0o755)
         self.calls = os.path.join(self.root, "calls")
-        self.broken = os.path.join(self.root, "broken")
-        open(self.broken, "w").close()
+        self.broken, self.migrates = (os.path.join(self.root, n) for n in ("broken", "migrates"))
+        for f in (self.broken, self.migrates):
+            open(f, "w").close()
         os.makedirs(self.path("etc/dispatch"))
         os.makedirs(self.path("srv/dispatch/releases"))
+        os.makedirs(self.path("var/lib/dispatch"))
+        self.db = self.path("var/lib/dispatch/dispatch.db")
         self.env = dict(os.environ, DISPATCH_ROOT=self.root, CALLS=self.calls, BROKEN=self.broken,
+                        MIGRATES=self.migrates, DB=self.db,
                         PULLED=self.path("pulled"), PATH=f"{bin_dir}:{os.environ['PATH']}")
 
     def path(self, *parts):
@@ -102,6 +110,16 @@ class ReleaseTest(unittest.TestCase):
     def logged(self):
         with open(self.calls) as f:
             return f.read().splitlines()
+
+    @staticmethod
+    def write(path, text):
+        with open(path, "w") as f:
+            f.write(text)
+
+    @staticmethod
+    def read(path):
+        with open(path) as f:
+            return f.read()
 
     def test_a_source_tree_is_built_first_and_then_becomes_current(self):
         r = self.release(OLD)
@@ -158,6 +176,32 @@ class ReleaseTest(unittest.TestCase):
                          {"result": "rolled-back", "from": OLD, "to": NEW, "version": "v0.2.0"})
         # The release that failed stays, so it can be tried again.
         self.assertTrue(os.path.isdir(self.path("srv/dispatch/releases", NEW)))
+
+    def test_going_back_puts_back_the_database_the_new_release_migrated(self):
+        self.assertEqual(self.release(OLD).returncode, 0)
+        self.write(self.db, "schema of old")
+        self.write(self.db + "-wal", "old wal")
+        self.write(self.broken, NEW + "\n")
+        self.write(self.migrates, NEW + "\n")
+        r = self.release(NEW)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.current(), f"releases/{OLD}")
+        self.assertEqual(self.read(self.db), "schema of old")
+        self.assertEqual(self.read(self.db + "-wal"), "old wal")
+        # Dispatch is stopped before each copy, so the database and its log agree.
+        calls = [c for c in self.logged() if c.startswith("systemctl ") and c.endswith(" dispatch")]
+        self.assertEqual(calls, ["systemctl stop dispatch", "systemctl restart dispatch",
+                                 "systemctl stop dispatch", "systemctl restart dispatch"])
+
+    def test_a_good_update_keeps_the_copy_from_before_it(self):
+        self.assertEqual(self.release(OLD).returncode, 0)
+        self.write(self.db, "schema of old")
+        self.write(self.migrates, NEW + "\n")
+        r = self.release(NEW)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.read(self.db), f"schema of {NEW}\n")
+        self.assertEqual(self.read(self.db + ".before-update"), "schema of old")
+        self.assertFalse(os.path.exists(self.db + ".before-update-wal"))
 
     def test_the_next_good_release_clears_the_notice(self):
         self.release(OLD)

@@ -27,7 +27,7 @@ Dispatch installs and updates only from signed releases, with the keys listed in
 - Before signing, `scripts/publish.sh` builds the same commit on the publisher's machine and stops unless the result is the tarball, file for file, so a build GitHub Actions changed doesn't get signed.
 - One of the keys signs `SHA256SUMS`. The installer downloads the tarball and manifest and installs them only when that signature checks out, both files match it, and the manifest names the tag and the commit its signature names. The speech image is pulled by that digest.
 
-So GitHub Actions is trusted to build, and the publisher's own build checks it; nothing it builds runs on a machine until a release key has signed its checksums. It never installs a release older than the one running. The one way back is automatic: when a new release doesn't answer within a minute of starting, `release.sh` switches back to the release that ran before it, which was checked when it was installed.
+So GitHub Actions is trusted to build, and the publisher's own build checks it; nothing it builds runs on a machine until a release key has signed its checksums. It never installs a release older than the one running. The one way back is automatic: when a new release doesn't answer within a minute of starting, `release.sh` switches back to the release that ran before it, which was checked when it was installed, and to the database as it was before the update.
 
 **Update** in the app runs the installer of the version you already have, so a new release has to be signed by a key that version trusts. Someone who took over the GitHub repository couldn't push an update to your machine without one of those keys: not by moving a tag, and not by changing a release's files.
 
