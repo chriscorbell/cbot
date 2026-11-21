@@ -15,7 +15,7 @@ import { Icon } from './Icon';
 import { MembersCard } from './MembersCard';
 import { Presence, useExiting } from './Presence';
 import { useNarrow } from './Sidebar';
-import { emitUi } from '../lib/uiEvents';
+import { emitUi, notifyFailure } from '../lib/uiEvents';
 import { image } from '../lib/http';
 
 // Other files import this from here; it lives in lib/computer so the viewer can use it too.
@@ -98,6 +98,7 @@ async function saveLook(botId: string, patch: { avatarShape?: AvatarShape; avata
     await configApi.updateBot(botId, patch);
   } catch {
     if (prev) useStore.setState((s) => ({ bots: s.bots.map((b) => (b.id === botId ? { ...b, avatarShape: prev.avatarShape, avatarColor: prev.avatarColor } : b)) }));
+    notifyFailure('Couldn’t save the new look. Check the connection and try again.');
   }
 }
 

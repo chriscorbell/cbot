@@ -6,6 +6,7 @@ import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
 import { configApi, type BotSettingsBundle } from '../../lib/configApi';
 import { useConfigUI, useVersion, type BotSettingsTab } from '../../configStore';
 import { useStore } from '../../store';
+import { notifyFailure } from '../../lib/uiEvents';
 import { Icon } from '../Icon';
 import { Modal } from '../modals/Modal';
 import { Presence, useLastValue } from '../Presence';
@@ -79,7 +80,9 @@ export function BotSettingsModal() {
   }, [target?.botId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { reload(); }, [reload, memVersion]);
-  useEffect(() => { if (target) useStore.getState().loadRoutines(target.botId).catch(() => {}); }, [target?.botId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (target) useStore.getState().loadRoutines(target.botId).catch(() => notifyFailure('Couldn’t load the routines. Reopen settings to try again.'));
+  }, [target?.botId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bot deleted while open (or bad id): close.
   useEffect(() => { if (target && !bot && useStore.getState().bots.length) close(); }, [bot, target, close]);
@@ -281,7 +284,8 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
                   onClose();
                   const st = useStore.getState();
                   st.set({ bots: st.bots.filter((b) => b.id !== bot.id) });
-                  st.loadBots().catch(() => {});
+                  // The roster is already right here; the server's events correct it if this reload fails.
+                  st.loadBots().catch((e) => console.warn('[bots] reloading after a delete failed:', e));
                 } catch (e) { flash((e as Error).message, 'error'); }
               }}
             >

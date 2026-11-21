@@ -3,6 +3,7 @@ import { Check, Copy, ExternalLink } from 'lucide-react';
 import type { ProviderSignIn, SignInResponse } from '@shared/contract';
 import { configApi } from '../lib/configApi';
 import { ApiError } from '../lib/http';
+import { notifyFailure } from '../lib/uiEvents';
 
 /**
  * A subscription sign-in with a code (server/src/signin.ts). `start` asks the server for a link and a
@@ -59,7 +60,8 @@ export function useCodeSignIn(onDone: (signIn: ProviderSignIn) => void) {
 
   const reset = useCallback(() => { epoch.current++; setSignIn(null); setStarting(false); setError(null); }, []);
   const cancel = useCallback(() => {
-    if (signIn) configApi.cancelSignIn(signIn.id).catch(() => {});
+    // The server would otherwise keep waiting on the provider until the code runs out.
+    if (signIn) configApi.cancelSignIn(signIn.id).catch(() => notifyFailure('Couldn’t cancel the sign-in. It stops by itself when its code runs out.'));
     reset();
   }, [signIn, reset]);
 

@@ -175,7 +175,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async signOut() {
-    await api.logout().catch(() => {});
+    // Reloading after a sign-out the server never got would come back signed in, as if it had worked:
+    // a failure goes to the caller instead.
+    await api.logout();
     location.reload();
   },
 

@@ -12,7 +12,12 @@ interface UiEvents {
   compose: { text: string };
   /** Ask for a new chat; the chat view confirms it. */
   fresh: null;
+  /** Something the user did, or a refresh, failed with no place of its own to say so: a toast says it (Notices in Toast.tsx). */
+  notice: { text: string };
 }
+
+/** Says that something failed, in a toast at the bottom of the window. */
+export const notifyFailure = (text: string) => emitUi('notice', { text });
 
 export function emitUi<K extends keyof UiEvents>(name: K, detail: UiEvents[K]) {
   window.dispatchEvent(new CustomEvent(`dispatch:${name}`, { detail }));

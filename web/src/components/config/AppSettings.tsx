@@ -11,6 +11,7 @@ import type { ApprovalMode } from '@shared/types';
 import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
+import { notifyFailure } from '../../lib/uiEvents';
 import { computerStatusText } from '../DetailsPanel';
 import { Icon } from '../Icon';
 import { ConfirmButton, PageHead, Segmented } from './ui';
@@ -84,7 +85,9 @@ function GeneralSection() {
   const user = useStore((s) => s.user);
   const mics = useMics();
   const [ownCertificate, setOwnCertificate] = useState(false);
-  useEffect(() => { configApi.https().then((r) => setOwnCertificate(r.ownCertificate)).catch(() => {}); }, []);
+  useEffect(() => {
+    configApi.https().then((r) => setOwnCertificate(r.ownCertificate)).catch(() => notifyFailure('Couldn’t check Dispatch’s certificate, so it isn’t shown here.'));
+  }, []);
   const [changing, setChanging] = useState(false);
   const [changed, setChanged] = useState(false);
   useEffect(() => { if (!changed) return; const t = setTimeout(() => setChanged(false), 4000); return () => clearTimeout(t); }, [changed]);
@@ -292,7 +295,7 @@ function ComputerSection() {
   const unreachable = useStore((s) => s.screenUnreachable);
   const [details, setDetails] = useState<ComputerDetails | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const load = useCallback(() => { configApi.computerDetails().then(setDetails).catch(() => {}); }, []);
+  const load = useCallback(() => { configApi.computerDetails().then(setDetails).catch(() => setNote('Couldn’t load the screens’ details.')); }, []);
   useEffect(() => { load(); }, [load, computer?.status, computer?.screens.length]);
 
   const state = computer ?? details?.computer ?? null;

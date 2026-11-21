@@ -54,7 +54,9 @@ export function useVoiceOptions(): VoiceOptions {
   useEffect(() => {
     optionsCache ??= voiceApi.options().catch((e) => { optionsCache = null; throw e; });
     let alive = true;
-    optionsCache.then((o) => { if (alive) setOpts(o); }).catch(() => {});
+    // Without the speech service the pickers keep FALLBACK, today's voices, so settings still open;
+    // the log says why the list may be out of date.
+    optionsCache.then((o) => { if (alive) setOpts(o); }).catch((e) => console.warn('[voice] couldn’t load the voices; showing the built-in list:', e));
     return () => { alive = false; };
   }, []);
   return opts;
