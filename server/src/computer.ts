@@ -137,6 +137,19 @@ export async function screenForWork(userId: string, botId: string): Promise<void
   if (!alive) await readyScreen(userId, botId, { redress: true });
 }
 
+/** Every bot's leased screen. */
+export function leasedScreens(): { userId: string; botId: string; screenId: string }[] {
+  return db.prepare<[], Pick<ScreenRecord, 'bot_id' | 'user_id' | 'screen_id'>>('SELECT s.bot_id, s.user_id, s.screen_id FROM screens s JOIN bots b ON b.id = s.bot_id ORDER BY s.screen_id')
+    .all().map((s) => ({ userId: s.user_id, botId: s.bot_id, screenId: s.screen_id }));
+}
+
+/** Start the bot's Chrome again, on its home screen, so it runs the version installed now. Logins stay; open tabs go. */
+export async function restartChrome(userId: string, botId: string): Promise<void> {
+  const s = await screenFor(userId, botId);
+  const bot = deskBot(botId);
+  if (bot) await dressScreen(bot, s.screenId, { restartChrome: true });
+}
+
 /** Close everything on the bot's screen and bring its browser back to the home screen. Logins stay. */
 export async function resetBotScreen(userId: string, botId: string): Promise<void> {
   const s = await screenFor(userId, botId);

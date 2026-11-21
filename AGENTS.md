@@ -41,6 +41,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |
 | `server/src/https.ts` | HTTPS=1: Dispatch's own certificate and the port that serves HTTPS and plain HTTP together |
 | `server/src/computer.ts`, `displays.ts`, `desk.ts`, `vnc.ts`, `server/box/` | Screens: leases, X displays, dressing, the viewer relay, the Python desk scripts |
+| `server/src/chrome-updates.ts` | Starting a bot's Chrome again, once the bot is idle, when apt has installed a newer Chrome than it runs |
 | `server/src/voice-relay.ts`, `speech.ts`, `speech/` | Voice calls: the realtime relay, the speech service client, the speech service |
 | `server/src/account.ts` | The ordinary account every bot runs as (`DISPATCH_USER`), and handing it what the root server writes for the bots |
 | `server/src/machine.ts` | Paths, ports and display numbers on the computer |

@@ -39,6 +39,12 @@ export function setRelayMode(userId: string, botId: string, conn: string, mode: 
   return true;
 }
 
+/** Whether anyone has the bot's screen open in the viewer, watching or in control. */
+export function watched(botId: string): boolean {
+  for (const r of relays.values()) if (r.botId === botId) return true;
+  return false;
+}
+
 const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
 
 async function browserHandshake(q: ByteQueue, send: (b: Buffer) => void, serverInit: Buffer) {

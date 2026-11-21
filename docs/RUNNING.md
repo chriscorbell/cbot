@@ -14,7 +14,7 @@ curl -fsSL https://github.com/chriscorbell/dispatch/releases/latest/download/ins
 
 The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. A branch is downloaded as source and built on the machine. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why. That includes a new version that installs but doesn't answer within a minute of starting: Dispatch goes back to the version before it, and **Settings** > **General** > **Updates** says which one didn't start. Running the installer again tries it again.
 
-Dispatch's updates don't update the machine's other packages, Chrome among them. Keep them current with `sudo apt update && sudo apt upgrade`.
+The machine installs its security updates every day on its own (unattended-upgrades), Google Chrome's among them, and Dispatch starts each bot's Chrome again on the new version once that bot isn't busy: no turn, no call, and nobody watching its screen. Its sign-ins stay; its open tabs close. Other packages from outside the distribution (Node.js, Docker) update with `sudo apt update && sudo apt upgrade`.
 
 ## The bots' account
 

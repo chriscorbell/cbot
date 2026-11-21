@@ -21,6 +21,7 @@ import { initAuth } from './lib/auth.js';
 import { importEnvironment } from './settings.js';
 import { serveHttps } from './https.js';
 import { initUpdates } from './updates.js';
+import { initChromeUpdates } from './chrome-updates.js';
 
 /**
  * The server process: everything that starts something. Order matters:
@@ -34,6 +35,8 @@ import { initUpdates } from './updates.js';
  *     voice calls are swept every 10 minutes.
  *  6. Every bot's memory files are watched, so an open Memories tab shows what the bot saves.
  *  7. On a machine the installer set up, GitHub is checked for a newer Dispatch now and then (updates.ts).
+ *  8. Every hour, a bot's Chrome that runs an older version than apt installed starts again once the
+ *     bot is quiet (chrome-updates.ts).
  */
 
 // Keys and addresses that used to be read from .env, now set in Settings > Providers.
@@ -78,3 +81,4 @@ initSpeech();
 initVoice();
 initMemoryWatch();
 initUpdates();
+initChromeUpdates();

@@ -102,6 +102,8 @@ Everything else a bot runs is in its own slice, `dispatch-bot-<botId>.slice` (th
 
 Before each turn, `screenForWork` leases and dresses the screen and checks that its Chrome answers on DevTools, dressing it again if not, so the agent finds its browser instead of starting one of its own. A screen that cannot be readied is logged and the turn goes on without it. Hermes' browser tool uses that Chrome through `browser.cdp_url`, so everything it does shows in the viewer.
 
+Chrome's security updates come from apt: `provision.sh` has unattended-upgrades take Google's repository as well as the distribution's. A running Chrome keeps its version, so every hour `chrome-updates.ts` compares the version in dpkg's status file with what each bot's Chrome reports at `/json/version`, and starts a Chrome that is behind again (`restartChrome`, which dresses the screen with Chrome restarted) once its bot has no turn running, no call, and nobody on its screen in the viewer. A busy bot waits for the next check.
+
 The viewer relay (`vnc.ts`) checks the browser's session cookie, does the RFB handshake with Xvnc itself, then offers the browser an unauthenticated RFB session. In watch mode it drops key, pointer and clipboard messages on the server. When the user hands the screen back after taking control, the bot's next turn starts with a note to look at the screen before relying on it. Resetting a screen closes every window and brings Chrome back to the home screen; logins stay.
 
 Hermes can also run a private "Bot Desktop" for a home. While it runs, that agent's computer-use tool acts there and not on the screen the app shows, so the Engine section reports it and offers to stop it.

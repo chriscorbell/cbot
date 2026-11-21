@@ -194,6 +194,18 @@ systemctl daemon-reload
 systemctl enable dispatch.service >/dev/null 2>&1
 systemctl enable --now docker.service >/dev/null 2>&1
 
+# Chrome opens whatever pages the bots visit, and nothing else updates it: unattended-upgrades takes
+# only the distribution's own updates unless told otherwise. So it is on, and takes Chrome's too (the
+# fields of Google's Release file). A Chrome already running keeps its version until it restarts;
+# the server restarts each bot's once the bot is idle (server/src/chrome-updates.ts).
+apt_install unattended-upgrades
+cat > /etc/apt/apt.conf.d/52dispatch-upgrades <<'EOF'
+// Written by Dispatch (scripts/provision.sh): security updates every day, Google Chrome's among them.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+Unattended-Upgrade::Origins-Pattern { "origin=Google LLC,label=Google,archive=stable"; };
+EOF
+
 # Tailscale Serve gives the app an HTTPS address on the tailnet, on the same port at both ends, only
 # when /etc/dispatch/env asks with TAILSCALE_SERVE=1 (a machine scripts/deploy.sh looks after, from
 # .env.prod). The installer asks its own question and serves the app on 443 itself

@@ -96,6 +96,8 @@ remove_files() {
   rm -rf /root/.cache /root/.npm
   # The policy that gave each bot's Chrome its home screen (server/box/dispatch-screen.py).
   rm -f /etc/opt/chrome/policies/managed/dispatch.json /etc/chromium/policies/managed/dispatch.json
+  # Daily updates that take Chrome's too (scripts/provision.sh). The distribution's own stay as they were.
+  rm -f /etc/apt/apt.conf.d/52dispatch-upgrades
   # The light theme the screens set for the bots' account's GTK apps, put back as it was.
   if [ -e "$gtk.before-dispatch" ]; then mv -f "$gtk.before-dispatch" "$gtk"; else rm -f "$gtk"; fi
   rmdir "$(dirname "$gtk")" /root/.local/bin 2>/dev/null || true
