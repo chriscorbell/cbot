@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { db, now, type ApprovalRecord } from '../db.js';
 import { failureText } from '../lib/sse.js';
-import { currentRow, getRow, getBotRow, updateRow, type Conversation, type RowRef } from '../store.js';
+import { getRow, getBotRow, updateRow, type Conversation, type RowRef } from '../store.js';
 import { syncApprovals, type Engine } from '../engine.js';
 import type { ApprovalChoice, CardBody } from '../types.js';
 
@@ -95,7 +95,7 @@ export function askApproval(o: {
 /** Record how an approval ended, on its row and its card. */
 function settle(ap: Pick<ApprovalRecord, 'id' | 'bot_id' | 'generation' | 'row_seq'>, outcome: Settled) {
   db.prepare('UPDATE approvals SET status=?, resolved_at=? WHERE id=?').run(outcome, now(), ap.id);
-  const card = ap.generation === null ? currentRow(ap.bot_id, ap.row_seq) : getRow({ botId: ap.bot_id, generation: ap.generation, seq: ap.row_seq });
+  const card = getRow({ botId: ap.bot_id, generation: ap.generation, seq: ap.row_seq });
   if (card?.body.type === 'card' && card.body.card === 'approval' && card.body.approvalId === ap.id && card.body.status === 'pending') {
     updateRow(card, { ...card.body, status: outcome });
   }

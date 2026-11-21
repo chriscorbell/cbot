@@ -29,9 +29,9 @@ const put = (body: unknown) => app.request('/api/permissions', { ...json(body), 
 test('a change to approvals reaches every bot without touching the rest of its config', async () => {
   const a = botWithHome({ model: { default: 'm' }, approvals: { timeout: 300 }, command_allowlist: ['delete in root path'] });
   const b = botWithHome({ model: { default: 'n' } });
-  // seedOwner writes its row straight in, like an account from before Smart was the default (setup.test.ts has a new one).
+  // Every account starts on Smart.
   const first = await (await app.request('/api/permissions', { headers: auth() })).json();
-  expect(first).toEqual({ mode: 'off', allowed: ['delete in root path'], deny: [] });
+  expect(first).toEqual({ mode: 'smart', allowed: ['delete in root path'], deny: [] });
 
   const res = await put({ mode: 'manual', deny: ['git push --force*', ' git push --force* '] });
   expect(res.status).toBe(200);

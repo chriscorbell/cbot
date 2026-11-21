@@ -64,9 +64,8 @@ export function ensureOwner(): User {
   const existing = db.prepare<[], UserRecord>('SELECT * FROM users ORDER BY created_at, rowid LIMIT 1').get();
   if (existing) return toUser(existing);
   const id = newId('usr');
-  // Approvals start on Smart: the bot's model clears low-risk actions and asks about the rest. The
-  // column's default, 'off', is what accounts from before had; they keep their setting.
-  db.prepare("INSERT INTO users(id,created_at,approval_mode) VALUES (?,?,'smart')").run(id, now());
+  // Approvals start on Smart, the column's default.
+  db.prepare('INSERT INTO users(id,created_at) VALUES (?,?)').run(id, now());
   return toUser(db.prepare<[string], UserRecord>('SELECT * FROM users WHERE id=?').get(id)!);
 }
 

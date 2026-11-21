@@ -30,7 +30,8 @@ import { envOf, getSetting, secretEnv } from './settings.js';
  *                               ▼
  *                             error (until a start succeeds)
  *
- *   none      bots.engine is null: a bot from before engines, given one on first use; rooms never get one
+ *   none      bots.engine is null: a group chat, which never gets one. Every other bot gets its engine
+ *             when it is made (createBot in bots.ts)
  *   starting  a start or adoption is in flight (`starting`), or nothing answers and none has failed
  *   ready     the gateway answers /health
  *   error     nothing answers and the last start failed (`failures`)
@@ -646,10 +647,7 @@ function ensureManaged(botId: string): Promise<void> {
 export async function engineFor(botId: string): Promise<Engine> {
   const b = botRow(botId);
   if (!b) throw new Error('bot not found');
-  if (b.engine !== 'managed' || !b.engine_port) {
-    if (b.kind === 'room') throw new Error('A group chat has no agent of its own.');
-    assignEngine(botId);
-  }
+  if (b.engine !== 'managed' || !b.engine_port) throw new Error(b.kind === 'room' ? 'A group chat has no agent of its own.' : 'This bot has no agent.');
   const url = managedUrl(botId);
   // A start under way (a restart for new settings among them) is waited for, not raced.
   if (stale.delete(botId) || starting.has(botId) || !(await healthy(url, 1500)) || !managedKey(botId)) await ensureManaged(botId);
@@ -805,13 +803,9 @@ export async function removeEngine(botId: string, port: number | null): Promise<
   }
 }
 
-/** On server start: give older bots an engine, then bring the gateways up. */
+/** On server start: bring the gateways up. */
 export function initEngines() {
   fs.mkdirSync(env.enginesDir, { recursive: true });
-  // A bot that ran on the separately managed "primary" agent (before this app ran every agent) gets one of its own.
-  db.prepare("UPDATE bots SET engine=NULL, engine_port=NULL WHERE engine='primary'").run();
-  const bots = db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine IS NULL AND kind <> 'room' ORDER BY is_primary DESC, created_at ASC").all();
-  for (const b of bots) assignEngine(b.id);
   for (const b of db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE engine='managed'").all()) provisionEngine(b.id);
 }
 

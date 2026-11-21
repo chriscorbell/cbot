@@ -82,8 +82,8 @@ export interface ScreenRecord { bot_id: string; user_id: string; screen_id: stri
 
 export interface ApprovalRecord {
   id: string; bot_id: string;
-  /** The card's row: its chat (null: the bot's current chat) and seq. */
-  generation: number | null; row_seq: number;
+  /** The card's row: its chat and seq. */
+  generation: number; row_seq: number;
   /** Hermes' prompt id. */
   call_id: string; tool: string;
   status: 'pending' | 'allowed' | 'always' | 'denied' | 'expired';
@@ -126,7 +126,8 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         avatar_url TEXT,
         created_at INTEGER NOT NULL,
         -- Hermes' approvals for every bot (Settings > Permissions), and the commands they never run.
-        approval_mode TEXT NOT NULL DEFAULT 'off',
+        -- Smart to start: the bot's model clears low-risk actions and asks about the rest.
+        approval_mode TEXT NOT NULL DEFAULT 'smart',
         approval_deny TEXT NOT NULL DEFAULT '[]',
         -- When the first-run setup finished (bots.ts); null until then.
         setup_at INTEGER
@@ -201,7 +202,7 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         status TEXT NOT NULL DEFAULT 'pending',
         created_at INTEGER NOT NULL,
         resolved_at INTEGER,
-        generation INTEGER
+        generation INTEGER NOT NULL
       );
       CREATE TABLE routines (
         id TEXT PRIMARY KEY,
