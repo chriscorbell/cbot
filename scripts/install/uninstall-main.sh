@@ -6,8 +6,12 @@ main() {
   tui=false removing=false reported=false step_pid='' LOG='' machine=''
   [ "$(id -u)" -eq 0 ] || become_root DISPATCH_YES
   # Set here, not at the top: become_root carries functions only. The folders Dispatch keeps are in
-  # server/src/machine.ts, scripts/provision.sh and scripts/release.sh.
-  FOLDERS=(/srv/dispatch /var/lib/dispatch /root/dispatch /opt/dispatch /etc/dispatch /var/log/dispatch)
+  # server/src/machine.ts, scripts/provision.sh and scripts/release.sh; the bots' own are in the home
+  # of their account (DISPATCH_USER), which stays.
+  account="$(env_account)" bots_home=''
+  if [ -n "$account" ] && [ "$account" != root ]; then bots_home="$(getent passwd "$account" | cut -d: -f6)"; fi
+  FOLDERS=(/srv/dispatch /var/lib/dispatch /opt/dispatch /etc/dispatch /var/log/dispatch)
+  if [ -n "$bots_home" ]; then FOLDERS+=("$bots_home/dispatch"); fi
   UNIT=/etc/systemd/system/dispatch.service
   local reply='' host
   interactive=false

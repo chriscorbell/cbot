@@ -31,8 +31,9 @@ stop_everything() {
       kill -KILL $(cat "$group/cgroup.procs" 2>/dev/null) 2>/dev/null || true
     fi
   fi
-  # The service, and the units scripts/install-units.sh put beside it.
+  # The service, and the units scripts/install-units.sh put beside it with their account drop-ins.
   rm -f "$UNIT" /etc/systemd/system/dispatch-*@.service /etc/systemd/system/dispatch-*@.target
+  rm -rf /etc/systemd/system/dispatch-*@.service.d
   rm -rf /run/systemd/system.control/dispatch-bot-*.slice.d /run/dispatch
   systemctl daemon-reload
   systemctl reset-failed 'dispatch*' >/dev/null 2>&1 || true
@@ -81,20 +82,21 @@ remove_tailscale_serve() {
 }
 
 remove_files() {
-  local gtk=/root/.config/gtk-3.0/settings.ini f
+  local gtk="${bots_home:-/root}/.config/gtk-3.0/settings.ini" f
   rm -rf "${FOLDERS[@]}" /opt/hermes /opt/hermes.[0-9]* /run/dispatch-install.lock
+  # The bots' account keeps its home, and loses the sudo rule scripts/install-units.sh gave it.
+  rm -f /etc/sudoers.d/dispatch
   # Hermes' launchers: provision.sh's copy, and the ones its installer puts in root's ~/.local/bin.
   [ "$(readlink /usr/local/bin/hermes 2>/dev/null)" != /opt/hermes/launcher/hermes ] || rm -f /usr/local/bin/hermes
   for f in /root/.local/bin/hermes*; do
     ! grep -qs /opt/hermes/ "$f" || rm -f "$f"
   done
-  # What the screens and builds leave in root's home: the window manager's settings, Chrome's crash
-  # reports, and caches (npm, node-gyp, uv, shaders), which are safe to delete by definition.
-  rm -rf /root/.config/xfce4 "/root/.config/google-chrome/Crash Reports" /root/.cache /root/.npm
-  rmdir /root/.config/google-chrome 2>/dev/null || true
+  # What the builds leave in root's home: caches (npm, node-gyp, uv), which are safe to delete by
+  # definition.
+  rm -rf /root/.cache /root/.npm
   # The policy that gave each bot's Chrome its home screen (server/box/dispatch-screen.py).
   rm -f /etc/opt/chrome/policies/managed/dispatch.json /etc/chromium/policies/managed/dispatch.json
-  # The light theme the screens set for root's GTK apps, put back as it was.
+  # The light theme the screens set for the bots' account's GTK apps, put back as it was.
   if [ -e "$gtk.before-dispatch" ]; then mv -f "$gtk.before-dispatch" "$gtk"; else rm -f "$gtk"; fi
   rmdir "$(dirname "$gtk")" /root/.local/bin 2>/dev/null || true
   done_ "Deleted the bots, chats, files, settings and Hermes Agent"

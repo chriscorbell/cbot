@@ -193,5 +193,64 @@ class ReleaseCheckTest(unittest.TestCase):
         self.assertIn("is of v0.9.0", r.stderr)
 
 
+
+class AccountTest(unittest.TestCase):
+    """Which account the bots run as (install.sh's choose_account and record_account)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dir = tempfile.mkdtemp(prefix="dispatch-account-")
+        subprocess.run(["bash", BUNDLE, os.path.join(cls.dir, "bundle")], check=True, capture_output=True)
+        cls.me = subprocess.run(["id", "-un"], check=True, capture_output=True, text=True).stdout.strip()
+
+    def bash(self, script, *args, **env):
+        base = {k: v for k, v in os.environ.items() if k not in ("DISPATCH_USER", "SUDO_USER")}
+        return subprocess.run(["bash", "-c", PRELUDE + script, "test", *args], capture_output=True, text=True,
+                              env=dict(base, INSTALL=os.path.join(self.dir, "bundle", "install.sh"), SIGNERS=os.devnull, **env))
+
+    def choose(self, env_file, **env):
+        return self.bash('choose_account "$1"; echo "$account"', env_file, **env)
+
+    def env_file(self, text=None):
+        path = os.path.join(tempfile.mkdtemp(dir=self.dir), "env")
+        if text is not None:
+            with open(path, "w") as f:
+                f.write(text)
+        return path
+
+    def test_the_account_that_ran_sudo_is_the_bots(self):
+        r = self.choose(self.env_file(), SUDO_USER=self.me)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, self.me), r.stderr)
+
+    def test_dispatch_user_comes_first_then_what_an_earlier_run_chose(self):
+        r = self.choose(self.env_file(f"TZ=UTC\nDISPATCH_USER='{self.me}'\n"), SUDO_USER="root")
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, self.me), r.stderr)
+        r = self.choose(self.env_file("DISPATCH_USER=nobody-here\n"), DISPATCH_USER=self.me)
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, self.me), r.stderr)
+
+    def test_root_or_nobody_is_refused(self):
+        for env in ({}, {"SUDO_USER": "root"}, {"DISPATCH_USER": "root"}):
+            r = self.choose(self.env_file(), **env)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("from the account the bots should use", r.stderr)
+
+    def test_an_account_the_machine_lacks_is_refused(self):
+        r = self.choose(self.env_file(), DISPATCH_USER="nobody-here")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("no account by that name", r.stderr)
+
+    def test_the_account_is_written_down_once_beside_the_other_settings(self):
+        path = self.env_file("MAX_BOTS=4\nDISPATCH_USER=someone-else\nTZ=UTC\n")
+        for _ in range(2):
+            r = self.bash('account="$2"; record_account "$1"; env_account "$1"', path, self.me)
+            self.assertEqual((r.returncode, r.stdout.strip()), (0, self.me), r.stderr)
+        with open(path) as f:
+            text = f.read()
+        self.assertEqual(text.count("DISPATCH_USER="), 1)
+        self.assertIn("MAX_BOTS=4", text)
+        self.assertIn("TZ=UTC", text)
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
+
 if __name__ == "__main__":
     unittest.main()

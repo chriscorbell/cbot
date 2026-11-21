@@ -15,6 +15,13 @@ ui_init() {
   esac
 }
 
+# The account the bots run as, as /etc/dispatch/env (or the file named) has it: its last DISPATCH_USER
+# line, the value maybe quoted. Nothing when it names none. scripts/install-units.sh reads it the same way.
+env_account() {
+  [ -r "${1:-/etc/dispatch/env}" ] || return 0
+  sed -nE "s/^[[:space:]]*DISPATCH_USER=[\"']?([^\"']*)[\"']?[[:space:]]*\$/\\1/p" "${1:-/etc/dispatch/env}" | tail -n 1
+}
+
 info() { printf '   %s\n' "$*"; }
 warn() { printf '   %s!%s %s\n' "$Y" "$R" "$*"; }
 

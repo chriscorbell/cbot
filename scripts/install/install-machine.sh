@@ -102,6 +102,37 @@ ask_settings_tui() {
   done
 }
 
+# choose_account [env file]: the account the bots will run as (server/src/account.ts), into $account:
+# DISPATCH_USER when it is given, else the one an earlier run chose (/etc/dispatch/env), else the one
+# whose sudo started this installer (become_root). Never root: the bots get an ordinary account, which
+# may sudo (scripts/install-units.sh), and no root shell.
+choose_account() {
+  local uid
+  account="${DISPATCH_USER:-}"
+  [ -n "$account" ] || account="$(env_account "${1:-/etc/dispatch/env}")"
+  [ -n "$account" ] || account="${SUDO_USER:-}"
+  if [ -z "$account" ] || [ "$account" = root ]; then
+    die "Run the installer from the account the bots should use, not as root; it asks for sudo itself. Or name that account with DISPATCH_USER=<name>."
+  fi
+  uid="$(id -u "$account" 2>/dev/null)" || die "DISPATCH_USER is $account, and this machine has no account by that name."
+  [ "$uid" -ne 0 ] || die "$account is root under another name. The bots need an ordinary account."
+}
+
+# record_account [env file]: DISPATCH_USER=$account in /etc/dispatch/env, where the server and
+# scripts/install-units.sh find it, replacing any other.
+record_account() {
+  local env="${1:-/etc/dispatch/env}"
+  [ "$(env_account "$env")" != "$account" ] || return 0
+  install -d -m 0700 "$(dirname "$env")"
+  (
+    umask 077
+    { grep -v '^[[:space:]]*DISPATCH_USER=' "$env" 2>/dev/null || true
+      printf '%s\n' "# The account the bots run as: an ordinary one, which may sudo." "DISPATCH_USER=$account"
+    } >"$env.new"
+  )
+  mv "$env.new" "$env"
+}
+
 write_settings() {
   install -d -m 0700 /etc/dispatch
   (

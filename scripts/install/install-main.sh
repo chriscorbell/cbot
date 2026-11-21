@@ -5,7 +5,7 @@ main() {
   PORT=8787
   ui_init
   steps=0 tui=false tty3=false watcher='' reported=false machine='' gum_dir='' fetch_dir='' LOG=''
-  [ "$(id -u)" -eq 0 ] || become_root DISPATCH_YES DISPATCH_TZ DISPATCH_MAX_BOTS DISPATCH_TAILSCALE DISPATCH_REF DISPATCH_REPO GITHUB_TOKEN
+  [ "$(id -u)" -eq 0 ] || become_root DISPATCH_YES DISPATCH_TZ DISPATCH_MAX_BOTS DISPATCH_TAILSCALE DISPATCH_REF DISPATCH_REPO GITHUB_TOKEN DISPATCH_USER
 
   repo="${DISPATCH_REPO:-chriscorbell/dispatch}" ref="${DISPATCH_REF:-}" tag=''
   interactive=false
@@ -39,6 +39,7 @@ main() {
   stage=0
   $tui || step "Checking this machine"
   check_machine
+  choose_account
 
   if ! $installed; then
     stage=1
@@ -63,6 +64,7 @@ main() {
     : "${tz:=UTC}" "${max_bots:=4}"
     write_settings
   fi
+  record_account
   run_release
   work_end
   finish
