@@ -25,7 +25,8 @@ SHIMS = {
     "curl": 'cur="$(readlink "$DISPATCH_ROOT/srv/dispatch/current")"; grep -qx "${cur#releases/}" "$BROKEN" && exit 7; exit 0',
     "docker": """case "$1" in
   image) [ "$2" = inspect ] && exit 0; exit 0 ;;
-  compose) echo "compose $SPEECH_IMAGE ${3#$DISPATCH_ROOT}" >>"$CALLS" ;;
+  compose) [ "$2" = --env-file ] && [ -f "$3" ] || exit 9
+           echo "compose $SPEECH_IMAGE ${3#$DISPATCH_ROOT} ${5#$DISPATCH_ROOT}" >>"$CALLS" ;;
 esac""",
 }
 
@@ -59,7 +60,8 @@ class ReleaseTest(unittest.TestCase):
             os.makedirs(os.path.join(rel, d))
         shutil.copy(RELEASE, os.path.join(rel, "scripts", "release.sh"))
         for name, text in (("scripts/provision.sh", ":\n"), ("deploy/dispatch.service", "[Service]\n"),
-                           ("deploy/speech.compose.yaml", "services: {}\n"), ("speech/Dockerfile", speech)):
+                           ("deploy/speech.compose.yaml", "services: {}\n"), ("deploy/speech.env", "SPEECH_IP=172.31.250.2\n"),
+                           ("speech/Dockerfile", speech)):
             with open(os.path.join(rel, name), "w") as f:
                 f.write(text)
         if version:
@@ -99,7 +101,8 @@ class ReleaseTest(unittest.TestCase):
         compose = [c for c in self.logged() if c.startswith("compose ")]
         self.assertEqual(len(compose), 2)
         self.assertNotEqual(compose[0].split()[1], compose[1].split()[1])
-        self.assertTrue(compose[1].endswith(f"/srv/dispatch/releases/{OLD}/deploy/speech.compose.yaml"))
+        self.assertEqual(compose[1].split()[2:], [f"/srv/dispatch/releases/{OLD}/deploy/speech.env",
+                                                  f"/srv/dispatch/releases/{OLD}/deploy/speech.compose.yaml"])
         self.assertEqual(self.logged().count("systemctl restart dispatch"), 2)
         with open(self.path("etc/dispatch/last-update")) as f:
             last = json.load(f)

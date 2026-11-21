@@ -1,6 +1,6 @@
 # The speech service on Dispatch's production host (scripts/release.sh runs it). Its network is internal,
-# so it has no route out; the host reaches it at a fixed address, which deploy/dispatch.service passes to
-# the server as SPEECH_URL.
+# so it has no route out; the host reaches it at a fixed address, set in deploy/speech.env, which
+# release.sh passes to compose with --env-file and deploy/dispatch.service passes to the server.
 name: dispatch-speech
 services:
   speech:
@@ -12,10 +12,10 @@ services:
     restart: unless-stopped
     networks:
       speech:
-        ipv4_address: 172.31.250.2
+        ipv4_address: ${SPEECH_IP:?set SPEECH_IP (deploy/speech.env)}
 networks:
   speech:
     internal: true
     ipam:
       config:
-        - subnet: 172.31.250.0/29
+        - subnet: ${SPEECH_SUBNET:?set SPEECH_SUBNET (deploy/speech.env)}

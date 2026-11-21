@@ -9,8 +9,9 @@ Type=simple
 User=root
 WorkingDirectory=/srv/dispatch/current
 # HOST is loopback only: Tailscale Serve holds 8787 on the tailnet address and passes HTTPS on to it.
-# SPEECH_URL is the speech service's fixed address on its Docker network (deploy/speech.compose.yaml).
-Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8787 DATA_DIR=/var/lib/dispatch LANG=C.UTF-8 SPEECH_URL=http://172.31.250.2:8000
+Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8787 DATA_DIR=/var/lib/dispatch LANG=C.UTF-8
+# SPEECH_IP: the speech service's fixed address on its Docker network, from the running release.
+EnvironmentFile=/srv/dispatch/current/deploy/speech.env
 # TZ and the rest, from .env.prod on the dev machine (scripts/deploy.sh). The account is in the database.
 EnvironmentFile=/etc/dispatch/env
 ExecStart=/usr/bin/node server/dist/index.js

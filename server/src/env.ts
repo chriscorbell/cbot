@@ -49,6 +49,9 @@ export const env = {
   maxBots: Number(process.env.MAX_BOTS ?? 4),
   /** The server's IANA time zone: routines and check-ins default to it, and every bot's Hermes uses it. */
   timeZone: localTimeZone(),
-  /** The speech service (speech/README.md), on its internal Docker network: deploy/dispatch.service and compose.yaml set it. */
-  speechUrl: (process.env.SPEECH_URL || 'http://speech:8000').replace(/\/+$/, ''),
+  /**
+   * The speech service (speech/README.md), on its internal Docker network: compose.yaml sets SPEECH_URL in
+   * development, and on a host deploy/dispatch.service passes SPEECH_IP from deploy/speech.env.
+   */
+  speechUrl: (process.env.SPEECH_URL || (process.env.SPEECH_IP ? `http://${process.env.SPEECH_IP}:8000` : 'http://speech:8000')).replace(/\/+$/, ''),
 };

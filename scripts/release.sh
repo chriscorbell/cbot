@@ -50,7 +50,7 @@ fi
 speech_image() { echo "dispatch-speech:$(cd "$1" && find speech -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"; }
 # speech_up <release> <image>
 speech_up() {
-  SPEECH_IMAGE="$2" docker compose -f "$1/deploy/speech.compose.yaml" up -d --quiet-pull --remove-orphans 2>&1 | grep -v '^ *Container .* Running$' || true
+  SPEECH_IMAGE="$2" docker compose --env-file "$1/deploy/speech.env" -f "$1/deploy/speech.compose.yaml" up -d --quiet-pull --remove-orphans 2>&1 | grep -v '^ *Container .* Running$' || true
 }
 # start <link>: point current at releases/<commit> and restart Dispatch on it. Fails when it doesn't
 # answer within a minute.
