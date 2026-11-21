@@ -128,16 +128,6 @@ export type CardBody =
       status: 'pending' | 'answered' | 'dismissed';
       answer?: string;
     }
-  | {
-      type: 'card';
-      card: 'draft';
-      channel: 'email' | 'slack' | 'message';
-      to: string;
-      subject?: string;
-      text: string;
-      approvalId: string;
-      status: 'pending' | 'sent' | 'discarded';
-    }
   | WeatherCard;
 
 /** A forecast shown as a card (the show_weather tool). Temperatures are °C and wind km/h; the card converts. */

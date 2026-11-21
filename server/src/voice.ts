@@ -59,7 +59,7 @@ function recentMessages(botId: string, count: number) {
     const m = messageText(body);
     if (m) out.push({ seq: r.seq, at: r.created_at, who: m.role === 'user' ? `User${m.via ? ` (${m.via})` : ''}` : b.name, text: m.text });
     else if (body.type === 'event' && body.event === 'voice-call' && body.call?.phase === 'ended') out.push({ seq: r.seq, at: r.created_at, who: 'Call record', text: body.text });
-    else if (body.type === 'card' && body.status === 'pending') out.push({ seq: r.seq, at: r.created_at, who: 'Waiting for the user', text: body.card === 'approval' ? body.title : body.card === 'question' ? body.question : 'Draft to review' });
+    else if (body.type === 'card' && body.status === 'pending') out.push({ seq: r.seq, at: r.created_at, who: 'Waiting for the user', text: body.card === 'approval' ? body.title : body.question });
     if (out.length >= count) break;
   }
   return out.reverse();
@@ -70,11 +70,12 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 function activitySnapshot(botId: string) {
   const live = getLive(botId);
   const pending = (db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='card' ORDER BY seq DESC LIMIT 20").all(botId, requireBot(botId).generation) as Pick<RowRecord, 'body'>[])
-    .map((r) => JSON.parse(r.body) as CardBody).filter((b) => b.status === 'pending');
+    .map((r) => JSON.parse(r.body) as CardBody)
+    .filter((b): b is Extract<CardBody, { card: 'approval' | 'question' }> => (b.card === 'approval' || b.card === 'question') && b.status === 'pending');
   const lines: string[] = [];
   if (live.isRunning) lines.push(`Busy right now: ${ACTIVITY_WORDS[live.activity.kind] ?? 'working'}${live.activity.detail ? ` (${live.activity.detail})` : ''}, started ${ago(live.startedAt)}.`);
   else lines.push('Idle: not working on anything right now.');
-  if (pending.length) lines.push(`Waiting on the user in chat:\n${pending.map((b) => `- ${b.card === 'approval' ? b.title : b.card === 'question' ? b.question : 'A draft to review'}`).join('\n')}`);
+  if (pending.length) lines.push(`Waiting on the user in chat:\n${pending.map((b) => `- ${b.card === 'approval' ? b.title : b.question}`).join('\n')}`);
   const comp = computerState(requireBot(botId).user_id);
   lines.push(`Computer: ${comp.status === 'running' ? 'running' : `a screen did not start (${comp.error})`}.`);
   return lines.join('\n');

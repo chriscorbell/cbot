@@ -259,7 +259,7 @@ a { color: inherit; }
 
 /* Touch: every control gets a finger-sized target without growing its glyph. */
 @media (pointer: coarse) {
-  .icon-btn, .composer__btn, .composer__cta, .modal__close, .cfg-icon-btn, .draft-card__copy, .jump-btn, .viewer__collapse { min-width: 44px; min-height: 44px; }
+  .icon-btn, .composer__btn, .composer__cta, .modal__close, .cfg-icon-btn, .jump-btn, .viewer__collapse { min-width: 44px; min-height: 44px; }
   .menu__item, .search-row, .panel-row--action, .question-option, .group-pick__opt, .cfg-nav__item, .step__row.is-clickable, .call-row, .steps__toggle, .chat__chip { min-height: 44px; }
   .btn, .cfg-btn, .card .btn, .mini-select, .details__tabs button, .cfg-seg button { min-height: 40px; }
   .swatch-cell { min-width: 44px; min-height: 44px; }

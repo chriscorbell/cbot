@@ -16,7 +16,7 @@ export function toBot(r: BotRecord): Bot {
   if (last) {
     const b = JSON.parse(last.body) as RowBody;
     lastPreview =
-      b.type === 'message' ? (b.text || (b.attachments?.length ? `Attached ${b.attachments.map((a) => a.name).join(', ')}` : '')) : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : b.card === 'weather' ? `Weather in ${b.place}` : 'Draft') : b.type === 'event' ? b.text : null;
+      b.type === 'message' ? (b.text || (b.attachments?.length ? `Attached ${b.attachments.map((a) => a.name).join(', ')}` : '')) : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : `Weather in ${b.place}`) : b.type === 'event' ? b.text : null;
   }
   return {
     id: r.id,

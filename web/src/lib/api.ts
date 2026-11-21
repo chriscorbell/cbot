@@ -37,8 +37,8 @@ export const api = {
   interrupt: (id: string) => req<Ok>('POST', `/bots/${id}/interrupt`),
   fresh: (id: string) => req<Ok>('POST', `/bots/${id}/fresh`),
 
-  /** Answers Hermes' approval prompt (server/src/agent/approvals.ts). Without a choice (an old draft card) it just expires. */
-  approve: (approvalId: string, choice?: ApprovalChoice) => req<Ok>('POST', `/approvals/${approvalId}`, choice ? { choice } : {}),
+  /** Answers Hermes' approval prompt (server/src/agent/approvals.ts). */
+  approve: (approvalId: string, choice: ApprovalChoice) => req<Ok>('POST', `/approvals/${approvalId}`, { choice }),
   /** `generation` is the chat the question is in; the server refuses an answer to a cleared chat. */
   answer: (id: string, seq: number, generation: number, answer: string) => req<Ok>('POST', `/bots/${id}/cards/${seq}/answer`, { answer, generation }),
   /** Use the store's `patchRow`, which shows the change at once. */

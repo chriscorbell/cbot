@@ -29,7 +29,6 @@ export function injectFixtures() {
   const rows: Row[] = [
     row('message', { type: 'message', role: 'assistant', text: 'Got it, fixing that line now.' }, 60_000),
     row('message', { type: 'message', role: 'assistant', text: 'Fixed. It now says the computers are VPSs with a full desktop. Want me to send it?' }, 59_000),
-    row('card', { type: 'card', card: 'draft', channel: 'message', to: 'Alex Rivera', approvalId: 'fx_draft', status: open ? 'pending' : 'sent', text: 'Hey Alex, quick question. Any plans to support more than 3 seats?\n\nRight now the seat cap is the only thing stopping us.' }, 58_000),
     row('message', { type: 'message', role: 'user', text: 'Awesome, send it.' }, 57_000),
     row('card', { type: 'card', card: 'approval', approvalId: 'fx_appr', title: `Allow ${name} to send an email?`, detail: 'To: alex@example.com\nSubject: Seat cap question', tool: 'GMAIL_SEND_EMAIL', args: {}, status: open ? 'pending' : 'allowed' }, 56_000),
     row('card', { type: 'card', card: 'approval', approvalId: 'fx_appr2', title: `Allow ${name} to create a calendar event?`, detail: '', tool: 'GOOGLECALENDAR_CREATE_EVENT', args: {}, status: 'always' }, 55_000),

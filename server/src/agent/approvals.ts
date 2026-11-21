@@ -18,8 +18,7 @@ import type { ApprovalChoice, CardBody } from '../types.js';
  *      └──── the run moved on without an answer (Hermes' timeout, Stop, the call ended) ──► expired
  *
  * A pending approval lives in memory beside the run that waits for it, so one left by a process that
- * stopped expires at startup. Approval and draft cards from older versions, which nothing waits for,
- * expire when answered.
+ * stopped expires at startup, and its card expires when answered.
  */
 
 const CHOICES: ApprovalChoice[] = ['once', 'always', 'deny'];
@@ -110,17 +109,16 @@ const recordOf = (p: Pending) => ({ id: p.id, bot_id: p.card.botId, generation: 
 export class ApprovalGone extends Error {}
 
 /**
- * The user answered a card. Without a choice (an old draft card) the approval just expires. Throws
- * `ApprovalGone` when nothing waits for the answer any more; the card then says it expired.
+ * The user answered a card. Throws `ApprovalGone` when nothing waits for the answer any more; the card
+ * then says it expired.
  */
-export async function answerApproval(userId: string, approvalId: string, choice?: ApprovalChoice): Promise<Settled> {
+export async function answerApproval(userId: string, approvalId: string, choice: ApprovalChoice): Promise<Settled> {
   const ap = db.prepare<[string, string], ApprovalRecord>('SELECT a.* FROM approvals a JOIN bots b ON b.id=a.bot_id WHERE a.id=? AND b.user_id=?').get(approvalId, userId);
   if (!ap) throw new Error('not found');
   const p = pending.get(approvalId);
-  if (!p || !choice) {
+  if (!p) {
     if (ap.status === 'pending') settle(ap, 'expired');
-    if (choice) throw new ApprovalGone(ap.status === 'pending' || ap.status === 'expired' ? 'This request expired.' : 'This was already answered.');
-    return 'expired';
+    throw new ApprovalGone(ap.status === 'pending' || ap.status === 'expired' ? 'This request expired.' : 'This was already answered.');
   }
   if (p.answering) throw new ApprovalGone('This was already answered.');
   p.answering = true;

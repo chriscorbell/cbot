@@ -13,7 +13,7 @@
 .card__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; padding: 12px 12px 12px; }
 .card__actions .btn { padding: 0 13px; }
 .card__outcome { display: flex; align-items: center; gap: 6px; padding: 8px 14px 12px; font-size: var(--text-xs); line-height: 18px; color: var(--color-text-tertiary); }
-.card__outcome.is-allowed, .card__outcome.is-always, .card__outcome.is-sent { color: var(--color-success-text); }
+.card__outcome.is-allowed, .card__outcome.is-always { color: var(--color-success-text); }
 .card__outcome.is-denied { color: var(--color-danger-text); }
 .card__error { padding: 0 16px 12px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-danger-text); }
 .card.is-resolved .card__head { padding-bottom: 0; }
@@ -50,22 +50,6 @@
 .question-card.is-resolved .question-option.is-other { display: none; }
 .question-card__foot { display: flex; justify-content: flex-end; padding: 0 10px 10px; }
 
-/* draft card */
-.draft-card__head { display: flex; align-items: center; gap: 12px; padding: 14px 12px 4px 16px; }
-.draft-card__tile { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; background: var(--surface-active); color: var(--color-text-secondary); flex-shrink: 0; }
-.draft-card__titles { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
-.draft-card__channel { font-size: var(--text-sm); font-weight: 600; line-height: var(--leading-sm); color: var(--color-text-primary); }
-.draft-card__from { font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-tertiary); }
-.draft-card__copy { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: var(--radius-sm); color: var(--color-text-secondary); transition: background-color var(--dur-fast), color var(--dur-fast); }
-.draft-card__copy:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.draft-card__content { display: flex; flex-direction: column; padding: 10px 16px 14px; }
-.draft-card__to { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid var(--color-border-tertiary); border-bottom: 1px solid var(--color-border-tertiary); }
-.draft-card__to-label { font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-tertiary); }
-.draft-card__to-avatar { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--color-bg-raised); box-shadow: inset 0 0 0 1px var(--color-border-secondary); color: var(--color-text-secondary); font-size: 10px; font-weight: 600; line-height: 12px; }
-.draft-card__to-name { font-size: var(--text-sm); font-weight: 600; line-height: var(--leading-sm); color: var(--color-text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.draft-card__subject { padding-top: 10px; font-size: var(--text-sm); font-weight: 600; line-height: 20px; }
-.draft-card__text { padding-top: 8px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-primary); white-space: pre-wrap; overflow-wrap: anywhere; }
-.draft-card__actions { display: flex; gap: 8px; padding: 4px 16px 16px; }
 
 
 /* ---------- weather card ---------- */

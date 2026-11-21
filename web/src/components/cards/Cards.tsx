@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { ShieldCheck, ShieldQuestionMark, ShieldX } from 'lucide-react';
 import type { ApprovalChoice, CardBody, Row } from '@shared/types';
 import { api } from '../../lib/api';
-import { useStore } from '../../store';
 import { Icon } from '../Icon';
 import { WeatherCard } from './WeatherCard';
 import { emitUi } from '../../lib/uiEvents';
@@ -131,61 +130,12 @@ export function QuestionCard({ row, body }: { row: Row; body: Card<'question'> }
   );
 }
 
-// ---------------- draft (screen 02) ----------------
-
-const CHANNEL_LABEL: Record<string, string> = { email: 'Email', slack: 'Slack', message: 'Chat' };
-
-export function DraftCard({ body }: { body: Card<'draft'> }) {
-  const { busy, error, run } = useBusy();
-  const user = useStore((s) => s.user);
-  const pending = body.status === 'pending';
-  const [copied, setCopied] = useState(false);
-  const copy = async () => { try { await navigator.clipboard.writeText(body.text); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ } };
-  const handle = user?.username ? `@${user.username}` : '';
-  return (
-    <div className={`card draft-card${pending ? '' : ' is-resolved'}`}>
-      <div className="draft-card__head">
-        <span className="draft-card__tile"><Icon name="chat_filled" size={18} /></span>
-        <div className="draft-card__titles">
-          <div className="draft-card__channel">{CHANNEL_LABEL[body.channel] ?? 'Message'}</div>
-          <div className="draft-card__from">{handle}</div>
-        </div>
-        <button type="button" className="draft-card__copy" onClick={copy} aria-label="Copy draft" title={copied ? 'Copied' : 'Copy'}>
-          <Icon name={copied ? 'check' : 'copy'} size={15} />
-        </button>
-      </div>
-      <div className="draft-card__content">
-        <div className="draft-card__to">
-          <span className="draft-card__to-label">To</span>
-          <span className="draft-card__to-avatar">{(body.to.trim()[0] ?? '?').toUpperCase()}</span>
-          <span className="draft-card__to-name">{body.to}</span>
-        </div>
-        {body.subject && <div className="draft-card__subject">{body.subject}</div>}
-        <div className="draft-card__text">{body.text}</div>
-      </div>
-      {pending ? (
-        <div className="draft-card__actions">
-          <button type="button" className="btn btn--secondary btn--grow" disabled={!!busy} onClick={() => run('discard', () => api.approve(body.approvalId))}>Discard</button>
-          <button type="button" className="btn btn--primary btn--grow" disabled={!!busy} onClick={() => run('send', () => api.approve(body.approvalId))}>Send</button>
-        </div>
-      ) : (
-        <div className={`card__outcome is-${body.status}`} style={{ padding: '0 16px 16px' }}>
-          <Icon name={body.status === 'sent' ? 'check' : 'close'} size={14} />
-          {body.status === 'sent' ? 'Sent' : 'Discarded'}
-        </div>
-      )}
-      {error && <div className="card__error" style={{ padding: '0 16px 12px' }}>{error}</div>}
-    </div>
-  );
-}
-
 export function CardRow({ row }: { row: Row }) {
   const b = row.body;
   if (b.type !== 'card') return null;
   switch (b.card) {
     case 'approval': return <ApprovalCard body={b} />;
     case 'question': return <QuestionCard row={row} body={b} />;
-    case 'draft': return <DraftCard body={b} />;
     case 'weather': return <WeatherCard body={b} />;
     default: return null;
   }

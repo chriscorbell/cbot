@@ -260,10 +260,9 @@ api.post('/bots/:id/fresh', (c) => {
   return c.json({ ok: true } satisfies Ok);
 });
 
-// An approval card's answer goes to the Hermes run waiting for it (agent/approvals.ts). An old draft
-// card sends no choice, and its approval just expires.
+// An approval card's answer goes to the Hermes run waiting for it (agent/approvals.ts).
 api.post('/approvals/:id', async (c) => {
-  const { choice } = await body(c, z.object({ choice: z.enum(['once', 'always', 'deny']).optional() }));
+  const { choice } = await body(c, z.object({ choice: z.enum(['once', 'always', 'deny']) }));
   try {
     await answerApproval(c.get('user').id, c.req.param('id'), choice);
   } catch (e) {

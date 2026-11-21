@@ -59,8 +59,7 @@ test('answering an approval nothing waits for says so', async () => {
   expect(res.status).toBe(409);
   expect(await res.json()).toEqual({ error: 'This request expired.' });
   expect(db.prepare("SELECT status FROM approvals WHERE id='ap_old'").get()).toEqual({ status: 'expired' });
-  // An old draft card sends no choice; its approval just expires.
-  expect((await app.request('/api/approvals/ap_old', json({}))).status).toBe(200);
+  expect((await app.request('/api/approvals/ap_old', json({}))).status).toBe(400);
   expect((await app.request('/api/approvals/ap_nope', json({ choice: 'once' }))).status).toBe(404);
   expect((await app.request('/api/approvals/ap_old', json({ choice: 'maybe' }))).status).toBe(400);
 });
