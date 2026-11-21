@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # The host side of scripts/deploy.sh and scripts/install.sh, run as root from a release under
-# /srv/dispatch/releases: either <commit>.new, freshly unpacked, or <commit>, built by an earlier deploy
-# (a rollback). It
+# /srv/dispatch/releases: either <commit>.new, freshly unpacked, or <commit>, from an earlier install
+# or deploy (a rollback). A release is built already when it came from a release's tarball (it has
+# node/), or a source tree: what deploy.sh sends, and what an install with DISPATCH_REF downloads. It
 #
 #   1. runs scripts/provision.sh when that script or the service unit changed since its last run,
-#   2. builds a fresh release and renames it to <commit>,
-#   3. builds the speech image when speech/ changed, and starts it (and stops anything the compose
-#      file no longer lists),
+#   2. builds a source tree with scripts/build-release.sh, and renames the release to <commit>,
+#   3. starts the speech image the release names: the one its manifest.json names, pulled by digest,
+#      or else one built here from its speech/, named for what is in it. The image goes in the
+#      release's SPEECH_IMAGE, for a rollback to start it again. Compose stops anything its file no
+#      longer lists,
 #   4. points /srv/dispatch/current at the release and restarts Dispatch, whose bots keep running.
 #      When it doesn't answer within a minute, it goes back to the release before it and that
 #      release's speech image, writes /etc/dispatch/last-update for the app to say so, and fails.
@@ -35,19 +38,19 @@ if [ "$(cat "$etc/provisioned" 2>/dev/null)" != "$want" ]; then
 fi
 
 if [ "$rel" != "$final" ]; then
-  say "building $commit"
-  cd "$rel"
-  npm ci --no-audit --no-fund --loglevel=error
-  npm run build --silent >/dev/null
-  npm prune --omit=dev --no-audit --no-fund --loglevel=error
-  cd /
-  rm -rf "$final"
-  mv "$rel" "$final"
+  rm -rf "$final" "$final.build"
+  if [ -x "$rel/node/bin/node" ]; then
+    mv "$rel" "$final"
+  else
+    say "building $commit"
+    bash "$rel/scripts/build-release.sh" --commit "$commit" "$final.build"
+    mv "$final.build" "$final"
+    cd /
+    rm -rf "$rel"
+  fi
   rel="$final"
 fi
 
-# speech_image <release>: the speech image a release runs, named for what is in its speech/.
-speech_image() { echo "dispatch-speech:$(cd "$1" && find speech -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"; }
 # speech_up <release> <image>
 speech_up() {
   SPEECH_IMAGE="$2" docker compose --env-file "$1/deploy/speech.env" -f "$1/deploy/speech.compose.yaml" up -d --quiet-pull --remove-orphans 2>&1 | grep -v '^ *Container .* Running$' || true
@@ -65,11 +68,25 @@ start() {
   return 1
 }
 
-speech="$(speech_image "$rel")"
-if ! docker image inspect "$speech" >/dev/null 2>&1; then
-  say "building $speech (the first build takes about ten minutes)"
-  docker build -q -t "$speech" "$rel/speech" >/dev/null
+if [ -s "$rel/SPEECH_IMAGE" ]; then
+  speech="$(cat "$rel/SPEECH_IMAGE")"
+elif [ -s "$rel/manifest.json" ]; then
+  # Pulled by digest: the image is exactly the one the signed checksums of this release name.
+  speech="$(jq -r '.speechImage // empty' "$rel/manifest.json")"
+  [[ "$speech" =~ ^[a-z0-9./_-]+@sha256:[0-9a-f]{64}$ ]] || { echo "$rel/manifest.json names no speech image." >&2; exit 1; }
+  if ! docker image inspect "$speech" >/dev/null 2>&1; then
+    say "pulling the speech service"
+    docker pull -q "$speech" >/dev/null
+  fi
+else
+  [ -d "$rel/speech" ] || { echo "$rel has neither a manifest.json nor speech/, so it has no speech image." >&2; exit 1; }
+  speech="dispatch-speech:$(cd "$rel" && find speech -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-12)"
+  if ! docker image inspect "$speech" >/dev/null 2>&1; then
+    say "building $speech (the first build takes about ten minutes)"
+    docker build -q -t "$speech" "$rel/speech" >/dev/null
+  fi
 fi
+echo "$speech" >"$rel/SPEECH_IMAGE"
 before="$(readlink "$srv/current" 2>/dev/null || true)"
 speech_up "$rel" "$speech"
 
@@ -82,7 +99,7 @@ if ! start "releases/$commit"; then
   fi
   old="${before#releases/}"
   say "going back to $old"
-  speech_up "$srv/$before" "$(speech_image "$srv/$before")"
+  speech_up "$srv/$before" "$(cat "$srv/$before/SPEECH_IMAGE")"
   # The app reads this when it starts (server/src/updates.ts), so it is there before the old release is.
   version="$(cat "$final/VERSION" 2>/dev/null || true)"
   [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || version=''
@@ -109,11 +126,13 @@ for r in $(ls -1t "$releases"); do
   n=$((n + 1))
   [ "$n" -le 4 ] || rm -rf "${releases:?}/$r"
 done
-# The speech image in use and the newest one besides it stay (docker lists the newest first).
-spare=
-for image in $(docker image ls "${speech%%:*}" --format '{{.Repository}}:{{.Tag}}'); do
-  [ "$image" = "$speech" ] && continue
-  if [ -z "$spare" ]; then spare="$image"; continue; fi
-  docker image rm -f "$image" >/dev/null
+# The speech images the kept releases name stay, so any of them can run again; other speech images
+# go, both those built here (dispatch-speech:<hash>) and those pulled by digest.
+in_use="$(cat "$releases"/*/SPEECH_IMAGE 2>/dev/null | sort -u)"
+for repository in dispatch-speech $(sed -n 's/@sha256:.*//p' <<<"$in_use" | sort -u); do
+  for image in $(docker image ls "$repository" --format '{{.Repository}}:{{.Tag}} {{.Repository}}@{{.Digest}}'); do
+    case "$image" in *:'<none>' | *@'<none>') continue ;; esac
+    grep -qxF "$image" <<<"$in_use" || docker image rm -f "$image" >/dev/null 2>&1 || true
+  done
 done
 say "Dispatch runs $commit"

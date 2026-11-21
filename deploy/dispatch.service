@@ -14,7 +14,9 @@ Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8787 DATA_DIR=/var/lib/dispa
 EnvironmentFile=/srv/dispatch/current/deploy/speech.env
 # TZ and the rest, from .env.prod on the dev machine (scripts/deploy.sh). The account is in the database.
 EnvironmentFile=/etc/dispatch/env
-ExecStart=/usr/bin/node server/dist/index.js
+# Each release brings its own Node (scripts/build-release.sh), so the machine's Node, which the bots
+# use, can change without touching Dispatch.
+ExecStart=/srv/dispatch/current/node/bin/node server/dist/index.js
 # The bots' screens, Chromes and Hermes gateways are this server's children but outlive it: stopping
 # or restarting the service (a deploy) stops only the server, which finds them again when it starts.
 # systemd notes each one it finds still running as a "left-over process"; that is expected.

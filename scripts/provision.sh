@@ -65,7 +65,10 @@ Architectures: amd64
 Signed-By: /usr/share/keyrings/google-chrome.gpg
 EOF
 
-# Node 24 from NodeSource; apt keeps it patched within 24.x. NodeSource doesn't publish its key's
+# Node 24 from NodeSource, for the bots and Hermes: Hermes runs Node tools (language servers, MCP
+# servers through npx, its verification recipes) and the bots build and run Node projects. Dispatch
+# itself runs on the Node its release brings (scripts/build-release.sh). apt keeps this one patched
+# within 24.x. NodeSource doesn't publish its key's
 # fingerprint; this is the key its setup script (nodesource/distributions, scripts/deb/setup_24.x)
 # downloads, on keyserver.ubuntu.com since 2016 as "NSolid <nsolid-gpg@nodesource.com>".
 keyring /usr/share/keyrings/nodesource.gpg https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
