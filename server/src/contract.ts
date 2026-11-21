@@ -7,6 +7,8 @@ import type {
 } from './types.js';
 
 export interface Ok { ok: true }
+/** POST /api/reset: the setup code the fresh install's account takes (server/src/lib/auth.ts). */
+export interface ResetResponse { ok: true; setupCode: string }
 export interface ApiError { error: string }
 
 /**

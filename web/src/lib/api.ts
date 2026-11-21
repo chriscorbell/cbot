@@ -13,7 +13,7 @@ export type RowPatch = { reaction?: string | null };
 
 export const api = {
   me: () => req<MeResponse>('GET', '/auth/me'),
-  setup: (username: string, password: string) => req<MeResponse>('POST', '/auth/setup', { username, password }),
+  setup: (username: string, password: string, code: string) => req<MeResponse>('POST', '/auth/setup', { username, password, code }),
   login: (username: string, password: string) => req<MeResponse>('POST', '/auth/login', { username, password }),
   logout: () => req<Ok>('POST', '/auth/logout'),
   changePassword: (current: string, next: string) => req<Ok>('POST', '/auth/password', { current, next }),

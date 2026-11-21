@@ -1,5 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { getConnInfo } from '@hono/node-server/conninfo';
@@ -7,13 +9,14 @@ import type { HttpBindings } from '@hono/node-server';
 import { TLSSocket } from 'node:tls';
 import type { IncomingMessage } from 'node:http';
 import { db, now, type UserRecord } from '../db.js';
+import { env } from '../env.js';
 import { token } from './ids.js';
 import type { User } from '../types.js';
 
 /**
  * The one account, kept on the owner's row in `users`: a user name and a scrypt hash of the password.
  * A fresh install has none; the web app then asks the first visitor to create it (/api/auth/setup),
- * and only while none exists. Signing in (/api/auth/login) gives the browser a session cookie, which
+ * with the setup code (below), and only while none exists. Signing in (/api/auth/login) gives the browser a session cookie, which
  * is all any request carries after that, WebSocket upgrades included.
  */
 
@@ -37,8 +40,60 @@ export function initAuth(u: User) {
   // Every sign-in starts a session, so expired ones pile up; drop them on start.
   db.prepare('DELETE FROM auth_sessions WHERE expires_at<=?').run(now());
   // Sessions from before there was an account (the old environment credentials) must not outlive it.
-  if (!hasAccount()) db.prepare('DELETE FROM auth_sessions').run();
+  if (!hasAccount()) {
+    db.prepare('DELETE FROM auth_sessions').run();
+    announceSetupCode();
+  }
   if (process.env.DISPATCH_USER || process.env.DISPATCH_PASSWORD) console.warn('[auth] DISPATCH_USER and DISPATCH_PASSWORD are no longer read: the account is created in the app on the first visit');
+}
+
+// ---------- the setup code ----------
+
+/**
+ * While no account exists, making one takes a one-time code. Without it, whoever reached Dispatch
+ * first on the network would make the account, and with it have the bots' computer. The code is in
+ * DATA_DIR/setup-code, readable only by root, and in the server's log. The installer prints Dispatch's
+ * address with the code after `#setup=`, which the web app fills in for itself; the command-line
+ * account reset (reset-account.ts) and Reset Dispatch (reset.ts) each hand out a new one. Making the
+ * account deletes it. It is read from the file every time, so a reset from the command line takes
+ * effect in a running server at once. A wrong code counts as a wrong password (below).
+ */
+export const SETUP_CODE_FILE = path.join(env.dataDir, 'setup-code');
+// No 0, O, 1 or I, which read alike. Eight of these are 40 bits, behind the lockout for wrong passwords.
+const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** The current setup code, as XXXX-XXXX, or null when there is none. */
+export function setupCode(): string | null {
+  try { return fs.readFileSync(SETUP_CODE_FILE, 'utf8').trim() || null; } catch { return null; }
+}
+
+/** A fresh code, not yet saved. */
+export function makeSetupCode(): string {
+  const letters = Array.from({ length: 8 }, () => CODE_LETTERS[crypto.randomInt(CODE_LETTERS.length)]).join('');
+  return `${letters.slice(0, 4)}-${letters.slice(4)}`;
+}
+
+/** Saves `code` (a fresh one by default) as the setup code and returns it. */
+export function newSetupCode(code = makeSetupCode()): string {
+  fs.mkdirSync(path.dirname(SETUP_CODE_FILE), { recursive: true });
+  fs.writeFileSync(SETUP_CODE_FILE, `${code}\n`, { mode: 0o600 });
+  fs.chmodSync(SETUP_CODE_FILE, 0o600);
+  return code;
+}
+
+/** The setup code, made first if there is none, in the log for whoever looks after the machine. */
+function announceSetupCode(): string {
+  const code = setupCode() ?? newSetupCode();
+  console.log(`[auth] no account yet: make it with the setup code ${code} (also in ${SETUP_CODE_FILE})`);
+  return code;
+}
+
+/** Whether `given` is the setup code, however it was typed: any case, with or without the dash or spaces. */
+function setupCodeMatches(given: string): boolean {
+  // A code someone deleted comes back as a new one, so the account can still be made.
+  const want = setupCode() ?? announceSetupCode();
+  const plain = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return sameText(plain(given), plain(want));
 }
 
 // ---------- passwords ----------
@@ -179,11 +234,20 @@ export const requireUser: MiddlewareHandler<AuthVars> = async (c, next) => {
 
 export type AccountResult =
   | { user: User }
-  | { error: 'exists' | 'no-account' | 'wrong' | 'changed' }
+  | { error: 'exists' | 'no-account' | 'wrong' | 'changed' | 'code' }
   | { error: 'locked'; retryAfterMs: number };
 
-/** The first visit: creates the account and signs this browser in. Refused once an account exists. */
-export async function createAccount(c: Context, username: string, password: string): Promise<AccountResult> {
+/** The first visit: creates the account and signs this browser in. Needs the setup code; refused once an account exists. */
+export async function createAccount(c: Context, username: string, password: string, code: string): Promise<AccountResult> {
+  const from = clientAddress(c);
+  const wait = lockedFor(from);
+  if (wait > 0) return { error: 'locked', retryAfterMs: wait };
+  if (hasAccount()) return { error: 'exists' };
+  if (!setupCodeMatches(code)) {
+    countFailure(from);
+    const after = lockedFor(from);
+    return after > 0 ? { error: 'locked', retryAfterMs: after } : { error: 'code' };
+  }
   const hash = await hashPassword(password);
   // Checked after the last await, so two first visits at once can't both create it.
   const owner = ownerRow();
@@ -191,6 +255,7 @@ export async function createAccount(c: Context, username: string, password: stri
   if (owner.password_hash) return { error: 'exists' };
   db.prepare('UPDATE users SET username=?, password_hash=? WHERE id=?').run(username, hash, owner.id);
   db.prepare('DELETE FROM auth_sessions').run();
+  fs.rmSync(SETUP_CODE_FILE, { force: true });
   setSessionCookie(c, owner.id);
   return { user: toUser(ownerRow()!) };
 }
@@ -242,8 +307,9 @@ export function signOut(c: Context) {
   deleteCookie(c, COOKIE, { path: '/' });
 }
 
-/** Forgets the account and ends every session; the next visit creates a new one. Bots and chats stay. */
-export function resetAccount() {
+/** Forgets the account and ends every session; the next visit creates a new one with the setup code this returns. Bots and chats stay. */
+export function resetAccount(): string {
   db.prepare('UPDATE users SET username=NULL, password_hash=NULL').run();
   db.prepare('DELETE FROM auth_sessions').run();
+  return newSetupCode();
 }

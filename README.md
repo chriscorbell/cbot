@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/
 
 The installer takes over the terminal: you pick the bots' time zone from a list you can search, how many bots the machine can run, and whether to add Tailscale, then it shows each step as it installs. A first install takes 15 to 30 minutes.
 
-After installation is complete, open `https://<ip-address>:8787` in your browser (accept the certificate warning), create your account, then follow the setup wizard.
+After installation is complete, open the link the installer prints, `https://<ip-address>:8787/#setup=<code>`, in your browser (accept the certificate warning), create your account, then follow the setup wizard. The link carries a one-time setup code, so nobody else on your network can make the account first.
 
 Dispatch signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, choose **Set it up** at the installer's Tailscale question.
 

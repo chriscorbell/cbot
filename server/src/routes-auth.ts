@@ -1,7 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { body } from './lib/validate.js';
-import { changePassword, createAccount, hasAccount, MIN_PASSWORD, requireUser, sessionUser, signIn, signOut, type AccountResult, type AuthVars } from './lib/auth.js';
+import { changePassword, createAccount, hasAccount, MIN_PASSWORD, requireUser, sessionUser, SETUP_CODE_FILE, signIn, signOut, type AccountResult, type AuthVars } from './lib/auth.js';
 import { syncPersonas } from './engine.js';
 import { setupPending } from './bots.js';
 import type { User } from './types.js';
@@ -9,7 +9,8 @@ import type { MeResponse, Ok } from './contract.js';
 
 /**
  * The account and signing in and out. app.ts lets /me, /setup, /login and /logout through without a
- * session, since they are how a browser gets one; /password needs one like everything else.
+ * session, since they are how a browser gets one; /password needs one like everything else. /setup
+ * also needs the setup code (lib/auth.ts).
  */
 export const authApi = new Hono<AuthVars>();
 
@@ -27,6 +28,7 @@ function refused(c: Context, r: Exclude<AccountResult, { user: unknown }>) {
     case 'exists': return c.json({ error: 'An account already exists. Sign in instead.' }, 409);
     case 'no-account': return c.json({ error: 'There is no account yet. Create one first.' }, 409);
     case 'changed': return c.json({ error: 'Your password was changed somewhere else. Try again.' }, 409);
+    case 'code': return c.json({ error: `That setup code isn’t right. It’s in the link the installer printed, and on the machine in ${SETUP_CODE_FILE}.` }, 403);
     default: { const x: never = r; return x; }
   }
 }
@@ -41,8 +43,8 @@ authApi.get('/me', (c) => {
 });
 
 authApi.post('/setup', async (c) => {
-  const { username, password } = await body(c, z.object({ username: UserName, password: NewPassword }));
-  const r = await createAccount(c, username, password);
+  const { username, password, code } = await body(c, z.object({ username: UserName, password: NewPassword, code: z.string().max(100).default('') }));
+  const r = await createAccount(c, username, password, code);
   if (!('user' in r)) return refused(c, r);
   // The bots' personas name the person they work for.
   syncPersonas(r.user.id);

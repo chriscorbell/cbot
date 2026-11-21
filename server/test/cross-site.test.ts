@@ -2,11 +2,11 @@ import { beforeAll, expect, test } from 'vitest';
 
 // Requests from other sites' pages, the session cookie over HTTPS, and the headers on every answer.
 const { createApp } = await import('../src/app.js');
-const { crossSite } = await import('../src/lib/auth.js');
+const { crossSite, initAuth, setupCode } = await import('../src/lib/auth.js');
 const { auth, seedOwner } = await import('./helpers.js');
 
 const app = createApp();
-beforeAll(() => { seedOwner(); });
+beforeAll(() => { initAuth(seedOwner()); });
 
 const from = (headers: Record<string, string>) => crossSite((name) => headers[name]);
 
@@ -39,7 +39,7 @@ test('a change from another site is refused before any route sees it, sign-ins i
 test('the session cookie is Secure when the browser came over HTTPS', async () => {
   const signUp = await app.request('/api/auth/setup', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
-    body: JSON.stringify({ username: 'ada', password: 'correct horse' }),
+    body: JSON.stringify({ username: 'ada', password: 'correct horse', code: setupCode() }),
   });
   expect(signUp.headers.get('set-cookie')).toMatch(/; Secure/);
   const plain = await app.request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'ada', password: 'correct horse' }) });

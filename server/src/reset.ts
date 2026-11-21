@@ -4,6 +4,7 @@ import { db, type BotRecord } from './db.js';
 import { env } from './env.js';
 import { deleteBot } from './bots.js';
 import { forgetAllBotFiles } from './computer.js';
+import { newSetupCode } from './lib/auth.js';
 
 /**
  * Resetting Dispatch to a fresh install (Settings > General > Reset Dispatch), in two parts:
@@ -13,7 +14,8 @@ import { forgetAllBotFiles } from './computer.js';
  *     generated secret and the Hermes homes go, and the process exits. Its supervisor starts it again
  *     (Restart=always in deploy/dispatch.service, the container's restart policy in development), and the
  *     new process starts as a fresh install does: no account, so the next visit makes one and the
- *     setup wizard follows.
+ *     setup wizard follows. The new setup code is decided before the erase and given to the browser
+ *     that asked for the reset (routes.ts), so it can make the account without one from the machine.
  * Starting over in a new process, rather than clearing tables in this one, leaves no state behind in
  * memory. What the bots installed on the computer stays, and so do the logs.
  */
@@ -32,10 +34,10 @@ export function takeDown(): Promise<void> {
 }
 
 /** What the data directory holds (env.ts): the database and its old copies, the secret, the Hermes homes. */
-const DATA = /^(dispatch\.db.*|secret|auth-fingerprint|engines)$/;
+const DATA = /^(dispatch\.db.*|secret|auth-fingerprint|engines|setup-code)$/;
 
-/** Erase the rest and exit for the supervisor to start a fresh server. Only the first call does anything. */
-export async function eraseAndExit(): Promise<void> {
+/** Erase the rest and exit for the supervisor to start a fresh server, whose account takes `setupCode`. Only the first call does anything. */
+export async function eraseAndExit(setupCode: string): Promise<void> {
   if (erasing) return;
   erasing = true;
   await forgetAllBotFiles().catch((e) => console.warn('[reset] bot files:', e?.message ?? e));
@@ -43,6 +45,7 @@ export async function eraseAndExit(): Promise<void> {
   for (const name of fs.readdirSync(env.dataDir)) {
     if (DATA.test(name)) fs.rmSync(path.join(env.dataDir, name), { recursive: true, force: true });
   }
+  newSetupCode(setupCode);
   console.log('[reset] data erased; exiting to start again as a fresh install');
   process.exit(0);
 }

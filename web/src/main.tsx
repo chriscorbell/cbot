@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { initViewport } from './lib/viewport';
+import { captureSetupCode } from './lib/setupCode';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './styles/tokens.css';
@@ -17,6 +18,7 @@ import './styles/signin.css';
 import './styles/setup.css';
 
 initViewport();
+captureSetupCode();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
