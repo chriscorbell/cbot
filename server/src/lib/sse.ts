@@ -2,7 +2,7 @@
 
 export interface StreamEvent { type: string; data: any }
 
-/** The events of a text/event-stream body, JSON-decoded. Keepalives, `[DONE]` and non-JSON data are skipped. */
+/** The events of a text/event-stream body, JSON-decoded. Keepalives and `[DONE]` are skipped, and so is data that isn't JSON, with a warning. */
 export async function* sseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<StreamEvent> {
   const dec = new TextDecoder();
   let buf = '';
@@ -24,7 +24,10 @@ export async function* sseEvents(body: ReadableStream<Uint8Array>): AsyncGenerat
       try {
         const json = JSON.parse(raw);
         yield { type: event || json?.type || '', data: json };
-      } catch { /* not ours to understand */ }
+      } catch {
+        // Hermes sends JSON; anything else means its stream changed, which should show in the log.
+        console.warn(`[sse] skipped an event that isn't JSON${event ? ` (${event})` : ''}: ${raw.slice(0, 200)}`);
+      }
     }
   }
 }
