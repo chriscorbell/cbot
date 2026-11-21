@@ -36,6 +36,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `scripts/install/`, `scripts/bundle.sh`, `scripts/publish.sh`, `.github/workflows/release.yml` | Installing and updating from signed releases (`release_signers`, `fetch_signed` for the tag and `fetch_assets` for the build, in `install-release.sh`), building a release from its tag in GitHub Actions, and publishing it: `publish.sh` checks the build against its own and signs its checksums. `.node-version` and `scripts/node.sha256` pin the Node a release brings; change them together. Changing `release_signers` changes which keys every machine trusts once it updates. `curl \| bash` fetches one file, so `scripts/bundle.sh` joins the parts into `install.sh` and `uninstall.sh`. Those aren't committed: every build bundles them (`build-release.sh`), each release has them attached, and the install and uninstall commands download them from the newest release. Edit the parts. `common.sh` is in both |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
+| `server/src/units.ts`, `deploy/dispatch-*@.service`, `scripts/install-units.sh` | The systemd units each bot's screen, gateway, Chrome and apps run as, and each bot's slice with its memory limit |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |
 | `server/src/https.ts` | HTTPS=1: Dispatch's own certificate and the port that serves HTTPS and plain HTTP together |
 | `server/src/computer.ts`, `displays.ts`, `desk.ts`, `vnc.ts`, `server/box/` | Screens: leases, X displays, dressing, the viewer relay, the Python desk scripts |
@@ -58,9 +59,9 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A turn's text and tool rows | `agent/transcript.ts` | text: nothing, holding, streaming, closed as a message or a note. Tool rows: running, done or error |
 | What a bot is doing | `agent/live.ts` | idle, running. `LiveState` in `types.ts` allows only those two shapes |
 | A conversation | `store.ts` | generation N, then N+1 on New chat. Rows are addressed by bot, generation and seq |
-| A bot's gateway | `engine.ts` | none, starting, ready, error (diagram in the file header) |
+| A bot's gateway | `engine.ts` | none, starting, ready, error (diagram in the file header). The process is `dispatch-gateway@<bot>.service`, which systemd restarts when it crashes and keeps across server restarts; `units.ts` names the units |
 | A provider sign-in | `signin.ts` | starting, waiting (link and code shown), then done, failed or cancelled once. One per bot, one for Copilot; in memory |
-| A bot's screen | `computer.ts` | lease, display (`displays.ts`), dressed (`desk.ts`). A detached dressing job holds the display's lock (`held_lock` in `dispatchlib.py`); undressing waits for it |
+| A bot's screen | `computer.ts` | lease, display (`displays.ts`, `dispatch-display@<n>.target`), dressed (`desk.ts`). A dressing job (its own scope) holds the display's lock (`held_lock` in `dispatchlib.py`); undressing waits for it, then stops it. What runs on the screen runs as units in the bot's slice, which systemd knows, so nothing searches the process table for it |
 | A voice call (server) | `voice.ts` | created, relayed once, ended |
 | A voice reply | `voice-relay.ts` | `planAnswer` decides barge-in; a Reply's flags are listed in the header |
 | A voice call (browser) | `web/src/voice/call.ts` | idle, connecting, live, error |
@@ -84,6 +85,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 - **Exact versions.** Every dependency is pinned to one version in `package.json`, and Dependabot proposes the updates. TypeScript, Vite and Vitest are declared once, at the root.
 - **Constants in one place.** Paths, ports and display numbers the box scripts need too are in `server/box/machine.json`, which `machine.ts` and `server/box/dispatchlib.py` both read; change them there. Other server-only paths are in `machine.ts`, and the speech service's fixed address on a host is in `deploy/speech.env`.
 - **The MCP tool list is a contract with every bot's model.** `test/fixtures/mcp-tools.json` records what Hermes is offered. Changing a tool's name, description or parameters changes that file on purpose. Renaming or adding a tool restarts every gateway on the next deploy (the settings hash covers tool names).
+- **Long-lived processes are systemd units.** A display, a gateway, a Chrome, the dock, the home screen server and whatever the bots open on their screens run as units of their own (`units.ts`, `dispatchlib.py`), outside `dispatch.service`, so restarting the server leaves them running. Start, find and stop them through systemd; never spawn something long-lived detached from the server.
 - **Nothing starts at import.** Modules may prepare statements and define things; timers, processes and network calls start from `index.ts` (the `init*` functions) or from a request.
 - **Comments explain why.** Keep the existing voice: plain sentences about what the code is for and what would break.
 

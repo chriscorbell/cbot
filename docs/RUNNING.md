@@ -16,7 +16,7 @@ The installer writes where it installed from to `/etc/dispatch/source`, and upda
 
 Dispatch's updates don't update the machine's other packages, Chrome among them. Keep them current with `sudo apt update && sudo apt upgrade`.
 
-The server runs as the systemd service `dispatch`: `journalctl -u dispatch -f` follows its log, and the installer's own log is `/var/log/dispatch/install.log`.
+The server runs as the systemd service `dispatch`: `journalctl -u dispatch -f` follows its log, and the installer's own log is `/var/log/dispatch/install.log`. Each bot's agent, screen and Chrome are units of their own: `systemctl list-units 'dispatch-*'` lists them, `journalctl -u 'dispatch-gateway@*'` shows the agents' logs, `journalctl -u 'dispatch-chrome-*'` the Chromes', and `systemctl status 'dispatch-bot-*.slice'` how much memory each bot uses against its limit. Restarting `dispatch` leaves them running.
 
 ## Settings
 
