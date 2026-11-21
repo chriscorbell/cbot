@@ -20,7 +20,7 @@ Dispatch is made for one owner, on a machine of its own. Know this first:
 
 ## How releases are checked
 
-Dispatch installs and updates only from signed releases. A release is a `vX.Y.Z` tag signed with one of the keys listed in the installer (`release_signers` in [scripts/install.sh](scripts/install.sh)). The installer downloads the release with git, which checks every file against its hash, and checks the tag's signature before it runs anything from the release. It never installs a release older than the one running. The one way back is automatic: when a new release doesn't answer within a minute of starting, `release.sh` switches back to the release that ran before it, which was checked when it was installed.
+Dispatch installs and updates only from signed releases. A release is a `vX.Y.Z` tag signed with one of the keys listed in the installer (`release_signers` in [scripts/install/install-release.sh](scripts/install/install-release.sh), which is part of `scripts/install.sh`). The installer downloads the release with git, which checks every file against its hash, and checks the tag's signature before it runs anything from the release. It never installs a release older than the one running. The one way back is automatic: when a new release doesn't answer within a minute of starting, `release.sh` switches back to the release that ran before it, which was checked when it was installed.
 
 **Update** in the app runs the installer of the version you already have, so a new release has to be signed by a key that version trusts. Someone who took over the GitHub repository couldn't push an update to your machine without one of those keys.
 
