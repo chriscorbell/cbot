@@ -3,7 +3,7 @@
 // streamed as microphone audio in real time. Measures, for each question, the end of the user's speech
 // to the first audio of the bot's answer, then talks over a long reply and measures how soon it pauses and stops.
 // Every answer is a turn of the bot's own agent and model.
-// Usage: CBOT_USER=… CBOT_PASSWORD=… node tests/voice-latency.mjs [baseUrl] [botName]
+// Usage: DISPATCH_USER=… DISPATCH_PASSWORD=… node tests/voice-latency.mjs [baseUrl] [botName]
 //   (default http://127.0.0.1:8788 and the primary bot; records one short call in that bot's chat)
 import { createRequire } from 'node:module';
 import { signIn } from './signin.mjs';
@@ -71,7 +71,7 @@ ws.on('message', (d) => {
   const e = { at: Date.now(), ev: JSON.parse(String(d)) };
   events.push(e);
   if (e.ev.type === 'error') log('error event', JSON.stringify(e.ev.error));
-  if (e.ev.type === 'cbot.activity') log(`   the bot is ${e.ev.label.toLowerCase()}`);
+  if (e.ev.type === 'dispatch.activity') log(`   the bot is ${e.ev.label.toLowerCase()}`);
   for (const w of [...waiters]) if (w.pred(e.ev)) { e.used = true; clearTimeout(w.timer); waiters.splice(waiters.indexOf(w), 1); w.resolve(e); break; }
 });
 await new Promise((r, j) => { ws.once('open', r); ws.once('error', j); });
@@ -154,15 +154,15 @@ async function bargeIn(request, interruption, afterMs) {
   const cut = await play(lines[interruption]);
   const started = events.find((e) => e.ev.type === 'input_audio_buffer.speech_started' && e.at >= cut.first);
   // Once the final transcript is in, the relay says whether the paused speech plays on or stops.
-  const decided = await on((ev) => ev.type === 'cbot.playback', 60000, started.at);
+  const decided = await on((ev) => ev.type === 'dispatch.playback', 60000, started.at);
   const done = await on((ev) => ev.type === 'response.done' && ev.response.id === id, 120000);
   const late = replyAudio(id).filter((e) => e.at > decided.at).length;
   const b = { generating, toStarted: started.at - cut.first, detected: started.ev.audio_ms - started.ev.audio_start_ms, action: decided.ev.action, toDecided: decided.at - cut.first, status: done.ev.response.status, toDone: done.at - cut.first, late };
   barges.push(b);
   log(`talked over it ${cut.first - firstAudio.at} ms into its audio, ${generating ? 'while it was still being made' : 'after it was all made'} (${queued.toFixed(1)} s of audio sent)`);
   log(`   speech_started, where the browser pauses: ${b.toStarted} ms after the user started (the service heard it at ${b.detected} ms of audio)`);
-  log(`   cbot.playback ${b.action}: ${b.toDecided} ms after the user started`);
-  log(`   response.done: ${b.status}${b.status === 'cancelled' ? `, ${b.toDone} ms after the user started` : ' before the interruption'}; audio deltas after cbot.playback: ${late}`);
+  log(`   dispatch.playback ${b.action}: ${b.toDecided} ms after the user started`);
+  log(`   response.done: ${b.status}${b.status === 'cancelled' ? `, ${b.toDone} ms after the user started` : ' before the interruption'}; audio deltas after dispatch.playback: ${late}`);
   // A pause inside the interruption makes two utterances, and the reply to the first is cut off too.
   const afterDone = await on((ev) => ev.type === 'response.done' && ev.response.status === 'completed', 120000, cut.first);
   log(`   then: "${transcriptOf(afterDone.ev.response.id)}"`);
@@ -177,7 +177,7 @@ let steer = null;
   const asked = await play(lines[SLOW_TASK]);
   const created = await on((ev) => ev.type === 'response.created', 60000, asked.first);
   const id = created.ev.response.id;
-  const working = await on((ev) => ev.type === 'cbot.activity' && ev.response_id === id, 120000);
+  const working = await on((ev) => ev.type === 'dispatch.activity' && ev.response_id === id, 120000);
   log(`"${SLOW_TASK}": a tool started ${working.at - asked.end} ms after the request; talking now`);
   const said = await play(lines[STEER]);
   const done = await on((ev) => ev.type === 'response.done' && ev.response.id === id, 180000);
@@ -198,4 +198,4 @@ for (const e of events) {
 await api('/api/voice/end', { method: 'POST', body: JSON.stringify({ botId: bot.id, callId: sess.callId, transcript }) });
 console.log(`\nend of speech → first audio of the answer, ${latencies.length} turns: ${latencies.join(', ')} ms; median ${median(latencies)} ms`);
 if (steer) console.log(`talking during a tool: the turn ${steer.status}, ${steer.answered ? 'answered' : 'did not answer'} the added question, ${steer.others} other replies`);
-for (const b of barges) console.log(`barge-in ${b.generating ? 'while generating' : 'while playing'}: ${b.toStarted} ms to speech_started (paused), ${b.toDecided} ms to cbot.playback ${b.action}${b.status === 'cancelled' ? `, ${b.toDone} ms to response.done (cancelled)` : ''}, ${b.late} late audio deltas`);
+for (const b of barges) console.log(`barge-in ${b.generating ? 'while generating' : 'while playing'}: ${b.toStarted} ms to speech_started (paused), ${b.toDecided} ms to dispatch.playback ${b.action}${b.status === 'cancelled' ? `, ${b.toDone} ms to response.done (cancelled)` : ''}, ${b.late} late audio deltas`);

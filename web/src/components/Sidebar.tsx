@@ -148,7 +148,7 @@ function UpdatePill({ tips }: { tips: boolean }) {
   const set = useStore((s) => s.set);
   const exiting = useExiting();
   const updating = update?.status === 'updating';
-  const label = updating ? 'Updating cbot' : 'Update available';
+  const label = updating ? 'Updating Dispatch' : 'Update available';
   return (
     <button
       type="button"

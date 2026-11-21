@@ -86,7 +86,7 @@ function ScreenThumb({ bot, running }: { bot: Bot; running: boolean }) {
 type Tab = 'activity' | 'library';
 const TABS: { id: Tab; label: string }[] = [{ id: 'activity', label: 'Activity' }, { id: 'library', label: 'Library' }];
 
-const LS_HIDE_SUGGESTED = 'cbot.hideSuggested';
+const LS_HIDE_SUGGESTED = 'dispatch.hideSuggested';
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 

@@ -1,7 +1,7 @@
 [
   {
     "name": "save_file",
-    "description": "Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/cbot/files/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.",
+    "description": "Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/dispatch/files/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.",
     "inputSchema": {
       "type": "object",
       "properties": {

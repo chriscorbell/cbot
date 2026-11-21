@@ -122,7 +122,7 @@ describe('tools', () => {
       ev.toolDone('c2', { error: true, preview: '{"error": "no backend"}' }),
       ev.toolCall('read_file', 'c3', '/x'),
       ev.toolDone('c3', { error: true }),
-      ev.toolCall('mcp_cbot_save_file', 'c4', 'a.md'),
+      ev.toolCall('mcp_dispatch_save_file', 'c4', 'a.md'),
       ev.toolDone('c4'),
       ev.completed('Done.'),
     ]);
@@ -151,7 +151,7 @@ describe('tools', () => {
     const bot = seedBot(userId);
     const called = gate();
     const answered = gate();
-    fakeHermes([ev.toolCall('mcp_cbot_create_routine', 'c1'), called.opened, answered.opened, ev.toolDone('c1', { error: true }), ev.completed('ok')]);
+    fakeHermes([ev.toolCall('mcp_dispatch_create_routine', 'c1'), called.opened, answered.opened, ev.toolDone('c1', { error: true }), ev.completed('ok')]);
     loop.enqueue(bot.id, { type: 'user', text: 'hi' });
     await vi.waitFor(() => expect(rows(bot.id).length).toBe(1));
     called.open();
@@ -208,7 +208,7 @@ describe('endings', () => {
   test('a turn-ending tool (ask_user) drops the closing text', async () => {
     const bot = seedBot(userId);
     const called = gate();
-    fakeHermes([ev.toolCall('mcp_cbot_ask_user', 'c1'), called.opened, ev.toolDone('c1'), ev.text('I asked you.'), ev.completed('I asked you.')]);
+    fakeHermes([ev.toolCall('mcp_dispatch_ask_user', 'c1'), called.opened, ev.toolDone('c1'), ev.text('I asked you.'), ev.completed('I asked you.')]);
     loop.enqueue(bot.id, { type: 'user', text: 'hi' });
     await vi.waitFor(() => expect(rows(bot.id).length).toBe(1));
     const claim = await loop.claimToolRow(bot.id, 'ask_user');
@@ -258,7 +258,7 @@ describe('endings', () => {
     loop.enqueue(bot.id, { type: 'routine', routineId: 'rt_1', name: 'Daily', prompt: 'Do it' });
     await loop.whenIdle(bot.id);
     expect(requests[0]).toMatchObject({
-      model: 'm1', provider: 'p1', session_id: `cbot-${bot.id}-g1`,
+      model: 'm1', provider: 'p1', session_id: `dispatch-${bot.id}-g1`,
       model_options: { reasoning_effort: 'high' }, input: '[Routine "Daily" is running now. Do this:]\nDo it',
     });
   });
@@ -357,14 +357,14 @@ describe('the runner', () => {
     const requests = fakeHermes([ev.completed('hello')]);
     loop.enqueue(bot.id, { type: 'user', text: 'new' });
     await loop.whenIdle(bot.id);
-    expect(requests[0]).toMatchObject({ session_id: `cbot-${bot.id}-g2` });
+    expect(requests[0]).toMatchObject({ session_id: `dispatch-${bot.id}-g2` });
   });
 
   test('a tool call that is not the turn\'s claims nothing', async () => {
     const bot = seedBot(userId);
     expect(await loop.claimToolRow(bot.id, 'ask_user')).toBeNull();
     const hold = gate();
-    fakeHermes([ev.toolCall('mcp_cbot_create_routine', 'c1'), hold.opened, ev.toolDone('c1'), ev.completed('Done.')]);
+    fakeHermes([ev.toolCall('mcp_dispatch_create_routine', 'c1'), hold.opened, ev.toolDone('c1'), ev.completed('Done.')]);
     loop.enqueue(bot.id, { type: 'user', text: 'hi' });
     await vi.waitFor(() => expect(rows(bot.id).length).toBe(1));
     // Same bot, another tool (say, ask_user on a voice call): no row of this turn is that tool's.
@@ -414,7 +414,7 @@ describe('chats from before runs', () => {
   test('a chat whose session Hermes has gets no recap, and a new chat asks nothing', async () => {
     const bot = oldChat();
     const hermes = fakeHermes([ev.completed('6.')]);
-    hermes.sessions.add(`cbot-${bot.id}-g1`);
+    hermes.sessions.add(`dispatch-${bot.id}-g1`);
     loop.enqueue(bot.id, { type: 'user', text: 'And 3+3?' });
     await loop.whenIdle(bot.id);
     expect(hermes[0].input).toBe('And 3+3?');

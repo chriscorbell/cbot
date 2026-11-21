@@ -658,7 +658,7 @@ export class Creature {
 
 // Dev builds expose the creatures, so moods, hatching and sleep can be checked without waiting.
 if (import.meta.env.DEV) {
-  (globalThis as { __cbotLife?: unknown }).__cbotLife = {
+  (globalThis as { __dispatchLife?: unknown }).__dispatchLife = {
     creatures,
     /** Pretends the person has been away for `s` seconds. */
     away: (s: number) => { lastActivity -= s; },

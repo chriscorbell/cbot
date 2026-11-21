@@ -96,7 +96,7 @@ export function micErrorMessage(e: unknown): string {
 export async function openMic(opts: { strict?: boolean; raw?: boolean } = {}): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('no mediaDevices'), { name: 'NotSupportedError' });
   let micId = '';
-  try { micId = JSON.parse(localStorage.getItem('cbot.prefs') ?? '{}').micId ?? ''; } catch { /* default */ }
+  try { micId = JSON.parse(localStorage.getItem('dispatch.prefs') ?? '{}').micId ?? ''; } catch { /* default */ }
   const on = !opts.raw;
   const base = { echoCancellation: on, noiseSuppression: on, autoGainControl: on, channelCount: 1 };
   if (micId) {

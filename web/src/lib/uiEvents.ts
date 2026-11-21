@@ -15,12 +15,12 @@ interface UiEvents {
 }
 
 export function emitUi<K extends keyof UiEvents>(name: K, detail: UiEvents[K]) {
-  window.dispatchEvent(new CustomEvent(`cbot:${name}`, { detail }));
+  window.dispatchEvent(new CustomEvent(`dispatch:${name}`, { detail }));
 }
 
 /** Listen for a UI request; returns the function that stops listening (an effect's cleanup). */
 export function onUi<K extends keyof UiEvents>(name: K, handler: (detail: UiEvents[K]) => void): () => void {
   const h = (e: Event) => handler((e as CustomEvent<UiEvents[K]>).detail);
-  window.addEventListener(`cbot:${name}`, h);
-  return () => window.removeEventListener(`cbot:${name}`, h);
+  window.addEventListener(`dispatch:${name}`, h);
+  return () => window.removeEventListener(`dispatch:${name}`, h);
 }

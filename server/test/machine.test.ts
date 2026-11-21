@@ -4,8 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BOX_ROOT, cdpPortFor, displayFor, displayNumber, LIBRARY_ROOT, PROFILES_ROOT } from '../src/machine.js';
 
-const cbotlib = fs.readFileSync(path.join(import.meta.dirname, '../box/cbotlib.py'), 'utf8');
-const pyString = (name: string) => new RegExp(`^${name} = '([^']*)'`, 'm').exec(cbotlib)?.[1];
+const dispatchlib = fs.readFileSync(path.join(import.meta.dirname, '../box/dispatchlib.py'), 'utf8');
+const pyString = (name: string) => new RegExp(`^${name} = '([^']*)'`, 'm').exec(dispatchlib)?.[1];
 
 test('the box scripts use the same folders', () => {
   expect(pyString('PROFILES')).toBe(PROFILES_ROOT);
@@ -14,7 +14,7 @@ test('the box scripts use the same folders', () => {
 });
 
 test('the box scripts compute the same DevTools port', () => {
-  expect(cbotlib).toMatch(/def cdp_port\(n\):\n {4}return 9200 \+ int\(n\)/);
+  expect(dispatchlib).toMatch(/def cdp_port\(n\):\n {4}return 9200 \+ int\(n\)/);
   expect(cdpPortFor('default')).toBe(9299);
   expect(cdpPortFor('screen-101')).toBe(9301);
 });

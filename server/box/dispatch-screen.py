@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""cbot-screen: makes X display :N look like one bot's own computer, and undoes it.
+"""dispatch-screen: makes X display :N look like one bot's own computer, and undoes it.
 
 Called by the server (server/src/desk.ts) with one short command per action. Slow work runs in a
-detached job; the caller gets `CBOT_DONE {json}` when the job finishes within the wait, else
-`CBOT_RUNNING <job>` and asks again with `wait`.
+detached job; the caller gets `DISPATCH_DONE {json}` when the job finishes within the wait, else
+`DISPATCH_RUNNING <job>` and asks again with `wait`.
 
   go N BASE STAMP FLAGS LOOK     dress screen N (FLAGS: letters r=restart Chrome, x=reset windows)
   wait JOB SECONDS               keep waiting for a job
@@ -30,11 +30,11 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import cbotlib  # noqa: E402
-from cbotlib import ROOT, JOBS, EXT, LOGS  # noqa: E402
+import dispatchlib  # noqa: E402
+from dispatchlib import ROOT, JOBS, EXT, LOGS  # noqa: E402
 
 POLICY_DIRS = ('/etc/opt/chrome/policies/managed', '/etc/chromium/policies/managed')
-POLICY_NAME = 'cbot.json'
+POLICY_NAME = 'dispatch.json'
 GTK_SETTINGS = os.path.expanduser('~/.config/gtk-3.0/settings.ini')
 
 
@@ -62,7 +62,7 @@ def start_job(name, argv):
             pass
     job = '%s-%d-%d' % (name, int(now * 1000), os.getpid())
     env = dict(os.environ)
-    env.pop('CBOT_SCREEN', None)
+    env.pop('DISPATCH_SCREEN', None)
     os.makedirs(LOGS, exist_ok=True)
     out = open(LOGS + '/jobs.log', 'ab')
     subprocess.Popen([sys.executable, os.path.abspath(__file__), '_job', job, name] + argv, env=env,
@@ -75,10 +75,10 @@ def wait_job(job, seconds):
     end = time.time() + seconds
     while True:
         if os.path.exists(path):
-            print('CBOT_DONE ' + (cbotlib.read_text(path) or '{}').strip())
+            print('DISPATCH_DONE ' + (dispatchlib.read_text(path) or '{}').strip())
             return
         if time.time() >= end:
-            print('CBOT_RUNNING ' + job)
+            print('DISPATCH_RUNNING ' + job)
             return
         time.sleep(0.15)
 
@@ -88,7 +88,7 @@ def run_job(job, name, argv):
     result = {'ok': True, 'warnings': []}
     started = time.time()
     try:
-        with cbotlib.held_lock('%s/%s.lock' % (JOBS, name)):
+        with dispatchlib.held_lock('%s/%s.lock' % (JOBS, name)):
             if name == 'base':
                 result.update(do_base(argv[0], result['warnings']))
             elif name.startswith('dress-'):
@@ -103,29 +103,29 @@ def run_job(job, name, argv):
     result['seconds'] = round(time.time() - started, 2)
     log('job %s finished: ok=%s %.1fs warnings=%s %s' % (job, result['ok'], result['seconds'], result['warnings'],
                                                       result.get('error', '')))
-    cbotlib.write_atomic('%s/%s.json' % (JOBS, job), json.dumps(result))
+    dispatchlib.write_atomic('%s/%s.json' % (JOBS, job), json.dumps(result))
 
 
 # ---------------------------------------------------------------- one-time machine setup
 
 def home_alive():
-    pid = cbotlib.read_text(ROOT + '/home.pid', '').strip()
-    return pid.isdigit() and cbotlib.alive(int(pid)) and any('cbot-home.py' in a for a in cbotlib.cmdline(int(pid)))
+    pid = dispatchlib.read_text(ROOT + '/home.pid', '').strip()
+    return pid.isdigit() and dispatchlib.alive(int(pid)) and any('dispatch-home.py' in a for a in dispatchlib.cmdline(int(pid)))
 
 
 def start_home(restart=False):
     if restart:
-        cbotlib.stop_pids([p for p in cbotlib.all_pids() if any(a.endswith('cbot-home.py') for a in cbotlib.cmdline(p))], grace=2)
+        dispatchlib.stop_pids([p for p in dispatchlib.all_pids() if any(a.endswith('dispatch-home.py') for a in dispatchlib.cmdline(p))], grace=2)
     elif home_alive():
         return True
-    env = cbotlib.base_env(99)
-    for key in ('CBOT_SCREEN', 'DISPLAY', 'GTK_THEME'):
+    env = dispatchlib.base_env(99)
+    for key in ('DISPATCH_SCREEN', 'DISPLAY', 'GTK_THEME'):
         env.pop(key, None)
-    cbotlib.spawn([sys.executable, ROOT + '/cbot-home.py'], env, 'home')
+    dispatchlib.spawn([sys.executable, ROOT + '/dispatch-home.py'], env, 'home')
     end = time.time() + 8
     while time.time() < end:
         try:
-            urllib.request.urlopen(cbotlib.HOME_URL + '/health', timeout=1).read()
+            urllib.request.urlopen(dispatchlib.HOME_URL + '/health', timeout=1).read()
             return True
         except Exception:
             time.sleep(0.2)
@@ -133,10 +133,10 @@ def start_home(restart=False):
 
 
 def gtk_works():
-    code, _ = cbotlib.run([sys.executable, '-c',
+    code, _ = dispatchlib.run([sys.executable, '-c',
                          "import gi; gi.require_version('Gtk','3.0'); gi.require_version('GdkPixbuf','2.0'); "
                          "from gi.repository import Gtk, Gdk, GdkPixbuf; import cairo"],
-                        env={k: v for k, v in cbotlib.base_env(99).items() if k not in ('DISPLAY', 'CBOT_SCREEN')}, timeout=20)
+                        env={k: v for k, v in dispatchlib.base_env(99).items() if k not in ('DISPLAY', 'DISPATCH_SCREEN')}, timeout=20)
     return code == 0
 
 
@@ -174,19 +174,19 @@ def install_packages(warnings):
     cmd = ['apt-get', 'install', '-y', '-qq', '--no-install-recommends', '-o', 'Dpkg::Use-Pty=0',
            '-o', 'DPkg::Lock::Timeout=60'] + want
     log('installing packages:', ' '.join(want))
-    code, out = cbotlib.run(cmd, env=env, timeout=300)
+    code, out = dispatchlib.run(cmd, env=env, timeout=300)
     if code != 0:
-        cbotlib.run(['apt-get', 'update', '-qq'], env=env, timeout=180)
-        code, out = cbotlib.run(cmd, env=env, timeout=300)
+        dispatchlib.run(['apt-get', 'update', '-qq'], env=env, timeout=180)
+        code, out = dispatchlib.run(cmd, env=env, timeout=300)
     if code != 0:
         # One bad package must not block the rest.
         for pkg in want:
-            cbotlib.run(cmd[:-len(want)] + [pkg], env=env, timeout=180)
+            dispatchlib.run(cmd[:-len(want)] + [pkg], env=env, timeout=180)
     still = missing_packages()
     if still:
         warnings.append('could not install: %s (%s)' % (' '.join(still), out.strip().splitlines()[-1][:160] if out.strip() else 'apt failed'))
     if 'fonts-inter' in want and 'fonts-inter' not in still:
-        cbotlib.run(['fc-cache', '-f'], timeout=60)
+        dispatchlib.run(['fc-cache', '-f'], timeout=60)
     return [p for p in want if p not in still]
 
 
@@ -207,19 +207,19 @@ def _field(number, data):
 def build_extension(warnings):
     """Pack the new-tab extension as a signed CRX3 with a key that never leaves this computer.
 
-    The key sits beside the browser profiles rather than under /opt/cbot, so the extension keeps its
+    The key sits beside the browser profiles rather than under /opt/dispatch, so the extension keeps its
     id when the computer is set up again (a new dev container) and the profiles keep their copy of it.
     """
     src = EXT + '/src'
-    key = os.path.join(os.path.dirname(cbotlib.PROFILES), 'home-extension.pem')
+    key = os.path.join(os.path.dirname(dispatchlib.PROFILES), 'home-extension.pem')
     os.makedirs(os.path.dirname(key), exist_ok=True)
     state_path = EXT + '/state.json'
-    state = cbotlib.read_json(state_path) or {}
+    state = dispatchlib.read_json(state_path) or {}
     if not shutil.which('openssl'):
         warnings.append('openssl is missing, so the home screen extension cannot be packed')
         return state
     if not os.path.exists(key):
-        code, out = cbotlib.run(['openssl', 'genrsa', '-out', key, '2048'], timeout=60)
+        code, out = dispatchlib.run(['openssl', 'genrsa', '-out', key, '2048'], timeout=60)
         if code != 0:
             warnings.append('could not create the extension key: %s' % out.strip()[:120])
             return state
@@ -258,14 +258,14 @@ def build_extension(warnings):
         warnings.append('could not sign the home screen extension')
         return state
     header = _field(2, _field(1, der) + _field(2, signature)) + _field(10000, signed_data)
-    cbotlib.write_atomic(EXT + '/home.crx', b'Cr24' + struct.pack('<II', 3, len(header)) + header + archive)
-    cbotlib.write_atomic(EXT + '/updates.xml', (
+    dispatchlib.write_atomic(EXT + '/home.crx', b'Cr24' + struct.pack('<II', 3, len(header)) + header + archive)
+    dispatchlib.write_atomic(EXT + '/updates.xml', (
         "<?xml version='1.0' encoding='UTF-8'?>\n"
         "<gupdate xmlns='http://www.google.com/update2/response' protocol='2.0'>\n"
         "  <app appid='%s'>\n    <updatecheck codebase='%s/ext/home.crx' version='%s' />\n  </app>\n</gupdate>\n"
-        % (ext_id, cbotlib.HOME_URL, version)))
+        % (ext_id, dispatchlib.HOME_URL, version)))
     state = {'id': ext_id, 'hash': src_hash, 'build': build, 'version': version}
-    cbotlib.write_json(state_path, state)
+    dispatchlib.write_json(state_path, state)
     log('packed extension', ext_id, version)
     return state
 
@@ -273,7 +273,7 @@ def build_extension(warnings):
 def write_policy(ext_id, warnings):
     """Machine-wide: every Chrome on this computer gets the home screen extension."""
     policy = {
-        'ExtensionInstallForcelist': ['%s;%s/ext/updates.xml' % (ext_id, cbotlib.HOME_URL)],
+        'ExtensionInstallForcelist': ['%s;%s/ext/updates.xml' % (ext_id, dispatchlib.HOME_URL)],
         'NTPFooterExtensionAttributionEnabled': False,
         'NTPFooterManagementNoticeEnabled': False,
         'CommandLineFlagSecurityWarningsEnabled': False,
@@ -289,8 +289,8 @@ def write_policy(ext_id, warnings):
             continue
         path = os.path.join(folder, POLICY_NAME)
         try:
-            if cbotlib.read_text(path) != text:
-                cbotlib.write_atomic(path, text)
+            if dispatchlib.read_text(path) != text:
+                dispatchlib.write_atomic(path, text)
             wrote.append(path)
         except OSError as e:
             warnings.append('could not write Chrome policy %s: %s' % (path, e))
@@ -300,14 +300,14 @@ def write_policy(ext_id, warnings):
 def write_gtk_settings(warnings):
     """Machine-wide (for this user): GTK apps start light instead of dark."""
     wanted = {
-        'gtk-theme-name': cbotlib.light_theme(),
-        'gtk-icon-theme-name': cbotlib.icon_theme(),
+        'gtk-theme-name': dispatchlib.light_theme(),
+        'gtk-icon-theme-name': dispatchlib.icon_theme(),
         'gtk-application-prefer-dark-theme': '0',
     }
     try:
-        lines = (cbotlib.read_text(GTK_SETTINGS) or '[Settings]\n').splitlines()
-        if not os.path.exists(GTK_SETTINGS + '.before-cbot') and os.path.exists(GTK_SETTINGS):
-            shutil.copy2(GTK_SETTINGS, GTK_SETTINGS + '.before-cbot')
+        lines = (dispatchlib.read_text(GTK_SETTINGS) or '[Settings]\n').splitlines()
+        if not os.path.exists(GTK_SETTINGS + '.before-dispatch') and os.path.exists(GTK_SETTINGS):
+            shutil.copy2(GTK_SETTINGS, GTK_SETTINGS + '.before-dispatch')
         out, seen = [], set()
         for line in lines:
             key = line.split('=', 1)[0].strip()
@@ -320,8 +320,8 @@ def write_gtk_settings(warnings):
             out.insert(0, '[Settings]')
         out += ['%s=%s' % (k, v) for k, v in wanted.items() if k not in seen]
         text = '\n'.join(out) + '\n'
-        if cbotlib.read_text(GTK_SETTINGS) != text:
-            cbotlib.write_atomic(GTK_SETTINGS, text)
+        if dispatchlib.read_text(GTK_SETTINGS) != text:
+            dispatchlib.write_atomic(GTK_SETTINGS, text)
     except OSError as e:
         warnings.append('could not write %s: %s' % (GTK_SETTINGS, e))
 
@@ -329,7 +329,7 @@ def write_gtk_settings(warnings):
 def do_base(base_hash, warnings):
     os.makedirs(ROOT + '/screens', exist_ok=True)
     os.makedirs(LOGS, exist_ok=True)
-    os.makedirs(cbotlib.PROFILES, exist_ok=True)
+    os.makedirs(dispatchlib.PROFILES, exist_ok=True)
     installed = install_packages(warnings)
     shell_ok = gtk_works()
     if not shell_ok:
@@ -340,44 +340,44 @@ def do_base(base_hash, warnings):
     if not start_home(restart=True):
         warnings.append('the home screen server did not start (see %s/home.log)' % LOGS)
     # Desktop pieces that are already up run the old code; bring them back on the new one.
-    for pid in [p for p in cbotlib.all_pids() if any(a.endswith('cbot-shell.py') for a in cbotlib.cmdline(p))]:
-        args = cbotlib.cmdline(pid)
-        cbotlib.stop_pids([pid], grace=2)
-        if shell_ok and args[-1].isdigit() and cbotlib.look_for(int(args[-1])):
-            cbotlib.spawn([sys.executable, ROOT + '/cbot-shell.py', args[-1]], cbotlib.screen_env(int(args[-1])), 'shell-' + args[-1])
-    cbotlib.write_json(ROOT + '/base.json', {'hash': base_hash, 'shell': shell_ok, 'extension': state.get('id'),
+    for pid in [p for p in dispatchlib.all_pids() if any(a.endswith('dispatch-shell.py') for a in dispatchlib.cmdline(p))]:
+        args = dispatchlib.cmdline(pid)
+        dispatchlib.stop_pids([pid], grace=2)
+        if shell_ok and args[-1].isdigit() and dispatchlib.look_for(int(args[-1])):
+            dispatchlib.spawn([sys.executable, ROOT + '/dispatch-shell.py', args[-1]], dispatchlib.screen_env(int(args[-1])), 'shell-' + args[-1])
+    dispatchlib.write_json(ROOT + '/base.json', {'hash': base_hash, 'shell': shell_ok, 'extension': state.get('id'),
                                            'policy': policy_files, 'installed': installed, 'at': int(time.time())})
     return {'installed': installed, 'policy': policy_files, 'extension': state.get('id'), 'shell': shell_ok}
 
 
 def base_current(base_hash):
-    return (cbotlib.read_json(ROOT + '/base.json') or {}).get('hash') == base_hash
+    return (dispatchlib.read_json(ROOT + '/base.json') or {}).get('hash') == base_hash
 
 
 # ---------------------------------------------------------------- dressing a screen
 
 def shell_pids(n):
-    return [p for p in cbotlib.all_pids() if cbotlib.cmdline(p)[-2:] == [ROOT + '/cbot-shell.py', str(n)]]
+    return [p for p in dispatchlib.all_pids() if dispatchlib.cmdline(p)[-2:] == [ROOT + '/dispatch-shell.py', str(n)]]
 
 
 def ensure_shell(n, stamp, warnings):
-    if not (cbotlib.read_json(ROOT + '/base.json') or {}).get('shell'):
+    if not (dispatchlib.read_json(ROOT + '/base.json') or {}).get('shell'):
         return False
-    state_path = cbotlib.screen_dir(n) + '/shell.json'
+    state_path = dispatchlib.screen_dir(n) + '/shell.json'
     pids = shell_pids(n)
     if len(pids) > 1:
-        cbotlib.stop_pids(pids[1:], grace=2)
+        dispatchlib.stop_pids(pids[1:], grace=2)
         pids = pids[:1]
     if not pids:
         try:
             os.unlink(state_path)
         except OSError:
             pass
-        cbotlib.spawn([sys.executable, ROOT + '/cbot-shell.py', str(n)], cbotlib.screen_env(n), 'shell-%d' % n)
+        dispatchlib.spawn([sys.executable, ROOT + '/dispatch-shell.py', str(n)], dispatchlib.screen_env(n), 'shell-%d' % n)
     end = time.time() + 12
     while time.time() < end:
-        state = cbotlib.read_json(state_path) or {}
-        if state.get('stamp') == stamp and cbotlib.alive(state.get('pid')):
+        state = dispatchlib.read_json(state_path) or {}
+        if state.get('stamp') == stamp and dispatchlib.alive(state.get('pid')):
             return True
         time.sleep(0.15)
     warnings.append('the wallpaper and dock did not come up on screen %d (see %s/shell-%d.log)' % (n, LOGS, n))
@@ -390,30 +390,30 @@ THEME_PROPS = ('/Net/ThemeName', '/Net/IconThemeName')
 def light_session(n, env, warnings):
     """Where a settings daemon runs, switch its theme to light so every GTK app follows.
     What was set before is kept in theme.json so undressing can put it back."""
-    if not cbotlib.display_procs(n, ('xfsettingsd',)) or not shutil.which('xfconf-query'):
+    if not dispatchlib.display_procs(n, ('xfsettingsd',)) or not shutil.which('xfconf-query'):
         return
-    saved_path = cbotlib.screen_dir(n) + '/theme.json'
+    saved_path = dispatchlib.screen_dir(n) + '/theme.json'
     before = {}
-    for prop, value in zip(THEME_PROPS, (cbotlib.light_theme(), cbotlib.icon_theme())):
-        code, current = cbotlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop], env=env)
+    for prop, value in zip(THEME_PROPS, (dispatchlib.light_theme(), dispatchlib.icon_theme())):
+        code, current = dispatchlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop], env=env)
         before[prop] = current.strip() if code == 0 else None
         if code != 0 or current.strip() != value:
-            c, out = cbotlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
+            c, out = dispatchlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
             if c != 0:
                 warnings.append('could not switch %s to %s on screen %d: %s' % (prop, value, n, out.strip()[:100]))
-    if cbotlib.read_json(saved_path) is None:
-        cbotlib.write_json(saved_path, before)
+    if dispatchlib.read_json(saved_path) is None:
+        dispatchlib.write_json(saved_path, before)
 
 
 def restore_session(n, env):
-    saved_path = cbotlib.screen_dir(n) + '/theme.json'
-    saved = cbotlib.read_json(saved_path)
+    saved_path = dispatchlib.screen_dir(n) + '/theme.json'
+    saved = dispatchlib.read_json(saved_path)
     if saved is None:
         return
-    if cbotlib.display_procs(n, ('xfsettingsd',)) and shutil.which('xfconf-query'):
+    if dispatchlib.display_procs(n, ('xfsettingsd',)) and shutil.which('xfconf-query'):
         for prop, value in saved.items():
             if value:
-                cbotlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
+                dispatchlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
     try:
         os.unlink(saved_path)
     except OSError:
@@ -422,16 +422,16 @@ def restore_session(n, env):
 
 def close_windows(n, keep_browsers):
     """Close every app window on the screen. Desktop pieces stay; so do browsers when they are not ours."""
-    env = cbotlib.base_env(n)
+    env = dispatchlib.base_env(n)
 
     def targets():
-        wins = [w for w in cbotlib.windows(n) if not cbotlib.is_desktop_piece(w)]
-        return [w for w in wins if not (keep_browsers and cbotlib.is_browser_window(w))]
+        wins = [w for w in dispatchlib.windows(n) if not dispatchlib.is_desktop_piece(w)]
+        return [w for w in wins if not (keep_browsers and dispatchlib.is_browser_window(w))]
 
     wins = targets()
     for w in wins:
         if shutil.which('wmctrl'):
-            cbotlib.run(['wmctrl', '-i', '-c', w['id']], env=env, timeout=5)
+            dispatchlib.run(['wmctrl', '-i', '-c', w['id']], env=env, timeout=5)
     end = time.time() + 2.5
     while wins and time.time() < end:
         time.sleep(0.25)
@@ -439,10 +439,10 @@ def close_windows(n, keep_browsers):
     protected = {os.getpid(), os.getppid(), 1}
     for w in wins:      # did not close when asked nicely
         pid = w['pid']
-        if pid > 1 and pid not in protected and cbotlib.display_number(cbotlib.environ_of(pid).get('DISPLAY')) == n:
-            cbotlib.stop_pids([pid], grace=1.5)
+        if pid > 1 and pid not in protected and dispatchlib.display_number(dispatchlib.environ_of(pid).get('DISPLAY')) == n:
+            dispatchlib.stop_pids([pid], grace=1.5)
         else:
-            cbotlib.run(['xdotool', 'windowkill', str(int(w['id'], 16))], env=env, timeout=5)
+            dispatchlib.run(['xdotool', 'windowkill', str(int(w['id'], 16))], env=env, timeout=5)
     return len(targets())
 
 
@@ -452,7 +452,7 @@ def do_dress(n, flags, look_b64, warnings):
     bot = look['bot']
     manage = bool(look.get('manageChrome'))
     restart, reset = 'r' in flags, 'x' in flags
-    folder = cbotlib.screen_dir(n)
+    folder = dispatchlib.screen_dir(n)
     timings = {}
     t = time.time()
 
@@ -463,24 +463,24 @@ def do_dress(n, flags, look_b64, warnings):
 
     if not reset and not restart and screen_ok(n, stamp, manage, bot['id']):
         return {'already': True}
-    size = cbotlib.geometry(n)
+    size = dispatchlib.geometry(n)
     if not size:
         raise Fatal('screen %d does not answer (X display :%d is not running)' % (n, n))
     os.makedirs(folder, exist_ok=True)
-    previous = cbotlib.look_for(n)
+    previous = dispatchlib.look_for(n)
     if previous and previous.get('manageChrome') and (previous.get('bot') or {}).get('id') not in (None, bot['id']):
-        cbotlib.stop_browser(previous['bot']['id'])
+        dispatchlib.stop_browser(previous['bot']['id'])
     try:
         os.unlink(folder + '/stamp.json')
     except OSError:
         pass
-    cbotlib.write_json(folder + '/look.json', look)
-    env = cbotlib.screen_env(n)
+    dispatchlib.write_json(folder + '/look.json', look)
+    env = dispatchlib.screen_env(n)
     colors = look.get('colors') or {}
     if shutil.which('xsetroot'):
-        cbotlib.run(['xsetroot', '-solid', colors.get('wash', '#eef0f3')], env=env, timeout=5)
+        dispatchlib.run(['xsetroot', '-solid', colors.get('wash', '#eef0f3')], env=env, timeout=5)
     lap('prepare')
-    cbotlib.hide_panels(n, env, size, warnings)
+    dispatchlib.hide_panels(n, env, size, warnings)
     lap('panel')
     light_session(n, env, warnings)
     lap('theme')
@@ -490,7 +490,7 @@ def do_dress(n, flags, look_b64, warnings):
         warnings.append('the home screen server is not running (see %s/home.log)' % LOGS)
     if reset:
         if manage:
-            cbotlib.stop_browser(bot['id'])
+            dispatchlib.stop_browser(bot['id'])
         left = close_windows(n, keep_browsers=not manage)
         if left:
             warnings.append('%d window(s) on screen %d would not close' % (left, n))
@@ -498,65 +498,65 @@ def do_dress(n, flags, look_b64, warnings):
     chrome = None
     if manage:
         try:
-            chrome = cbotlib.start_browser(n, bot['id'], colors.get('accent'), restart=restart and not reset, log=log)
+            chrome = dispatchlib.start_browser(n, bot['id'], colors.get('accent'), restart=restart and not reset, log=log)
         except RuntimeError as e:
             raise Fatal(str(e))
         warnings.extend(chrome['warnings'])
         lap('chrome')
-    cbotlib.write_json(folder + '/stamp.json', {'stamp': stamp, 'shell': shell, 'at': int(time.time())})
+    dispatchlib.write_json(folder + '/stamp.json', {'stamp': stamp, 'shell': shell, 'at': int(time.time())})
     return {'timings': timings, 'size': list(size), 'chromeStarted': bool(chrome and chrome['started'])}
 
 
 def screen_ok(n, stamp, manage, bot_id):
     """Cheap check that the screen still wears this exact look and its pieces are alive."""
-    folder = cbotlib.screen_dir(n)
-    applied = cbotlib.read_json(folder + '/stamp.json') or {}
-    if applied.get('stamp') != stamp or (cbotlib.look_for(n) or {}).get('stamp') != stamp:
+    folder = dispatchlib.screen_dir(n)
+    applied = dispatchlib.read_json(folder + '/stamp.json') or {}
+    if applied.get('stamp') != stamp or (dispatchlib.look_for(n) or {}).get('stamp') != stamp:
         return False
     if applied.get('shell'):
-        state = cbotlib.read_json(folder + '/shell.json') or {}
-        if not cbotlib.alive(state.get('pid')) or state.get('stamp') != stamp:
+        state = dispatchlib.read_json(folder + '/shell.json') or {}
+        if not dispatchlib.alive(state.get('pid')) or state.get('stamp') != stamp:
             return False
     if not home_alive():
         return False
-    if manage and not any(disp == n for _pid, disp in cbotlib.our_browser(bot_id)):
+    if manage and not any(disp == n for _pid, disp in dispatchlib.our_browser(bot_id)):
         return False
     return True
 
 
 def do_undress(n, bot_id):
-    folder = cbotlib.screen_dir(n)
-    look = cbotlib.look_for(n) or {}
-    env = cbotlib.screen_env(n) if os.path.isdir(folder) else cbotlib.base_env(n)
+    folder = dispatchlib.screen_dir(n)
+    look = dispatchlib.look_for(n) or {}
+    env = dispatchlib.screen_env(n) if os.path.isdir(folder) else dispatchlib.base_env(n)
     their = (look.get('bot') or {}).get('id')
     if their and look.get('manageChrome'):
-        cbotlib.stop_browser(their)
+        dispatchlib.stop_browser(their)
     if bot_id and bot_id != their:
-        cbotlib.stop_browser(bot_id, started_by_us=True)
+        dispatchlib.stop_browser(bot_id, started_by_us=True)
     elif bot_id and not look.get('manageChrome'):
         # This screen's browser belongs to someone else. Only a Chrome we started ourselves may go.
-        cbotlib.stop_browser(bot_id, started_by_us=True)
+        dispatchlib.stop_browser(bot_id, started_by_us=True)
     # Taking the look away makes the desktop pieces leave and the home server forget this screen.
     for name in ('look.json', 'stamp.json', 'shell.json'):
         try:
             os.unlink('%s/%s' % (folder, name))
         except OSError:
             pass
-    saved = cbotlib.read_json(folder + '/backdrop.json')
+    saved = dispatchlib.read_json(folder + '/backdrop.json')
     if saved and shutil.which('xfconf-query'):
         for prop, value in saved.items():
-            cbotlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
+            dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
         os.unlink(folder + '/backdrop.json')
-    cbotlib.restore_panels(n, env)
+    dispatchlib.restore_panels(n, env)
     restore_session(n, env)
-    cbotlib.stop_pids(shell_pids(n), grace=2)
-    cbotlib.stop_pids(cbotlib.marked_pids(n), grace=3)
+    dispatchlib.stop_pids(shell_pids(n), grace=2)
+    dispatchlib.stop_pids(dispatchlib.marked_pids(n), grace=3)
     try:
         os.unlink(folder + '/bus.json')
     except OSError:
         pass
-    if shutil.which('xsetroot') and cbotlib.geometry(n):
-        cbotlib.run(['xsetroot', '-solid', '#eceef1'], env=cbotlib.base_env(n), timeout=5)
+    if shutil.which('xsetroot') and dispatchlib.geometry(n):
+        dispatchlib.run(['xsetroot', '-solid', '#eceef1'], env=dispatchlib.base_env(n), timeout=5)
     for old in glob.glob(folder + '/wall-*.png'):
         try:
             os.unlink(old)
@@ -573,20 +573,20 @@ def main(argv):
     elif cmd == 'go':
         n, base_hash, stamp, flags, look_b64 = int(argv[1]), argv[2], argv[3], argv[4].strip('-'), argv[5]
         if not base_current(base_hash):
-            print('CBOT_NOBASE')
+            print('DISPATCH_NOBASE')
             return
         look = json.loads(gzip.decompress(base64.b64decode(look_b64)).decode('utf-8'))
         if not flags and screen_ok(n, stamp, bool(look.get('manageChrome')), look['bot']['id']):
-            print('CBOT_OK')
+            print('DISPATCH_OK')
             return
         wait_job(start_job('dress-%d' % n, [str(n), flags or '-', look_b64]), 25)
     elif cmd == 'wait':
         wait_job(argv[1], float(argv[2]) if len(argv) > 2 else 25)
     elif cmd == 'base-check':
         if base_current(argv[1]) and start_home():
-            print('CBOT_BASE_OK ' + json.dumps(cbotlib.read_json(ROOT + '/base.json') or {}))
+            print('DISPATCH_BASE_OK ' + json.dumps(dispatchlib.read_json(ROOT + '/base.json') or {}))
         else:
-            print('CBOT_NOBASE')
+            print('DISPATCH_NOBASE')
     elif cmd == 'base':
         wait_job(start_job('base', [argv[1]]), 25)
     elif cmd == 'undress':
@@ -594,14 +594,14 @@ def main(argv):
         # finish first, so it can't put back what undressing takes away; after a minute go on anyway:
         # stopping the display then stops the job too (it runs with that DISPLAY).
         n = int(argv[1])
-        with cbotlib.held_lock(cbotlib.dress_lock(n), timeout=60) as held:
+        with dispatchlib.held_lock(dispatchlib.dress_lock(n), timeout=60) as held:
             if not held:
                 log('undress :%d: a dressing job still holds the screen; going on without it' % n)
             do_undress(n, argv[2] if len(argv) > 2 else '')
-        print('CBOT_DONE {"ok": true}')
+        print('DISPATCH_DONE {"ok": true}')
     elif cmd == 'launch':
-        cbotlib.launch_app(int(argv[1]), argv[2])
-        print('CBOT_DONE {"ok": true}')
+        dispatchlib.launch_app(int(argv[1]), argv[2])
+        print('DISPATCH_DONE {"ok": true}')
     else:
         sys.stderr.write(__doc__)
         sys.exit(2)

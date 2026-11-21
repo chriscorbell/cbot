@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Benchmarks for the speech service, run from a container on the same network.
 
-    docker run --rm --network cbot-dev_speech -v "$PWD/speech/bench:/bench:ro" -v "$PWD/tests:/tests:ro" \
-      -v /sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' cbot-dev-speech-1).scope:/cg:ro \
-      -v /some/out:/out cbot-speech:dev python /bench/bench.py all --out /out
+    docker run --rm --network dispatch-dev_speech -v "$PWD/speech/bench:/bench:ro" -v "$PWD/tests:/tests:ro" \
+      -v /sys/fs/cgroup/system.slice/docker-$(docker inspect -f '{{.Id}}' dispatch-dev-speech-1).scope:/cg:ro \
+      -v /some/out:/out dispatch-speech:dev python /bench/bench.py all --out /out
 
 Subcommands: tts, speed, stt, stream, all. README.md next to this file explains each number.
 The image's own Python has everything this needs (numpy, soxr, av, websockets, sherpa-onnx and the

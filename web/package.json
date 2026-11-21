@@ -1,5 +1,5 @@
 {
-  "name": "@cbot/web",
+  "name": "@dispatch/web",
   "private": true,
   "license": "GPL-3.0-or-later",
   "type": "module",

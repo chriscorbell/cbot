@@ -171,7 +171,7 @@ export async function forgetBotFiles(botId: string): Promise<void> {
   await box.bash(`rm -rf -- ${profileDir(botId)} ${libraryDir(botId)}`, 60);
 }
 
-/** Resetting cbot (reset.ts): every browser profile and Library folder, including any a bot left behind. */
+/** Resetting Dispatch (reset.ts): every browser profile and Library folder, including any a bot left behind. */
 export async function forgetAllBotFiles(): Promise<void> {
   await box.bash(`find ${PROFILES_ROOT} ${LIBRARY_ROOT} -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +`, 120);
 }

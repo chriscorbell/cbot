@@ -36,7 +36,7 @@ export function ChangePasswordDialog({ onClose, onDone }: { onClose: () => void;
       <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <div className="confirm-modal__body">
           <div className="confirm-modal__title">Change password</div>
-          <p className="confirm-modal__text">Every other browser signed in to cbot is signed out.</p>
+          <p className="confirm-modal__text">Every other browser signed in to Dispatch is signed out.</p>
           <input type="text" name="username" autoComplete="username" hidden readOnly />
           <div className="password-modal__fields">
             <PasswordField id="pw-current" label="Current password" value={current} onChange={setCurrent} autoComplete="current-password" inputRef={currentRef} invalid={!!error} />

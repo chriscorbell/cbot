@@ -30,7 +30,7 @@ let session: string | null = null;
 /** Request headers that sign in as the owner: a session cookie made straight in the database. */
 export const auth = () => {
   session ??= startSession(seedOwner().id);
-  return { cookie: `cbot_session=${session}` };
+  return { cookie: `dispatch_session=${session}` };
 };
 
 export const json = (body: unknown) => ({ method: 'POST', headers: { ...auth(), 'content-type': 'application/json' }, body: JSON.stringify(body) });

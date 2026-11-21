@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/readme-banner.svg" alt="cbot: a team of AI agents, each with its own desktop" width="100%">
+  <img src="assets/readme-banner.svg" alt="Dispatch: a team of AI agents, each with its own desktop" width="100%">
 </p>
 
-**cbot** runs a team of always-on AI agents, **self-hosted on a single machine.**
+**Dispatch** runs a team of always-on AI agents, **self-hosted on a single machine.**
 
 Each bot is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) with its own name, instructions, memory, routines and Linux desktop.
 
@@ -72,14 +72,14 @@ Other Ubuntu and Debian derivatives may work; the installer warns that they're u
 On the target machine, run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 ```
 
 The installer takes over the terminal: you pick the bots' time zone from a list you can search, how many bots the machine can run, and whether to add Tailscale, then it shows each step as it installs. A first install takes 15 to 30 minutes.
 
 After installation is complete, open `https://<ip-address>:8787` in your browser (accept the certificate warning), create your account, then follow the setup wizard.
 
-cbot signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, choose **Set it up** at the installer's Tailscale question.
+Dispatch signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, choose **Set it up** at the installer's Tailscale question.
 
 When a new version is out, **Update available** shows in the sidebar, and one click installs it.
 
@@ -87,10 +87,10 @@ When a new version is out, **Update available** shows in the sidebar, and one cl
 
 ### Uninstall
 
-On the target machine, run this to remove cbot and all its data (Chrome, Node.js, Docker, the desktop packages and Tailscale stay installed):
+On the target machine, run this to remove Dispatch and all its data (Chrome, Node.js, Docker, the desktop packages and Tailscale stay installed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/uninstall.sh | bash
 ```
 
 It asks once before removing anything, then shows each step as it goes.
@@ -109,4 +109,4 @@ It asks once before removing anything, then shows each step as it goes.
 
 ## License
 
-cbot is free software under the [GNU General Public License v3.0 or later](LICENSE).
+Dispatch is free software under the [GNU General Public License v3.0 or later](LICENSE).

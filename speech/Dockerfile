@@ -1,4 +1,4 @@
-# cbot's speech service: Phonon text-to-speech and Parakeet speech recognition on the CPU.
+# Dispatch's speech service: Phonon text-to-speech and Parakeet speech recognition on the CPU.
 # compose.yaml runs it as the `speech` service; README.md documents the API.
 
 # ---------------------------------------------------------------- build: sherpa-onnx from source

@@ -9,7 +9,7 @@ import { useConfigUI } from '../../configStore';
 import { folderOf, glow } from '../../lib/glow';
 import { FilePreview, type PreviewFile } from '../FilePreview';
 
-/** Files the bot saved under /root/cbot/files/<botId> on its computer. */
+/** Files the bot saved under /root/dispatch/files/<botId> on its computer. */
 export function LibraryTab({ bot }: { bot: Bot }) {
   const [path, setPath] = useState('');
   const [list, setList] = useState<LibraryListing | null>(null);

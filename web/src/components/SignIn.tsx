@@ -19,7 +19,7 @@ function userNameProblem(name: string): string | null {
 }
 
 /** A fetch that never reached the server throws a TypeError, not an ApiError. */
-export const messageOf = (e: unknown) => (e instanceof ApiError ? e.message : 'Couldn’t reach cbot. Check the connection and try again.');
+export const messageOf = (e: unknown) => (e instanceof ApiError ? e.message : 'Couldn’t reach Dispatch. Check the connection and try again.');
 
 export function PasswordField({ id, label, value, onChange, autoComplete, inputRef, invalid, describedBy, hint }: {
   id: string; label: string; value: string; onChange: (v: string) => void; autoComplete: string;
@@ -104,9 +104,9 @@ export function SignIn() {
         onAnimationEnd={(e) => { if (e.animationName === 'signin-shake') setShaking(false); }}
         aria-labelledby="signin-title"
       >
-        <span className="signin__avatar"><BotAvatar shape="blob" color="black" size={52} mood={busy ? 'working' : 'idle'} seed="cbot" /></span>
+        <span className="signin__avatar"><BotAvatar shape="blob" color="black" size={52} mood={busy ? 'working' : 'idle'} seed="dispatch" /></span>
         <div className="signin__head" key={firstRun ? 'setup' : 'signin'}>
-          <h1 id="signin-title" className="signin__title">{firstRun ? 'Create your account' : 'Sign in to cbot'}</h1>
+          <h1 id="signin-title" className="signin__title">{firstRun ? 'Create your account' : 'Sign in to Dispatch'}</h1>
           {firstRun && <p className="signin__sub">Choose the user name and password you’ll sign in with.</p>}
         </div>
         <div className="signin__field">

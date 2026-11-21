@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeAll, expect, test, vi } from 'vitest';
 import type { ServerEvent, UpdateState } from '../src/types.js';
 
-// systemctl and systemd-run, answered here: `unit` is what `systemctl is-active cbot-update` says.
+// systemctl and systemd-run, answered here: `unit` is what `systemctl is-active dispatch-update` says.
 const sys = vi.hoisted(() => ({ calls: [] as string[][], unit: 'active', fail: null as string | null }));
 vi.mock('node:child_process', () => ({
   execFile: (cmd: string, args: string[], cb: (e: unknown, r?: { stdout: string; stderr: string }) => void) => {
@@ -30,25 +30,25 @@ const commitAnswer = (short: string) => () => Response.json({ sha: `${short}${'0
 
 beforeAll(() => {
   vi.stubGlobal('fetch', fetches);
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cbot-source-')), 'source');
-  fs.writeFileSync(file, '# Where scripts/install.sh installed cbot from.\nCBOT_REPO=chriscorbell/cbot\nCBOT_REF=main\n');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-source-')), 'source');
+  fs.writeFileSync(file, '# Where scripts/install.sh installed Dispatch from.\nDISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\n');
   initUpdates(file, RUNNING);
 });
 afterEach(() => { vi.useRealTimers(); fetches.mockClear(); sys.calls = []; });
 
 test('the source names a repository and a branch, and nothing that could reach a shell', () => {
-  expect(parseSource('CBOT_REPO=chriscorbell/cbot\nCBOT_REF=main\n')).toEqual({ repo: 'chriscorbell/cbot', ref: 'main' });
-  expect(parseSource('CBOT_REPO="me/cbot-fork"\nCBOT_REF=feature/voice\n')).toEqual({ repo: 'me/cbot-fork', ref: 'feature/voice' });
-  expect(parseSource('CBOT_REPO=chriscorbell/cbot\n')).toBeNull();
+  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\n')).toEqual({ repo: 'chriscorbell/dispatch', ref: 'main' });
+  expect(parseSource('DISPATCH_REPO="me/dispatch-fork"\nDISPATCH_REF=feature/voice\n')).toEqual({ repo: 'me/dispatch-fork', ref: 'feature/voice' });
+  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\n')).toBeNull();
   expect(parseSource('')).toBeNull();
-  expect(parseSource('CBOT_REPO=a/b;reboot\nCBOT_REF=main\n')).toBeNull();
-  expect(parseSource('CBOT_REPO=a/b\nCBOT_REF=$(reboot)\n')).toBeNull();
-  expect(parseSource('CBOT_REPO=a/b\nCBOT_REF=../../x\n')).toBeNull();
+  expect(parseSource('DISPATCH_REPO=a/b;reboot\nDISPATCH_REF=main\n')).toBeNull();
+  expect(parseSource('DISPATCH_REPO=a/b\nDISPATCH_REF=$(reboot)\n')).toBeNull();
+  expect(parseSource('DISPATCH_REPO=a/b\nDISPATCH_REF=../../x\n')).toBeNull();
 });
 
 test('only a release directory names a commit', () => {
-  expect(releaseCommit(`/srv/cbot/releases/${RUNNING}`)).toBe(RUNNING);
-  expect(releaseCommit(`/srv/cbot/releases/${RUNNING}.new`)).toBeNull();
+  expect(releaseCommit(`/srv/dispatch/releases/${RUNNING}`)).toBe(RUNNING);
+  expect(releaseCommit(`/srv/dispatch/releases/${RUNNING}.new`)).toBeNull();
   expect(releaseCommit('/app')).toBeNull();
   expect(releaseCommit(`/elsewhere/${RUNNING}`)).toBeNull();
 });
@@ -57,31 +57,31 @@ test("the installer's log says what the update is doing", () => {
   expect(stepFrom('')).toBeNull();
   expect(stepFrom('[release] provisioning the host\n[provision] packages\n')).toBe('Installing packages');
   expect(stepFrom('[provision] Hermes Agent 0.9.1\n[provision] done\n')).toBe('Installing Hermes Agent 0.9.1');
-  expect(stepFrom(`[release] building ${NEWER}\nadded 306 packages\n`)).toBe('Building cbot');
-  expect(stepFrom(`[release] building ${NEWER}\n[release] building cbot-speech:0123456789ab (the first build takes about ten minutes)\n`))
+  expect(stepFrom(`[release] building ${NEWER}\nadded 306 packages\n`)).toBe('Building Dispatch');
+  expect(stepFrom(`[release] building ${NEWER}\n[release] building dispatch-speech:0123456789ab (the first build takes about ten minutes)\n`))
     .toBe('Building the speech service, which takes about ten minutes');
-  expect(stepFrom(`[release] building ${NEWER}\n[release] starting ${NEWER}\n`)).toBe('Starting cbot');
+  expect(stepFrom(`[release] building ${NEWER}\n[release] starting ${NEWER}\n`)).toBe('Starting Dispatch');
 });
 
 test('a check finds a newer commit on the branch, and none when GitHub names the running one', async () => {
   expect(updateState()).toMatchObject({ current: RUNNING, available: null, checkedAt: null, status: 'idle' });
   github = commitAnswer(RUNNING);
   expect(await checkForUpdate()).toMatchObject({ available: null, error: null });
-  expect(fetches.mock.calls[0][0]).toBe('https://api.github.com/repos/chriscorbell/cbot/commits/main');
+  expect(fetches.mock.calls[0][0]).toBe('https://api.github.com/repos/chriscorbell/dispatch/commits/main');
 
   github = commitAnswer(NEWER);
   const [a, b] = await Promise.all([checkForUpdate(), checkForUpdate()]);
   expect(fetches).toHaveBeenCalledTimes(2);
   expect(a).toBe(b);
-  expect(a).toMatchObject({ status: 'idle', error: null, available: { commit: NEWER, url: `https://github.com/chriscorbell/cbot/compare/${RUNNING}...${NEWER}` } });
+  expect(a).toMatchObject({ status: 'idle', error: null, available: { commit: NEWER, url: `https://github.com/chriscorbell/dispatch/compare/${RUNNING}...${NEWER}` } });
   expect(events.at(-1)).toEqual(a);
 });
 
 test('a check GitHub refuses says why and keeps the update it found before', async () => {
   github = () => new Response('{}', { status: 403 });
-  expect(await checkForUpdate()).toMatchObject({ available: { commit: NEWER }, error: 'GitHub is limiting requests for now. cbot asks again later.' });
+  expect(await checkForUpdate()).toMatchObject({ available: { commit: NEWER }, error: 'GitHub is limiting requests for now. Dispatch asks again later.' });
   github = () => Response.json({ message: 'Not Found' }, { status: 404 });
-  expect(await checkForUpdate()).toMatchObject({ available: { commit: NEWER }, error: 'GitHub has no main in chriscorbell/cbot.' });
+  expect(await checkForUpdate()).toMatchObject({ available: { commit: NEWER }, error: 'GitHub has no main in chriscorbell/dispatch.' });
 });
 
 test('Update runs the installer in a unit of its own once, and a failed run leaves this release running', async () => {
@@ -92,10 +92,10 @@ test('Update runs the installer in a unit of its own once, and a failed run leav
   const runs = sys.calls.filter((c) => c[0] === 'systemd-run');
   expect(runs).toHaveLength(1);
   // The repository and branch reach the installer as its environment, never inside the script.
-  expect(runs[0]).toContain('--setenv=CBOT_REPO=chriscorbell/cbot');
-  expect(runs[0]).toContain('--setenv=CBOT_REF=main');
-  expect(runs[0]).toContain('--setenv=CBOT_YES=1');
-  expect(runs[0].at(-1)).toBe('set -o pipefail; curl -fsSL "https://raw.githubusercontent.com/$CBOT_REPO/$CBOT_REF/scripts/install.sh" | bash');
+  expect(runs[0]).toContain('--setenv=DISPATCH_REPO=chriscorbell/dispatch');
+  expect(runs[0]).toContain('--setenv=DISPATCH_REF=main');
+  expect(runs[0]).toContain('--setenv=DISPATCH_YES=1');
+  expect(runs[0].at(-1)).toBe('set -o pipefail; curl -fsSL "https://raw.githubusercontent.com/$DISPATCH_REPO/$DISPATCH_REF/scripts/install.sh" | bash');
   expect(updateState()).toMatchObject({ status: 'updating', step: null });
 
   await vi.advanceTimersByTimeAsync(2_000);
@@ -108,7 +108,7 @@ test('Update runs the installer in a unit of its own once, and a failed run leav
 
 test('an update that cannot start says so, and one that finds nothing newer goes back to idle', async () => {
   vi.useFakeTimers();
-  sys.fail = 'Failed to start transient service unit: Unit cbot-update.service was already loaded or has a fragment file.';
+  sys.fail = 'Failed to start transient service unit: Unit dispatch-update.service was already loaded or has a fragment file.';
   await startUpdate();
   expect(updateState()).toMatchObject({ status: 'failed', error: `It couldn’t start: ${sys.fail}` });
 
@@ -119,5 +119,5 @@ test('an update that cannot start says so, and one that finds nothing newer goes
   sys.unit = 'inactive';
   await vi.advanceTimersByTimeAsync(2_000);
   expect(updateState()).toMatchObject({ status: 'idle', available: null });
-  expect(await startUpdate()).toBe('cbot is up to date.');
+  expect(await startUpdate()).toBe('Dispatch is up to date.');
 });

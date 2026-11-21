@@ -37,12 +37,12 @@ interface ConfigUI {
   bump(key: string): void;
 }
 
-const LS_THEME = 'cbot.theme';
+const LS_THEME = 'dispatch.theme';
 const readTheme = (): Theme => {
   try { const t = localStorage.getItem(LS_THEME); return t === 'light' || t === 'dark' ? t : 'system'; } catch { return 'system'; }
 };
 
-const LS_PREFS = 'cbot.prefs';
+const LS_PREFS = 'dispatch.prefs';
 const readPrefs = (): Pick<ConfigUI, 'spellcheck' | 'sendWithMod' | 'micId'> => {
   const d = { spellcheck: true, sendWithMod: false, micId: '' };
   try { return { ...d, ...JSON.parse(localStorage.getItem(LS_PREFS) ?? '{}') }; } catch { return d; }
@@ -55,7 +55,7 @@ export function applyTheme(t: Theme) {
   document.documentElement.dataset.theme = resolved;
   document.documentElement.style.colorScheme = resolved;
   // Phone browsers tint their toolbars and the status bar with this; index.html picks by the OS's
-  // scheme, which is wrong when cbot's own setting differs from it.
+  // scheme, which is wrong when Dispatch's own setting differs from it.
   document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => { m.content = resolved === 'dark' ? '#111111' : '#FFFFFF'; });
 }
 

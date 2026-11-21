@@ -83,7 +83,7 @@ test('a steer that fails after a newer reply took the call never leaves two repl
 
   speech.emit('message', Buffer.from(JSON.stringify({ type: 'ready' })), false);
   said(1, 'What is the weather in Rome?');
-  await vi.waitFor(() => expect(events().some((e) => e.type === 'cbot.activity')).toBe(true));
+  await vi.waitFor(() => expect(events().some((e) => e.type === 'dispatch.activity')).toBe(true));
   said(2, 'And in Paris?'); // a tool is running: steered into the turn
   toolDone.open(); // the first turn finishes while the steer is still in flight
   await vi.waitFor(() => expect(open()).toEqual([]));
@@ -118,7 +118,7 @@ function startCall(over: { botId?: string; chat?: ChatCursor } = {}) {
       emit({ type: 'speech_started', utterance, start_ms: 0, audio_ms: 200 });
       emit({ type: 'final', utterance, text, model });
     },
-    playback: () => events().flatMap((e) => (e.type === 'cbot.playback' ? [e.action] : [])),
+    playback: () => events().flatMap((e) => (e.type === 'dispatch.playback' ? [e.action] : [])),
     done: (id: string) => events().find((e): e is Extract<RelayEvent, { type: 'response.done' }> => e.type === 'response.done' && e.response.id === id)?.response.status,
     spoken: () => events().flatMap((e) => (e.type === 'response.output_audio_transcript.delta' ? [e.delta.trim()] : [])),
   };
@@ -229,7 +229,7 @@ test('a prompt on a call shows its card in the chat, and the call bar says the b
     instructions: '', conversation: 'c', chat: { rev: 0, told: new Set<string>() }, model: null, provider: null, effort: 'medium', greeting: 'Hi.', voice: 'v', speed: 1, relayed: true,
   });
   const speech = WebSocket.instances.at(-1)!;
-  const activity = () => client.sent.map((s) => JSON.parse(s) as RelayEvent).flatMap((e) => (e.type === 'cbot.activity' ? [e.label] : []));
+  const activity = () => client.sent.map((s) => JSON.parse(s) as RelayEvent).flatMap((e) => (e.type === 'dispatch.activity' ? [e.label] : []));
   speech.emit('message', Buffer.from(JSON.stringify({ type: 'ready' })), false);
   speech.emit('message', Buffer.from(JSON.stringify({ type: 'final', utterance: 1, text: 'Clean up the temp folder.' })), false);
 

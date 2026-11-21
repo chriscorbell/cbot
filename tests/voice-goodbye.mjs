@@ -3,7 +3,7 @@
 // the bot says goodbye, so the farewell runs long. Speech arrives far faster than it plays, so the
 // whole goodbye is queued in the page when the relay says the bot hung up; the page has to wait for it.
 // The user's line is synthesised by the speech service in another voice on each run.
-// Usage: CBOT_USER=… CBOT_PASSWORD=… node tests/voice-goodbye.mjs [baseUrl] [botName]
+// Usage: DISPATCH_USER=… DISPATCH_PASSWORD=… node tests/voice-goodbye.mjs [baseUrl] [botName]
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -43,7 +43,7 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['microphone'] });
 await ctx.addCookies([browserCookie(BASE, COOKIE)]);
 await ctx.addInitScript((botId) => {
-  localStorage.setItem('cbot.selectedBot', botId);
+  localStorage.setItem('dispatch.selectedBot', botId);
   // When each piece of audio is due to finish, in wall-clock ms, and when the relay socket closed.
   window.__goodbye = { ends: [], closedAt: 0, hangup: 0 };
   const start = AudioBufferSourceNode.prototype.start;
@@ -59,7 +59,7 @@ await ctx.addInitScript((botId) => {
       super(u, p);
       if (!String(u).includes('/api/voice/relay/')) return;
       this.addEventListener('message', (m) => {
-        try { const ev = JSON.parse(m.data); if (ev.type === 'cbot.hangup') window.__goodbye.hangup ||= Date.now(); } catch { /* not json */ }
+        try { const ev = JSON.parse(m.data); if (ev.type === 'dispatch.hangup') window.__goodbye.hangup ||= Date.now(); } catch { /* not json */ }
       });
       const close = this.close.bind(this);
       this.close = (...a) => { window.__goodbye.closedAt ||= Date.now(); return close(...a); };

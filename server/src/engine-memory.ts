@@ -49,7 +49,7 @@ function read(file: string, strict = false): { entries: string[]; ok: boolean } 
 }
 
 function writeAtomic(file: string, text: string) {
-  const tmp = path.join(path.dirname(file), `.mem_cbot_${process.pid}_${path.basename(file)}`);
+  const tmp = path.join(path.dirname(file), `.mem_dispatch_${process.pid}_${path.basename(file)}`);
   const mode = fs.statSync(file).mode & 0o777;
   fs.writeFileSync(tmp, text);
   fs.chmodSync(tmp, mode);

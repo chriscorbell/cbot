@@ -35,7 +35,7 @@ export const configApi = {
   computerDetails: () => req<ComputerDetails>('GET', '/computer/details'),
   resetScreen: (botId: string) => req<Ok>('POST', `/bots/${botId}/screen/reset`),
   /** Erases everything and restarts the server empty (server/src/reset.ts). */
-  resetCbot: () => req<Ok>('POST', '/reset', { confirm: 'reset' }),
+  resetDispatch: () => req<Ok>('POST', '/reset', { confirm: 'reset' }),
   /** Tells the bot the person has stopped driving its screen. */
   handback: (botId: string) => req<Ok>('POST', `/bots/${botId}/handback`),
   /** Switch the open screen connection `conn` (ComputerScreen names it) between watching and control. */
@@ -54,9 +54,9 @@ export const configApi = {
   stopOwnScreen: (botId: string) => req<EngineResponse>('POST', `/bots/${botId}/engine/screen/stop`),
 
   permissions: () => req<PermissionsResponse>('GET', '/permissions'),
-  /** Whether this page came over cbot's own HTTPS certificate (server/src/https.ts). */
+  /** Whether this page came over Dispatch's own HTTPS certificate (server/src/https.ts). */
   https: () => req<HttpsResponse>('GET', '/https'),
-  /** Updating cbot from GitHub (server/src/updates.ts): what it knows, asking GitHub now, and running the update. */
+  /** Updating Dispatch from GitHub (server/src/updates.ts): what it knows, asking GitHub now, and running the update. */
   update: () => req<UpdateResponse>('GET', '/update'),
   checkUpdate: () => req<UpdateResponse>('POST', '/update/check'),
   startUpdate: () => req<UpdateResponse>('POST', '/update'),

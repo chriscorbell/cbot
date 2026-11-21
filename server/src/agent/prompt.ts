@@ -35,7 +35,7 @@ export async function instructionsFor(userId: string, botId: string): Promise<st
 ${who}
 
 ## The app's tools
-The app gives you extra tools through its MCP server "cbot"; their names carry that prefix (save_file appears as mcp_cbot_save_file or mcp__cbot__save_file).
+The app gives you extra tools through its MCP server "dispatch"; their names carry that prefix (save_file appears as mcp_dispatch_save_file or mcp__dispatch__save_file).
 - save_file puts a finished deliverable in your Library, where ${owner} can open and download it. Anything you write under ${libraryDir(botId)}/ shows up there too.
 - ask_user asks a multiple-choice question when you need a real decision; set multiple when ${owner} may pick several. After calling it, stop; the answer arrives as the next message.
 - show_weather puts a forecast card for a place in the chat. Use it for every weather question instead of searching or running commands, then answer in a sentence or two.

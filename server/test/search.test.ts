@@ -54,7 +54,7 @@ test('an excerpt keeps about a line around the match and says where it was cut',
 });
 
 test('Library files and folders match by name; dot-files, links and group chats are left out', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cbot-lib-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-lib-'));
   const room = seedBot(user.id, { name: 'Team', kind: 'room', members: [ada.id, bo.id] });
   fs.mkdirSync(path.join(root, ada.id, 'reports/2026'), { recursive: true });
   fs.writeFileSync(path.join(root, ada.id, 'reports/2026/kalshi-summary.md'), 'x');

@@ -1,18 +1,18 @@
 # Speech benchmarks and smoke test
 
-`bench.py` measures the running speech service the way cbot will use it, from a separate container on the project's `speech` network. `smoke.mjs` calls every endpoint once from the cbot container.
+`bench.py` measures the running speech service the way Dispatch will use it, from a separate container on the project's `speech` network. `smoke.mjs` calls every endpoint once from the `dispatch` container.
 
 ## Running the benchmark
 
-With the dev project up (`CBOT_PORT=8788 docker compose -p cbot-dev up -d --build`), from the repository root:
+With the dev project up (`DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build`), from the repository root:
 
 ```sh
-id=$(docker inspect -f '{{.Id}}' cbot-dev-speech-1)
-docker run --rm --network cbot-dev_speech --cpus 4 \
+id=$(docker inspect -f '{{.Id}}' dispatch-dev-speech-1)
+docker run --rm --network dispatch-dev_speech --cpus 4 \
   -v "$PWD/speech/bench:/bench:ro" -v "$PWD/tests:/tests:ro" -v "$PWD/out:/out" \
   -v /sys/fs/cgroup/system.slice/docker-$id.scope:/cg:ro \
   -v /path/to/clips:/data:ro \
-  cbot-speech:dev python /bench/bench.py all --out /out \
+  dispatch-speech:dev python /bench/bench.py all --out /out \
   --clip "/data/ls0.wav=After early nightfall the yellow lamps would light up here and there the squalid quarter of the brothels"
 ```
 
@@ -49,8 +49,8 @@ From the repository root, with the dev project up:
 
 ```sh
 ffmpeg -ss 8.6 -t 4.6 -i tests/ask-weather.wav -ac 1 -c:a libopus -b:a 32k /tmp/dictation.webm
-docker cp speech/bench/smoke.mjs cbot-dev-cbot-1:/tmp/ && docker cp /tmp/dictation.webm cbot-dev-cbot-1:/tmp/
-docker exec cbot-dev-cbot-1 node /tmp/smoke.mjs /tmp/dictation.webm "Hey, can you look up the current weather in Tokyo for me?"
+docker cp speech/bench/smoke.mjs dispatch-dev-dispatch-1:/tmp/ && docker cp /tmp/dictation.webm dispatch-dev-dispatch-1:/tmp/
+docker exec dispatch-dev-dispatch-1 node /tmp/smoke.mjs /tmp/dictation.webm "Hey, can you look up the current weather in Tokyo for me?"
 ```
 
 It checks health and voices, streams speech and saves it to `/tmp/speech-smoke/stream.wav`, saves a WAV in another voice and speed to `/tmp/speech-smoke/tts.wav` and transcribes it back, transcribes the WebM clip, sends two bad requests, runs a live session with the streamed speech and prints its events, ends an utterance halfway with `commit`, and opens a socket with a bad model. It exits non-zero if a check fails.

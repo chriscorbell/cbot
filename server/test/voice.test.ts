@@ -50,7 +50,7 @@ test("the bot's own agent titles and summarises a call when it ends, on a sessio
   const ended = () => listRows(bot.id).find((r) => r.body.type === 'event' && r.body.call?.phase === 'ended')!.body;
   await vi.waitFor(() => expect(ended()).toMatchObject({ call: { title: 'Tokyo weather check', summary: 'Asked about the weather in Tokyo.' } }), { timeout: 5000 });
   const run = hermesCalls.find((c) => c.path === '/v1/runs')!.body!;
-  expect(run).toMatchObject({ model: 'hermes-agent', session_id: `cbot-${bot.id}-${callId}-summary` });
+  expect(run).toMatchObject({ model: 'hermes-agent', session_id: `dispatch-${bot.id}-${callId}-summary` });
   expect(run.input).toContain('User: Weather in Tokyo?\nTia: Sunny.');
 });
 

@@ -69,7 +69,7 @@ function botByName(userId: string, name: string) {
 export const TOOLS: ToolDef[] = [
   tool({
     name: 'save_file',
-    description: "Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/cbot/files/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.",
+    description: "Save a finished deliverable (report, notes, CSV, code, markdown) to your Library so the user can open and download it. Saved under /root/dispatch/files/<your id>/ on your computer. Files you write into that folder yourself show up in the Library too.",
     params: z.object({ filename: z.string().describe('e.g. briefing-2026-11-09.md'), content: z.string() }),
     activity: 'drafting_file',
     label: 'Saving a file',
@@ -266,13 +266,13 @@ export const TOOLS: ToolDef[] = [
 
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
 
-/** A Hermes tool name as the app knows it: tools served by this app's MCP server lose their `mcp_cbot_` prefix. */
+/** A Hermes tool name as the app knows it: tools served by this app's MCP server lose their `mcp_dispatch_` prefix. */
 export function appToolName(raw: string): { name: string; ours: boolean; server?: string } {
-  const cbot = /^mcp_+cbot_+(.+)$/.exec(raw);
-  if (cbot) {
+  const own = /^mcp_+dispatch_+(.+)$/.exec(raw);
+  if (own) {
     // Hermes may fold names to lower case; ours are matched case-insensitively.
-    const hit = [...toolMap.keys()].find((k) => k.toLowerCase() === cbot[1].toLowerCase());
-    return { name: hit ?? cbot[1], ours: true };
+    const hit = [...toolMap.keys()].find((k) => k.toLowerCase() === own[1].toLowerCase());
+    return { name: hit ?? own[1], ours: true };
   }
   const other = /^mcp_+([a-zA-Z0-9-]+?)_+(.+)$/.exec(raw);
   if (other) return { name: other[2], ours: false, server: other[1] };

@@ -7,8 +7,8 @@
 //                            first what is new in the bot's text chat (agent/catchup.ts)
 //   each finished sentence of the turn's text ─► the speech service's text-to-speech ─► response.output_audio.delta
 // A turn can take a while: the model reasons, and it may search, browse or run commands. The browser
-// plays a quiet loop whenever a turn is running and nothing is being said. While a tool runs, `cbot.activity` names
-// it for the call bar. When the bot calls end_call, `cbot.hangup` follows its last words.
+// plays a quiet loop whenever a turn is running and nothing is being said. While a tool runs, `dispatch.activity` names
+// it for the call bar. When the bot calls end_call, `dispatch.hangup` follows its last words.
 //
 // Talking over the bot pauses its speech at once, and the utterance's final transcript decides what
 // that was. With no words in it (a cough, a noise, the bot's own voice coming back through the
@@ -471,7 +471,7 @@ export class Relay {
           return false;
         }
         r.lastTool = { name, label: activityFor(raw).label };
-        if (name !== 'tool_search' && name !== 'tool_describe') this.send({ type: 'cbot.activity', response_id: r.id, label: r.lastTool.label });
+        if (name !== 'tool_search' && name !== 'tool_describe') this.send({ type: 'dispatch.activity', response_id: r.id, label: r.lastTool.label });
         return false;
       }
       case 'tool.completed':
@@ -484,10 +484,10 @@ export class Relay {
         const tool = r.lastTool;
         const asked = bot && r.engine && r.runId ? askApproval({
           convo: conversation(bot.id, bot.generation), engine: r.engine, runId: r.runId, event: d, tool,
-          onSettled: (o) => { if (r.state === 'active') this.send({ type: 'cbot.activity', response_id: r.id, label: o === 'denied' ? '' : tool?.label ?? '' }); },
+          onSettled: (o) => { if (r.state === 'active') this.send({ type: 'dispatch.activity', response_id: r.id, label: o === 'denied' ? '' : tool?.label ?? '' }); },
         }) : null;
         console.log(`[voice] ${this.call.id} ${r.id}: ${asked ? 'asked in the chat' : 'could not ask'} before: ${clip(String(d.command ?? d.description ?? ''), 160)}`);
-        if (asked) this.send({ type: 'cbot.activity', response_id: r.id, label: 'Waiting for you in the chat' });
+        if (asked) this.send({ type: 'dispatch.activity', response_id: r.id, label: 'Waiting for you in the chat' });
         return false;
       }
       case 'approval.responded':
@@ -667,7 +667,7 @@ export class Relay {
     const at = this.pausedAt;
     this.pausedAt = null;
     if (at !== null) {
-      this.send({ type: 'cbot.playback', action: 'resume' });
+      this.send({ type: 'dispatch.playback', action: 'resume' });
       // The browser's schedule moves on by the length of the pause: its player starts again after its lead.
       const r = this.playing;
       if (r && this.playhead > at) {
@@ -686,7 +686,7 @@ export class Relay {
    */
   private stopSpeech() {
     const at = this.pausedAt ?? Date.now();
-    if (this.pausedAt !== null) this.send({ type: 'cbot.playback', action: 'stop' });
+    if (this.pausedAt !== null) this.send({ type: 'dispatch.playback', action: 'stop' });
     this.pausedAt = null;
     const cut = this.cutOff(at);
     if (cut) console.log(`[voice] ${this.call.id} ${cut.id}: talked over; ${cut.heard} of ${cut.spoken} sentences heard`);
@@ -708,7 +708,7 @@ export class Relay {
     this.sendDone(r, 'completed');
     if (r.hangup) {
       // The agent would take another step after end_call; the call is over.
-      this.send({ type: 'cbot.hangup', response_id: r.id });
+      this.send({ type: 'dispatch.hangup', response_id: r.id });
       void this.stopRun(r);
     }
   }
