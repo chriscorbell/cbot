@@ -66,6 +66,8 @@ fi
 # unpacks (<commit>.new) go.
 keep="$commit ${before#releases/}"
 n=0
+# Newest first, which a glob can't sort by; release names are commits and never hold spaces.
+# shellcheck disable=SC2045
 for r in $(ls -1t "$releases"); do
   case "$r" in *.new) rm -rf "${releases:?}/$r"; continue ;; esac
   case " $keep " in *" $r "*) continue ;; esac
@@ -74,12 +76,10 @@ for r in $(ls -1t "$releases"); do
 done
 # The speech image in use and the newest one besides it stay (docker lists the newest first). ZONOS3's
 # images are left for turning it back on.
-for use in "$speech"; do
-  spare=
-  for image in $(docker image ls "${use%%:*}" --format '{{.Repository}}:{{.Tag}}'); do
-    [ "$image" = "$use" ] && continue
-    if [ -z "$spare" ]; then spare="$image"; continue; fi
-    docker image rm -f "$image" >/dev/null
-  done
+spare=
+for image in $(docker image ls "${speech%%:*}" --format '{{.Repository}}:{{.Tag}}'); do
+  [ "$image" = "$speech" ] && continue
+  if [ -z "$spare" ]; then spare="$image"; continue; fi
+  docker image rm -f "$image" >/dev/null
 done
 say "Dispatch runs $commit"
