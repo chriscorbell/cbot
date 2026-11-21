@@ -12,6 +12,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
 | `scripts/build-release.sh <out>` | The one build of a release: a folder (and with `--tarball`, a tarball) with its own Node, the server, the web app and the server's production dependencies. GitHub Actions, `release.sh` (for source) and the dev image all use it. Linux on x86-64 |
 | `node tests/e2e.mjs`, `tests/voice-*.mjs` | End-to-end scripts against a running app (real gateways, screens and speech). See their headers |
+| `node tests/supervision.mjs`, `node tests/update.mjs` | The bots' systemd units in a fresh dev container; and installing a signed release of this checkout on a fresh machine (a privileged container), updating it, rolling back a release that never answers, and updating again. CI runs both on changes to what they cover and every night (`supervision.yml`, `update.yml`). See their headers |
 
 ## Where things are
 

@@ -1,0 +1,45 @@
+# Installing, updating and rolling back, for real: tests/update.mjs installs a signed release of this
+# commit on a fresh systemd machine (a privileged container), updates it, updates it to a release
+# that never answers and expects release.sh to go back, then updates once more. The releases are
+# signed with a key the test makes, so no secret is needed. On pull requests that touch how Dispatch
+# installs and updates, every night, and by hand.
+name: update
+
+on:
+  pull_request:
+    paths:
+      - scripts/install/**
+      - scripts/bundle.sh
+      - scripts/build-release.sh
+      - scripts/release.sh
+      - scripts/provision.sh
+      - scripts/install-units.sh
+      - scripts/node.sha256
+      - .node-version
+      - deploy/**
+      - server/src/updates.ts
+      - server/src/account.ts
+      - tests/update.mjs
+      - tests/fake-llm.mjs
+      - .github/workflows/update.yml
+  schedule:
+    - cron: '47 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - run: node tests/update.mjs
