@@ -6,7 +6,7 @@
 
 Each bot is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) with its own name, instructions, memory, routines and Linux desktop.
 
-https://github.com/user-attachments/assets/20fdaad1-30c2-43b1-a51d-bbd270465cde
+https://github.com/user-attachments/assets/54f0e200-13e1-416a-9181-69a80f4627e5
 
 ## Features
 
