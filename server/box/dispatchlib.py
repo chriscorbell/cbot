@@ -65,7 +65,7 @@ HOME_URL = 'http://127.0.0.1:%d' % HOME_PORT
 BROWSER_CLASS = 'DispatchBrowser'
 SCREEN_FLAG = '--dispatch-screen'
 SHELL_CLASS = 'DispatchShell'
-DESKTOP_CLASSES = ('xfce4-panel', 'xfdesktop', 'dispatch-shell', 'dispatchshell')
+DESKTOP_CLASSES = ('dispatch-shell', 'dispatchshell')
 APP_DIRS = (
     '/usr/share/applications',
     '/usr/local/share/applications',
@@ -273,15 +273,6 @@ def display_number(value):
     return int(m.group(1)) if m else None
 
 
-def display_procs(n, names):
-    """Pids of processes called one of `names` that run on display :n."""
-    found = []
-    for pid in all_pids():
-        if comm(pid) in names and display_number(environ_of(pid).get('DISPLAY')) == int(n):
-            found.append(pid)
-    return found
-
-
 def stop_pids(pids, grace=4.0):
     pids = [p for p in pids if alive(p)]
     for p in pids:
@@ -412,19 +403,11 @@ def display_bus(n):
 
 
 def session_bus(n):
-    """D-Bus session bus for screen n.
-
-    A display the server runs has its own session bus at a fixed address. Another display that runs a
-    desktop session (panel, settings daemon) keeps that session's bus. A bare display gets its own small
-    bus, so single-instance apps (file manager, terminal) started there open on that display instead of
-    joining an instance on another screen.
-    """
+    """D-Bus session bus for screen n: the one the server starts with the display, at a fixed address,
+    so single-instance apps (file manager, terminal) started there open on that display instead of
+    joining an instance on another screen. Until it is up, the screen's own small bus stands in."""
     if os.path.exists(display_bus(n)):
         return 'unix:path=' + display_bus(n)
-    for pid in display_procs(n, ('xfce4-panel', 'xfsettingsd', 'xfdesktop', 'xfce4-session')):
-        address = environ_of(pid).get('DBUS_SESSION_BUS_ADDRESS')
-        if address:
-            return address
     return private_bus(n)
 
 
@@ -640,86 +623,6 @@ def maximize_window(n, wid):
     else:
         dec = str(int(wid, 16))
         run(['xdotool', 'windowmove', dec, '0', '0', 'windowsize', dec, '100%', '100%'], env=env, timeout=6)
-
-
-# ---------------------------------------------------------------- the XFCE panel
-
-def _xfconf(env, *args):
-    return run(['xfconf-query'] + list(args), env=env, timeout=8)
-
-
-def hide_panel_strips(n):
-    """A panel set to 'always hide' leaves a thin strip at the screen edge that slides the panel back
-    in when the pointer touches it. Unmap those strips so the panel stays out of sight."""
-    env = base_env(n)
-    count = 0
-    for w in windows(n):
-        if 'xfce4-panel' in w['cls'].lower() and min(w['w'], w['h']) <= 4 and w['x'] > -5000 and w['y'] > -5000:
-            run(['xdotool', 'windowunmap', str(int(w['id'], 16))], env=env, timeout=6)
-            count += 1
-    return count
-
-
-def _panels_on_screen(n, size):
-    out = []
-    for w in windows(n):
-        if 'xfce4-panel' not in w['cls'].lower() or min(w['w'], w['h']) <= 4:
-            continue
-        if w['x'] < size[0] and w['y'] < size[1] and w['x'] + w['w'] > 0 and w['y'] + w['h'] > 0:
-            out.append(w)
-    return out
-
-
-def hide_panels(n, env, size, warnings):
-    """Hide (never kill) the XFCE panels of the desktop session on screen n. Returns True if there are any."""
-    if not display_procs(n, ('xfce4-panel',)):
-        return False
-    if not shutil.which('xfconf-query'):
-        warnings.append('xfconf-query is missing, so the panel on screen %d stays visible' % n)
-        return True
-    code, out = _xfconf(env, '-c', 'xfce4-panel', '-l')
-    ids = sorted(set(re.findall(r'^/panels/panel-(\d+)/', out, re.M)), key=int) if code == 0 else []
-    saved_path = screen_dir(n) + '/panel.json'
-    saved = read_json(saved_path)
-    current = {}
-    for pid_ in ids:
-        c, v = _xfconf(env, '-c', 'xfce4-panel', '-p', '/panels/panel-%s/autohide-behavior' % pid_)
-        current[pid_] = v.strip() if c == 0 and v.strip().isdigit() else None
-    if saved is None:
-        write_json(saved_path, current)
-    for pid_ in ids:
-        if current[pid_] != '2':
-            _xfconf(env, '-c', 'xfce4-panel', '-p', '/panels/panel-%s/autohide-behavior' % pid_, '-n', '-t', 'uint', '-s', '2')
-    end = time.time() + 4
-    left = _panels_on_screen(n, size)
-    while left and time.time() < end:
-        time.sleep(0.3)
-        left = _panels_on_screen(n, size)
-    for w in left:                      # a panel that ignored the setting: take its window off the screen
-        run(['xdotool', 'windowunmap', str(int(w['id'], 16))], env=env, timeout=6)
-    hide_panel_strips(n)
-    if _panels_on_screen(n, size):
-        warnings.append('the panel on screen %d could not be hidden' % n)
-    return True
-
-
-def restore_panels(n, env):
-    """Undo hide_panels: put the autohide settings back and let the panel redraw itself."""
-    saved_path = screen_dir(n) + '/panel.json'
-    saved = read_json(saved_path)
-    if saved is None or not display_procs(n, ('xfce4-panel',)):
-        return
-    for pid_, value in saved.items():
-        prop = '/panels/panel-%s/autohide-behavior' % pid_
-        if value is None:
-            _xfconf(env, '-c', 'xfce4-panel', '-p', prop, '-r')
-        else:
-            _xfconf(env, '-c', 'xfce4-panel', '-p', prop, '-n', '-t', 'uint', '-s', str(value))
-    run(['xfce4-panel', '-r'], env=env, timeout=10)
-    try:
-        os.unlink(saved_path)
-    except OSError:
-        pass
 
 
 # ---------------------------------------------------------------- installed apps
@@ -1071,12 +974,10 @@ def prepare_profile(bot_id, accent=None):
     write_owned(prefs_path, json.dumps(prefs, separators=(',', ':')), 0o600)
 
 
-def browser_windows(n, pid=None):
+def browser_windows(n, pid):
+    """The windows of the bot's Chrome (main pid `pid`) on display :n."""
     wins = [w for w in windows(n) if not is_desktop_piece(w) and is_browser_window(w)]
-    if pid:
-        mine = [w for w in wins if w['pid'] == pid or BROWSER_CLASS.lower() in w['cls'].lower()]
-        return mine
-    return wins
+    return [w for w in wins if w['pid'] == pid or BROWSER_CLASS.lower() in w['cls'].lower()]
 
 
 def start_browser(n, bot_id, accent=None, restart=False, log=None):
@@ -1188,25 +1089,20 @@ def _show_home(n, bot_id, warnings, say):
 
 
 def open_browser(n):
-    """Dock / launcher action: bring the browser of screen n to the front, starting ours if it should run."""
+    """Dock / launcher action: bring the bot's browser on screen n to the front, starting it if it isn't running."""
     look = look_for(n) or {}
     bot_id = (look.get('bot') or {}).get('id')
-    if look.get('manageChrome') and bot_id:
-        mains = [pid for pid, disp in our_browser(bot_id) if disp == int(n)]
-        if mains:
-            wins = browser_windows(n, mains[0])
-            if wins:
-                activate_window(n, wins[-1]['id'])
-                return mains[0]
-            # Running without a window: ask it for one. This second Chrome hands the request to the
-            # running one and exits.
-            run([chrome_bin(), '--user-data-dir=%s' % profile_dir(bot_id), '--class=%s' % BROWSER_CLASS, '--new-window'],
-                env=screen_env(n), timeout=20)
-            return mains[0]
+    if not bot_id:
+        return 0
+    mains = [pid for pid, disp in our_browser(bot_id) if disp == int(n)]
+    if not mains:
         return start_browser(n, bot_id, (look.get('colors') or {}).get('accent'))['pid']
-    # Someone else's browser lives here: only ever raise it, never start or stop one.
-    wins = browser_windows(n)
+    wins = browser_windows(n, mains[0])
     if wins:
         activate_window(n, wins[-1]['id'])
-        return wins[-1]['pid']
-    return 0
+        return mains[0]
+    # Running without a window: ask it for one. This second Chrome hands the request to the running
+    # one and exits.
+    run([chrome_bin(), '--user-data-dir=%s' % profile_dir(bot_id), '--class=%s' % BROWSER_CLASS, '--new-window'],
+        env=screen_env(n), timeout=20)
+    return mains[0]

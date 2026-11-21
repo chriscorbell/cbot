@@ -13,7 +13,6 @@ detached job; the caller gets `DISPATCH_DONE {json}` when the job finishes withi
   launch N APP                   start an app on screen N (also: browser, terminal, files)
 """
 import base64
-import glob
 import gzip
 import hashlib
 import io
@@ -360,49 +359,12 @@ def ensure_shell(n, stamp, warnings):
     return False
 
 
-THEME_PROPS = ('/Net/ThemeName', '/Net/IconThemeName')
-
-
-def light_session(n, env, warnings):
-    """Where a settings daemon runs, switch its theme to light so every GTK app follows.
-    What was set before is kept in theme.json so undressing can put it back."""
-    if not dispatchlib.display_procs(n, ('xfsettingsd',)) or not shutil.which('xfconf-query'):
-        return
-    saved_path = dispatchlib.screen_dir(n) + '/theme.json'
-    before = {}
-    for prop, value in zip(THEME_PROPS, (dispatchlib.light_theme(), dispatchlib.icon_theme())):
-        code, current = dispatchlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop], env=env)
-        before[prop] = current.strip() if code == 0 else None
-        if code != 0 or current.strip() != value:
-            c, out = dispatchlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
-            if c != 0:
-                warnings.append('could not switch %s to %s on screen %d: %s' % (prop, value, n, out.strip()[:100]))
-    if dispatchlib.read_json(saved_path) is None:
-        dispatchlib.write_json(saved_path, before)
-
-
-def restore_session(n, env):
-    saved_path = dispatchlib.screen_dir(n) + '/theme.json'
-    saved = dispatchlib.read_json(saved_path)
-    if saved is None:
-        return
-    if dispatchlib.display_procs(n, ('xfsettingsd',)) and shutil.which('xfconf-query'):
-        for prop, value in saved.items():
-            if value:
-                dispatchlib.run(['xfconf-query', '-c', 'xsettings', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
-    try:
-        os.unlink(saved_path)
-    except OSError:
-        pass
-
-
-def close_windows(n, keep_browsers):
-    """Close every app window on the screen. Desktop pieces stay; so do browsers when they are not ours."""
+def close_windows(n):
+    """Close every app window on the screen. The desktop pieces stay."""
     env = dispatchlib.base_env(n)
 
     def targets():
-        wins = [w for w in dispatchlib.windows(n) if not dispatchlib.is_desktop_piece(w)]
-        return [w for w in wins if not (keep_browsers and dispatchlib.is_browser_window(w))]
+        return [w for w in dispatchlib.windows(n) if not dispatchlib.is_desktop_piece(w)]
 
     wins = targets()
     for w in wins:
@@ -426,7 +388,6 @@ def do_dress(n, flags, look_b64, warnings):
     look = json.loads(gzip.decompress(base64.b64decode(look_b64)).decode('utf-8'))
     stamp = look['stamp']
     bot = look['bot']
-    manage = bool(look.get('manageChrome'))
     restart, reset = 'r' in flags, 'x' in flags
     folder = dispatchlib.screen_dir(n)
     timings = {}
@@ -437,14 +398,14 @@ def do_dress(n, flags, look_b64, warnings):
         timings[name] = round(time.time() - t, 2)
         t = time.time()
 
-    if not reset and not restart and screen_ok(n, stamp, manage, bot['id']):
+    if not reset and not restart and screen_ok(n, stamp, bot['id']):
         return {'already': True}
     size = dispatchlib.geometry(n)
     if not size:
         raise Fatal('screen %d does not answer (X display :%d is not running)' % (n, n))
     dispatchlib.screen_folder(n)
     previous = dispatchlib.look_for(n)
-    if previous and previous.get('manageChrome') and (previous.get('bot') or {}).get('id') not in (None, bot['id']):
+    if previous and (previous.get('bot') or {}).get('id') not in (None, bot['id']):
         dispatchlib.stop_browser(previous['bot']['id'])
     try:
         os.unlink(folder + '/stamp.json')
@@ -456,34 +417,27 @@ def do_dress(n, flags, look_b64, warnings):
     if shutil.which('xsetroot'):
         dispatchlib.run(['xsetroot', '-solid', colors.get('wash', '#eef0f3')], env=env, timeout=5)
     lap('prepare')
-    dispatchlib.hide_panels(n, env, size, warnings)
-    lap('panel')
-    light_session(n, env, warnings)
-    lap('theme')
     shell = ensure_shell(n, stamp, warnings)
     lap('shell')
     if not start_home():
         warnings.append('the home screen server is not running (journalctl -u %s says why)' % dispatchlib.HOME_UNIT)
     if reset:
-        if manage:
-            dispatchlib.stop_browser(bot['id'])
-        left = close_windows(n, keep_browsers=not manage)
+        dispatchlib.stop_browser(bot['id'])
+        left = close_windows(n)
         if left:
             warnings.append('%d window(s) on screen %d would not close' % (left, n))
         lap('reset')
-    chrome = None
-    if manage:
-        try:
-            chrome = dispatchlib.start_browser(n, bot['id'], colors.get('accent'), restart=restart and not reset, log=log)
-        except RuntimeError as e:
-            raise Fatal(str(e))
-        warnings.extend(chrome['warnings'])
-        lap('chrome')
+    try:
+        chrome = dispatchlib.start_browser(n, bot['id'], colors.get('accent'), restart=restart and not reset, log=log)
+    except RuntimeError as e:
+        raise Fatal(str(e))
+    warnings.extend(chrome['warnings'])
+    lap('chrome')
     dispatchlib.write_json(folder + '/stamp.json', {'stamp': stamp, 'shell': shell, 'at': int(time.time())})
-    return {'timings': timings, 'size': list(size), 'chromeStarted': bool(chrome and chrome['started'])}
+    return {'timings': timings, 'size': list(size), 'chromeStarted': chrome['started']}
 
 
-def screen_ok(n, stamp, manage, bot_id):
+def screen_ok(n, stamp, bot_id):
     """Cheap check that the screen still wears this exact look and its pieces are alive."""
     folder = dispatchlib.screen_dir(n)
     applied = dispatchlib.read_json(folder + '/stamp.json') or {}
@@ -495,7 +449,7 @@ def screen_ok(n, stamp, manage, bot_id):
             return False
     if not home_alive():
         return False
-    if manage and not any(disp == n for _pid, disp in dispatchlib.our_browser(bot_id)):
+    if not any(disp == n for _pid, disp in dispatchlib.our_browser(bot_id)):
         return False
     return True
 
@@ -503,9 +457,8 @@ def screen_ok(n, stamp, manage, bot_id):
 def do_undress(n, bot_id):
     folder = dispatchlib.screen_dir(n)
     look = dispatchlib.look_for(n) or {}
-    env = dispatchlib.screen_env(n) if os.path.isdir(folder) else dispatchlib.base_env(n)
     their = (look.get('bot') or {}).get('id')
-    # Only a Chrome we run goes: its unit holds every process of it. A browser somebody else runs here stays.
+    # The bot's Chrome, every process of it: its unit holds them all.
     for owner in {their, bot_id} - {None, ''}:
         dispatchlib.stop_browser(owner)
     # Taking the look away makes the desktop pieces leave and the home server forget this screen.
@@ -514,13 +467,6 @@ def do_undress(n, bot_id):
             os.unlink('%s/%s' % (folder, name))
         except OSError:
             pass
-    saved = dispatchlib.read_json(folder + '/backdrop.json')
-    if saved and shutil.which('xfconf-query'):
-        for prop, value in saved.items():
-            dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-n', '-t', 'string', '-s', value], env=env)
-        os.unlink(folder + '/backdrop.json')
-    dispatchlib.restore_panels(n, env)
-    restore_session(n, env)
     # The dock, what was opened on the screen, and its terminals' bus.
     dispatchlib.stop_units(dispatchlib.shell_unit(n), dispatchlib.termbus_unit(n), *dispatchlib.screen_scopes(n))
     try:
@@ -529,11 +475,6 @@ def do_undress(n, bot_id):
         pass
     if shutil.which('xsetroot') and dispatchlib.geometry(n):
         dispatchlib.run(['xsetroot', '-solid', '#eceef1'], env=dispatchlib.base_env(n), timeout=5)
-    for old in glob.glob(folder + '/wall-*.png'):
-        try:
-            os.unlink(old)
-        except OSError:
-            pass
 
 
 # ---------------------------------------------------------------- command line
@@ -548,7 +489,7 @@ def main(argv):
             print('DISPATCH_NOBASE')
             return
         look = json.loads(gzip.decompress(base64.b64decode(look_b64)).decode('utf-8'))
-        if not flags and screen_ok(n, stamp, bool(look.get('manageChrome')), look['bot']['id']):
+        if not flags and screen_ok(n, stamp, look['bot']['id']):
             print('DISPATCH_OK')
             return
         wait_job(start_job('dress-%d' % n, [str(n), flags or '-', look_b64]), 25)

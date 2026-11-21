@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """dispatch-shell N: the desktop pieces of screen N. One process per X display.
 
-It paints the wallpaper described in /opt/dispatch/screens/N/look.json (through xfdesktop where that runs,
-in a desktop window of its own on a bare display) and shows a small dock with Browser, Terminal and
-Files. The dock lives in the layer below normal windows, so a maximized window simply covers it.
+It paints the wallpaper described in /opt/dispatch/screens/N/look.json in a desktop window of its own
+and shows a small dock with Browser, Terminal and Files. The dock lives in the layer below normal windows, so a maximized window simply covers it.
 It follows changes to look.json and to the screen size on its own, and exits when the look is removed.
 """
 import math
@@ -68,7 +67,6 @@ class Shell:
         self.look_mtime = 0.0
         self.wall = None              # GdkPixbuf of the wallpaper at screen size
         self.size = (0, 0)
-        self.uses_xfdesktop = False
         self.wall_win = None
         self.dock = None
         self.hover = -1
@@ -79,7 +77,6 @@ class Shell:
         self.screen.connect('monitors-changed', lambda *_: self.refresh(force=True))
         self.screen.connect('composited-changed', lambda *_: self.rebuild_dock())
         GLib.timeout_add(1200, self.watch)
-        GLib.timeout_add_seconds(15, self.guard)
         if not self.refresh(force=True):
             log('no look to show; leaving')
             sys.exit(0)
@@ -109,13 +106,6 @@ class Shell:
             log('watch failed:', repr(e))
         return True
 
-    def guard(self):
-        try:
-            dispatchlib_hide_panel_strips()
-        except Exception as e:
-            log('guard failed:', repr(e))
-        return True
-
     def refresh(self, force=False):
         look = dispatchlib.look_for(N)
         if not look:
@@ -135,7 +125,6 @@ class Shell:
             log('applied look %s at %dx%d in %.2fs' % (str(look.get('stamp'))[:10], size[0], size[1], time.time() - started))
         dispatchlib.write_json(DIR + '/shell.json', {
             'pid': os.getpid(), 'stamp': look.get('stamp'), 'width': size[0], 'height': size[1],
-            'wallpaper': 'xfdesktop' if self.uses_xfdesktop else 'window',
             'composited': bool(self.screen.is_composited()),
         })
         return True
@@ -170,14 +159,6 @@ class Shell:
     # ------------------------------------------------------------ wallpaper
 
     def show_wall(self):
-        self.uses_xfdesktop = bool(dispatchlib.display_procs(N, ('xfdesktop',)))
-        if self.uses_xfdesktop:
-            if self.wall_win:
-                self.wall_win.destroy()
-                self.wall_win = None
-            threading.Thread(target=self.hand_to_xfdesktop, args=(self.wall, self.size, str(self.look.get('stamp'))),
-                             daemon=True).start()
-            return
         w, h = self.size
         if not self.wall_win:
             win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
@@ -205,41 +186,6 @@ class Shell:
             Gdk.cairo_set_source_pixbuf(cr, self.wall, 0, 0)
             cr.paint()
         return True
-
-    def hand_to_xfdesktop(self, pixbuf, size, stamp):
-        """xfdesktop owns the root window here, so give it our picture instead of covering it."""
-        try:
-            env = dispatchlib.screen_env(N)
-            name = 'wall-%s-%dx%d.png' % (stamp[:12], size[0], size[1])
-            path = '%s/%s' % (DIR, name)
-            pixbuf.savev(path + '.tmp', 'png', ['compression'], ['3'])
-            os.replace(path + '.tmp', path)
-            code, out = dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-l'], env=env)
-            props = [p.strip() for p in out.splitlines() if p.strip().startswith('/backdrop/')] if code == 0 else []
-            images = [p for p in props if p.endswith('/last-image')]
-            if not images:
-                images = ['/backdrop/screen0/monitor0/workspace0/last-image']
-            saved_path = DIR + '/backdrop.json'
-            saved = dispatchlib.read_json(saved_path)
-            if saved is None:
-                saved = {}
-                for prop in images:
-                    c, v = dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop], env=env)
-                    if c == 0 and DIR not in v:
-                        saved[prop] = v.strip()
-                dispatchlib.write_json(saved_path, saved)
-            for prop in images:
-                dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', prop, '-n', '-t', 'string', '-s', path], env=env)
-                style = prop[:-len('last-image')] + 'image-style'
-                dispatchlib.run(['xfconf-query', '-c', 'xfce4-desktop', '-p', style, '-n', '-t', 'int', '-s', '3'], env=env)
-            for old in os.listdir(DIR):
-                if old.startswith('wall-') and old.endswith('.png') and old != name:
-                    try:
-                        os.unlink(os.path.join(DIR, old))
-                    except OSError:
-                        pass
-        except Exception as e:
-            log('could not hand the wallpaper to xfdesktop:', repr(e))
 
     # ------------------------------------------------------------ dock
 
@@ -400,10 +346,6 @@ class Shell:
             log('opened', action)
         except Exception as e:
             log('could not open %s:' % action, repr(e))
-
-
-def dispatchlib_hide_panel_strips():
-    dispatchlib.hide_panel_strips(N)
 
 
 def main():

@@ -243,8 +243,6 @@ function lookFor(bot: DeskBot): { stamp: string; payload: string } {
   const hex = colorHex(bot.avatarColor);
   const p = paletteFor(hex);
   const look = {
-    // Every bot's Chrome is ours to start and stop (the scripts also handle a browser that belongs to someone else).
-    manageChrome: true,
     bot: { id: bot.id, name: bot.name, label: bot.label ?? '', avatarShape: bot.avatarShape, avatarColor: bot.avatarColor },
     colors: { accent: p.accent, ink: p.ink, wash: p.wash, washDeep: p.washDeep },
     avatarSvg: avatarSvg(bot.avatarShape, hex),
