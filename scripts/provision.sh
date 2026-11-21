@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sets a machine up as Dispatch's computer: what the bots' screens and the server run on, Node, Google
 # Chrome and Hermes Agent, and on the production host also Docker (for the speech service), Dispatch's
-# systemd unit and Tailscale Serve. Safe to run again: it installs only what is missing or changed.
+# systemd unit and, when asked, Tailscale Serve. Safe to run again: it installs only what is missing or changed.
 # scripts/release.sh runs it on the host whenever it or deploy/ changed; the dev image runs it at
 # build time.
 #
@@ -194,10 +194,14 @@ systemctl daemon-reload
 systemctl enable dispatch.service >/dev/null 2>&1
 systemctl enable --now docker.service >/dev/null 2>&1
 
-# Where Tailscale is installed, Tailscale Serve gives the app an HTTPS address on the tailnet, on the
-# same port at both ends. Serve waits for HTTPS to be turned on for the tailnet when it isn't, and
+# Tailscale Serve gives the app an HTTPS address on the tailnet, on the same port at both ends, only
+# when /etc/dispatch/env asks with TAILSCALE_SERVE=1 (a machine scripts/deploy.sh looks after, from
+# .env.prod). The installer asks its own question and serves the app on 443 itself
+# (install-machine.sh), so a machine whose owner said no, or that runs Tailscale for something else,
+# isn't put on the tailnet. Serve waits for HTTPS to be turned on for the tailnet when it isn't, and
 # nobody would see its link here, so it gets half a minute.
-if command -v tailscale >/dev/null && ! tailscale serve status 2>/dev/null | grep -q '127.0.0.1:8787'; then
+if grep -qxE 'TAILSCALE_SERVE=["'\'']?1["'\'']?' /etc/dispatch/env 2>/dev/null && command -v tailscale >/dev/null &&
+  ! tailscale serve status 2>/dev/null | grep -q '127.0.0.1:8787'; then
   timeout 30 tailscale serve --bg --https=8787 http://127.0.0.1:8787 >/dev/null ||
     say "Tailscale Serve didn't start; turn on HTTPS for the tailnet, then: tailscale serve --bg --https=8787 http://127.0.0.1:8787"
 fi
