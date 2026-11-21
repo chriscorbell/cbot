@@ -25,7 +25,7 @@
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocket, WebSocketServer } from 'ws';
-import { authenticate } from './lib/auth.js';
+import { authenticate, crossSite, headerOf } from './lib/auth.js';
 import { engineFor, runSlot, type Engine } from './engine.js';
 import { failureText, sseEvents } from './lib/sse.js';
 import { activityFor, appToolName } from './agent/tools.js';
@@ -787,7 +787,12 @@ export function attachVoiceRelay(server: Server) {
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const m = new URL(req.url ?? '/', 'http://x').pathname.match(/^\/api\/voice\/relay\/([^/]+)$/);
     if (!m) return; // not ours
-    // Same check as every HTTP request: the session cookie (see lib/auth.ts).
+    // Same checks as every HTTP request: from the app's own page, with the session cookie (see lib/auth.ts).
+    if (crossSite((name) => headerOf(req, name))) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const user = authenticate(req.headers.cookie);
     const call = user ? claimCall(m[1], user.id) : null;
     if (!call) {

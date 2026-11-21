@@ -104,7 +104,7 @@ $container || apt_install docker-ce docker-ce-cli containerd.io docker-buildx-pl
 # ---------------------------------------------------------------- Hermes Agent
 
 # Hermes Agent with its official source installer (https://hermes-agent.nousresearch.com/docs/getting-started/installation),
-# pinned to a release: the script at the tag and the checkout at the tag's commit. The code, its
+# pinned to a release: the script and the checkout both at the tag's commit, since a tag can move. The code, its
 # tools and its Python go under /opt/hermes. Each bot's Hermes home links back to tools/, installs/
 # and the plugins there (see engine.ts). No browser: the bots use the Chrome on their own screen.
 #
@@ -125,7 +125,7 @@ if [ "$(cat /opt/hermes/.dispatch-pin 2>/dev/null)" != "$pin" ] || ! HERMES_HOME
   say "Hermes Agent $HERMES_VERSION"
   [ -e /opt/hermes ] && mv /opt/hermes "/opt/hermes.$(date +%Y%m%d%H%M%S)"
   tmp="$(mktemp -d)"
-  curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_VERSION}/scripts/install.sh" -o "$tmp/install.sh"
+  curl -fsSL "https://raw.githubusercontent.com/NousResearch/hermes-agent/${HERMES_COMMIT}/scripts/install.sh" -o "$tmp/install.sh"
   bash "$tmp/install.sh" --commit "$HERMES_COMMIT" --dir /opt/hermes/hermes-agent --hermes-home /opt/hermes \
     --non-interactive --skip-browser
   rm -rf "$tmp"

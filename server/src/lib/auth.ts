@@ -3,6 +3,9 @@ import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { getConnInfo } from '@hono/node-server/conninfo';
+import type { HttpBindings } from '@hono/node-server';
+import { TLSSocket } from 'node:tls';
+import type { IncomingMessage } from 'node:http';
 import { db, now, type UserRecord } from '../db.js';
 import { token } from './ids.js';
 import type { User } from '../types.js';
@@ -106,8 +109,44 @@ export function startSession(userId: string): string {
   return t;
 }
 
+/**
+ * Whether the browser reached Dispatch over HTTPS: on Dispatch's own certificate (https.ts), or through a
+ * proxy that says so, as Tailscale Serve does. A cookie set over HTTPS is marked Secure, so the browser
+ * never sends it over plain HTTP, where anyone on the network could read it (a typed http:// address
+ * is redirected to HTTPS, but only after the browser has sent that first request).
+ */
+export function overHttps(c: Context): boolean {
+  const incoming = (c.env as Partial<HttpBindings> | undefined)?.incoming;
+  return incoming?.socket instanceof TLSSocket || c.req.header('x-forwarded-proto') === 'https';
+}
+
 function setSessionCookie(c: Context, userId: string) {
-  setCookie(c, COOKIE, startSession(userId), { httpOnly: true, sameSite: 'Lax', secure: false, path: '/', maxAge: TTL_MS / 1000 });
+  setCookie(c, COOKIE, startSession(userId), { httpOnly: true, sameSite: 'Lax', secure: overHttps(c), path: '/', maxAge: TTL_MS / 1000 });
+}
+
+/**
+ * Whether a browser sent this request from another site's page. The session cookie is SameSite=Lax,
+ * which keeps it off requests from other sites, but not off pages of the same site: another port of
+ * the same address counts, such as something a bot serves. And the API reads a JSON body whatever
+ * its Content-Type, so a form or a no-cors fetch could post as the user. Browsers say where a request
+ * comes from in Sec-Fetch-Site; one too old to send it sends Origin, which must then name this host.
+ * A request with neither doesn't come from a web page (curl, the bots' Hermes), and the session
+ * cookie or the MCP token decides about it as before.
+ */
+export function crossSite(header: (name: string) => string | undefined): boolean {
+  const site = header('sec-fetch-site');
+  if (site) return site !== 'same-origin' && site !== 'none';
+  const origin = header('origin');
+  if (!origin) return false;
+  let from: string;
+  try { from = new URL(origin).host; } catch { return true; }
+  return from !== header('host') && from !== header('x-forwarded-host');
+}
+
+/** One header of a raw request (the WebSocket upgrades in vnc.ts and voice-relay.ts), the first if it came more than once. */
+export function headerOf(req: IncomingMessage, name: string): string | undefined {
+  const v = req.headers[name];
+  return Array.isArray(v) ? v[0] : v;
 }
 
 function userFromToken(t: string | undefined): User | null {

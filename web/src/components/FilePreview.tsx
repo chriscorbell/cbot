@@ -20,7 +20,7 @@ type Read =
 /**
  * A Library file shown in place: pictures, PDFs, audio and video from the server as they are; text,
  * Markdown and SVG read here first. HTML and SVG never load at the app's own address, where their
- * script would run as the app: HTML shows as source, and SVG as a picture, which runs no script.
+ * script would run as the app: HTML shows as source, and SVG as a picture from a data: URL, which runs no script.
  */
 export function FilePreview({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
   const kind = previewKind(file.name);
@@ -33,13 +33,15 @@ export function FilePreview({ file, onClose }: { file: PreviewFile; onClose: () 
     setRead({ status: 'loading' }); setFailed(false); setShown(false);
     if (kind !== 'text' && kind !== 'markdown' && kind !== 'svg') return;
     const ctrl = new AbortController();
-    let svg: string | null = null;
     configApi.readFile(file.botId, file.path, kind === 'svg' ? undefined : TEXT_LIMIT, ctrl.signal)
-      .then(({ bytes, size }) => {
+      .then(async ({ bytes, size }) => {
         if (ctrl.signal.aborted) return;
         if (kind === 'svg') {
-          svg = URL.createObjectURL(new Blob([bytes], { type: 'image/svg+xml' }));
-          setRead({ status: 'svg', url: svg });
+          // A data: URL, not a blob: one. A blob: URL has the app's own address, so "Open image in new
+          // tab" would open the SVG as a page there and run its script as the app; a data: URL's page
+          // has an address of its own (or none: browsers won't open one as a page).
+          const url = await dataUrl(new Blob([bytes], { type: 'image/svg+xml' }));
+          if (!ctrl.signal.aborted) setRead({ status: 'svg', url });
         } else if (isBinary(bytes)) {
           setRead({ status: 'none', why: 'This file isn’t text, so it can’t be shown here.' });
         } else {
@@ -50,7 +52,7 @@ export function FilePreview({ file, onClose }: { file: PreviewFile; onClose: () 
         }
       })
       .catch((e: Error) => { if (!ctrl.signal.aborted) setRead({ status: 'none', why: `Couldn’t open it: ${e.message}` }); });
-    return () => { ctrl.abort(); if (svg) URL.revokeObjectURL(svg); };
+    return () => ctrl.abort();
   }, [file.botId, file.path, kind]);
 
   const meta = [formatBytes(file.size), file.modifiedAt ? when(file.modifiedAt) : null].filter(Boolean).join(' · ');
@@ -109,4 +111,13 @@ export function FilePreview({ file, onClose }: { file: PreviewFile; onClose: () 
 function when(ts: number): string {
   const r = relativeShort(ts);
   return r === 'now' ? 'just now' : r === 'Yesterday' ? 'yesterday' : `${r} ago`;
+}
+
+function dataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('could not read the file'));
+    reader.readAsDataURL(blob);
+  });
 }
