@@ -145,11 +145,37 @@ installed_version() {
 
 tailscale_up() { tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"'; }
 
+# Tailscale from its apt repository, which keeps one per Ubuntu and Debian release (a derivative uses
+# its base's). Its signing key is trusted only with the fingerprint below. Tailscale doesn't publish
+# it; it is the key Tailscale's own installer downloads, on keyserver.ubuntu.com since 2020 as
+# "Tailscale Inc. (Package repository signing key)". Output goes to the log.
+install_tailscale() {
+  local os codename tmp got key=/usr/share/keyrings/tailscale-archive-keyring.gpg want=2596A99EAAB33821893C0A79458CA832957F5868
+  # shellcheck disable=SC1091
+  os="$(. /etc/os-release && case " $ID ${ID_LIKE:-} " in *" ubuntu "*) echo ubuntu ;; *) echo debian ;; esac)"
+  # shellcheck disable=SC1091
+  codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}")"
+  [ -n "$codename" ] || { echo "No release codename in /etc/os-release"; return 1; }
+  command -v gpg >/dev/null || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends gnupg; } || return 1
+  tmp="$(mktemp)"
+  curl -fsSL "https://pkgs.tailscale.com/stable/$os/$codename.noarmor.gpg" -o "$tmp" || { rm -f "$tmp"; return 1; }
+  got="$(gpg --show-keys --with-colons "$tmp" 2>/dev/null | awk -F: '$1 == "pub" { p = 1 } $1 == "fpr" && p { print $10; p = 0 }')"
+  if [ "$got" != "$want" ]; then
+    echo "Tailscale's signing key isn't the one expected ($want), so it isn't trusted. It has: $got"
+    rm -f "$tmp"
+    return 1
+  fi
+  install -m 0644 "$tmp" "$key"
+  rm -f "$tmp"
+  printf 'Types: deb\nURIs: https://pkgs.tailscale.com/stable/%s\nSuites: %s\nComponents: main\nSigned-By: %s\n' "$os" "$codename" "$key" >/etc/apt/sources.list.d/tailscale.sources
+  apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tailscale && systemctl enable --now tailscaled
+}
+
 # At full screen its output goes to the log, and the screen shows the link Tailscale waits on.
 setup_tailscale() {
   if ! command -v tailscale >/dev/null; then
     info "Installing Tailscale"
-    curl -fsSL https://tailscale.com/install.sh | sh >>"$LOG" 2>&1 || die "Tailscale didn't install. The log is $LOG."
+    install_tailscale >>"$LOG" 2>&1 || die "Tailscale didn't install. The log is $LOG."
   fi
   if ! tailscale_up; then
     info "Sign this machine in to your tailnet with the link below."
