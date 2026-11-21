@@ -10,11 +10,16 @@ import path from 'node:path';
  * account can't read it without sudo.
  *
  * The rule, which server/box/dispatchlib.py follows too:
- *   the account is DISPATCH_USER, or root when it is unset (unit tests, a machine set up by hand);
+ *   the account is DISPATCH_USER, which must be set, and is root only when it says root (a machine
+ *   set up by hand whose bots are root). Unset, nothing starts: root's bots run Chrome without its
+ *   sandbox, and an /etc/dispatch/env that lost the line (deploy.sh replaces it whole) mustn't do
+ *   that without a word;
  *   its home is the one /etc/passwd gives it, or DISPATCH_HOME when that is set (the tests point it
  *   at a temporary folder); the bots' files are under <home>/<botsDir> (server/box/machine.json).
  */
 export interface Account { name: string; uid: number; gid: number; home: string }
+
+const NO_ACCOUNT = 'DISPATCH_USER isn’t set. It names the account the bots run as, in /etc/dispatch/env (the installer writes it); set DISPATCH_USER=root there to run them as root.';
 
 /** The account named `name` in a passwd file's text, or null. */
 export function fromPasswd(text: string, name: string): Account | null {
@@ -29,9 +34,10 @@ export function fromPasswd(text: string, name: string): Account | null {
   return null;
 }
 
-/** The bots' account by the rule above. Throws a sentence when DISPATCH_USER names nobody on this machine. */
+/** The bots' account by the rule above. Throws a sentence when DISPATCH_USER is unset or names nobody on this machine. */
 export function lookupAccount(vars: NodeJS.ProcessEnv = process.env, passwdFile = '/etc/passwd'): Account {
-  const name = vars.DISPATCH_USER?.trim() || 'root';
+  const name = vars.DISPATCH_USER?.trim();
+  if (!name) throw new Error(NO_ACCOUNT);
   const found = fromPasswd(fs.readFileSync(passwdFile, 'utf8'), name);
   if (!found) throw new Error(`DISPATCH_USER is ${name}, and this machine has no account by that name (/etc/dispatch/env sets it)`);
   const home = vars.DISPATCH_HOME?.trim();

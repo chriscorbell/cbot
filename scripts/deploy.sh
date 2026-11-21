@@ -19,6 +19,8 @@ cd "$repo"
 [ -f .env.prod ] || { echo "Missing $repo/.env.prod (copy .env.example and fill it in)." >&2; exit 1; }
 host="${DISPATCH_HOST:-$(sed -n 's/^DISPATCH_HOST=//p' .env.prod | tail -n 1)}"
 [ -n "$host" ] || { echo "Set DISPATCH_HOST in $repo/.env.prod to the production host's SSH name." >&2; exit 1; }
+# Every deploy replaces /etc/dispatch/env with .env.prod, and nothing starts without the bots' account.
+grep -qE '^DISPATCH_USER=.+' .env.prod || { echo "Set DISPATCH_USER in $repo/.env.prod to the account on $host the bots run as." >&2; exit 1; }
 commit="$(git rev-parse --short=12 --verify "${1:-main}^{commit}")"
 rel="/srv/dispatch/releases/$commit"
 echo "Deploying $commit ($(git log -1 --format=%s "$commit")) to $host"

@@ -82,6 +82,12 @@ class UnitsTest(unittest.TestCase):
         self.assertIn("User=root\n", self.read("etc/systemd/system", SERVICES[0] + ".d", "account.conf"))
         self.assertFalse(os.path.exists(self.path("etc/sudoers.d/dispatch")))
 
+    def test_no_account_stops_it_rather_than_taking_root(self):
+        r = self.install()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("DISPATCH_USER isn't set", r.stderr)
+        self.assertFalse(os.path.exists(self.path("etc/systemd/system", SERVICES[0] + ".d", "account.conf")))
+
     def test_an_account_the_machine_lacks_stops_it(self):
         r = self.install(DISPATCH_USER="nobody-here")
         self.assertNotEqual(r.returncode, 0)

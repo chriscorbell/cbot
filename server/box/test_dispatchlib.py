@@ -4,9 +4,12 @@ import multiprocessing
 import os
 import tempfile
 import time
+import pwd
 import unittest
 
-import dispatchlib
+# dispatchlib finds the bots' account when it loads, and refuses to without one: the tests' own.
+os.environ.setdefault('DISPATCH_USER', pwd.getpwuid(os.getuid()).pw_name)
+import dispatchlib  # noqa: E402
 
 
 def hold_for(path, seconds, ready):
@@ -137,10 +140,12 @@ class pwd_entry:
 class Account(unittest.TestCase):
     """The bots' account, found by the rule server/src/account.ts follows."""
 
-    def test_the_account_is_dispatch_user_or_root_with_its_home_from_passwd(self):
+    def test_the_account_is_dispatch_user_with_its_home_from_passwd_and_root_only_when_it_says_so(self):
         self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': 'ada'}, fake_getpwnam), ('ada', 1000, 1000, '/home/ada'))
-        self.assertEqual(dispatchlib.bots_account({}, fake_getpwnam), ('root', 0, 0, '/root'))
-        self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': '  '}, fake_getpwnam)[0], 'root')
+        self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': 'root'}, fake_getpwnam), ('root', 0, 0, '/root'))
+        for environ in ({}, {'DISPATCH_USER': '  '}):
+            with self.assertRaises(SystemExit):
+                dispatchlib.bots_account(environ, fake_getpwnam)
 
     def test_dispatch_home_stands_in_for_the_home_and_an_unknown_account_stops(self):
         self.assertEqual(dispatchlib.bots_account({'DISPATCH_USER': 'ada', 'DISPATCH_HOME': '/tmp/x/../home'}, fake_getpwnam)[3], '/tmp/home')

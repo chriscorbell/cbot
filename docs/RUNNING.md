@@ -89,7 +89,7 @@ Dispatch works in a phone's browser, and **Add to Home Screen** (Safari's Share 
 On the machine, run:
 
 ```bash
-sudo DATA_DIR=/var/lib/dispatch node /srv/dispatch/current/server/dist/reset-account.js
+sudo DATA_DIR=/var/lib/dispatch node --env-file=/etc/dispatch/env /srv/dispatch/current/server/dist/reset-account.js
 ```
 
 It prints a new setup code. The next visit creates a new account with it, and the bots and chats stay. In the development container, it's `docker exec dispatch-dev-dispatch-1 node server/dist/reset-account.js`.
@@ -128,7 +128,7 @@ scripts/deploy.sh           # deploy the committed main branch to DISPATCH_HOST
 scripts/deploy.sh <commit>  # deploy that commit, or roll back to it
 ```
 
-`DISPATCH_USER` names the ordinary account on the machine the bots run as; each deploy gives it passwordless sudo, as the installer does. A commit has to pass `npm run check` before it deploys. The machine builds it with `scripts/build-release.sh`, as GitHub Actions builds a release, and builds the speech image from its source. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
+`DISPATCH_USER` names the ordinary account on the machine the bots run as; each deploy gives it passwordless sudo, as the installer does. `deploy.sh` refuses a `.env.prod` without it, and Dispatch doesn't start without one: `DISPATCH_USER=root` runs the bots as root, with Chrome's sandbox off, only when it says so. A commit has to pass `npm run check` before it deploys. The machine builds it with `scripts/build-release.sh`, as GitHub Actions builds a release, and builds the speech image from its source. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
 
 ## Development
 

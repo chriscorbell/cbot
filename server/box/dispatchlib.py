@@ -39,11 +39,14 @@ RUN = MACHINE['run']
 
 
 def bots_account(environ=None, getpwnam=pwd.getpwnam):
-    """The account every bot runs as, as server/src/account.ts finds it: DISPATCH_USER, or root when
-    it is unset; its home from the passwd database, or DISPATCH_HOME when that is set (tests). Returns
-    (name, uid, gid, home)."""
+    """The account every bot runs as, as server/src/account.ts finds it: DISPATCH_USER, which must be
+    set (root only when it says root, never because it is missing); its home from the passwd database,
+    or DISPATCH_HOME when that is set (tests). Returns (name, uid, gid, home)."""
     environ = os.environ if environ is None else environ
-    name = (environ.get('DISPATCH_USER') or '').strip() or 'root'
+    name = (environ.get('DISPATCH_USER') or '').strip()
+    if not name:
+        raise SystemExit("DISPATCH_USER isn't set. It names the account the bots run as, in /etc/dispatch/env;"
+                         ' set DISPATCH_USER=root there to run them as root.')
     try:
         pw = getpwnam(name)
     except KeyError:

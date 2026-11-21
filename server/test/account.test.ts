@@ -19,11 +19,13 @@ function passwdFile(): string {
   return file;
 }
 
-test('the account is DISPATCH_USER, or root without it, with its home from passwd', () => {
+test('the account is DISPATCH_USER, with its home from passwd, and root only when it says so', () => {
   const file = passwdFile();
   expect(lookupAccount({ DISPATCH_USER: 'ada' }, file)).toEqual({ name: 'ada', uid: 1000, gid: 1000, home: '/home/ada' });
-  expect(lookupAccount({}, file)).toEqual({ name: 'root', uid: 0, gid: 0, home: '/root' });
-  expect(lookupAccount({ DISPATCH_USER: '  ' }, file).name).toBe('root');
+  expect(lookupAccount({ DISPATCH_USER: 'root' }, file)).toEqual({ name: 'root', uid: 0, gid: 0, home: '/root' });
+  // Never root for want of a name: root's bots run Chrome without its sandbox.
+  expect(() => lookupAccount({}, file)).toThrow(/DISPATCH_USER isn’t set/);
+  expect(() => lookupAccount({ DISPATCH_USER: '  ' }, file)).toThrow(/DISPATCH_USER isn’t set/);
 });
 
 test('DISPATCH_HOME stands in for the home, and an account the machine lacks stops the server', () => {

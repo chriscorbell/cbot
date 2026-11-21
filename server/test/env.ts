@@ -9,6 +9,8 @@ import { vi } from 'vitest';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-test-'));
 // The bots' account's home (server/src/account.ts): their Libraries, profiles and Hermes homes.
 process.env.DISPATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-test-home-'));
+// The account the bots run as, which must be set (account.ts): the tests' own.
+process.env.DISPATCH_USER = os.userInfo().username;
 process.env.TZ ??= 'UTC';
 process.env.DISPATCH_NO_SCHEDULER = '1';
 

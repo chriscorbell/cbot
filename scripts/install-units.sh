@@ -25,12 +25,13 @@ dest="$root/etc/systemd/system"
 changed=false
 
 # The account: DISPATCH_USER from the environment, else the last DISPATCH_USER line of /etc/dispatch/env
-# (KEY=value, the value maybe quoted), else root.
+# (KEY=value, the value maybe quoted). Root only when it says root: a missing one stops here, since
+# root's bots run Chrome without its sandbox (server/src/account.ts).
 name="${DISPATCH_USER:-}"
 if [ -z "$name" ] && [ -r "$root/etc/dispatch/env" ]; then
   name="$(sed -nE 's/^[[:space:]]*DISPATCH_USER=["'\'']?([^"'\'']*)["'\'']?[[:space:]]*$/\1/p' "$root/etc/dispatch/env" | tail -n 1)"
 fi
-name="${name:-root}"
+[ -n "$name" ] || { echo "DISPATCH_USER isn't set. It names the account the bots run as, in /etc/dispatch/env; set DISPATCH_USER=root there to run them as root." >&2; exit 1; }
 entry="$(getent passwd "$name")" || { echo "DISPATCH_USER is $name, and this machine has no account by that name." >&2; exit 1; }
 IFS=: read -r _ _ uid gid _ home _ <<<"$entry"
 group="$(getent group "$gid" | cut -d: -f1)"
