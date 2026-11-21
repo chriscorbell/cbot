@@ -1,5 +1,10 @@
-import { expect, test } from 'vitest';
-import { runSlot } from '../src/engine.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { expect, test, vi } from 'vitest';
+import { db } from '../src/db.js';
+import { allowedActions, approvalSettings, runSlot, syncApprovals, syncModel } from '../src/engine.js';
+import { env } from '../src/env.js';
+import { seedBot, seedOwner } from './helpers.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -38,4 +43,38 @@ test('a first run that ends without answering hands the turn to the next run', a
   s2('run.completed');
   await third;
   expect(order).toEqual(['second', 'third']);
+});
+
+test("a bot's config.yaml that isn't valid YAML is left as it is, and the other bots still get their settings", () => {
+  const user = seedOwner();
+  const broken = seedBot(user.id, { name: 'Broken' });
+  const fine = seedBot(user.id, { name: 'Fine' });
+  db.prepare("UPDATE bots SET engine='managed' WHERE id IN (?,?)").run(broken.id, fine.id);
+  const config = (id: string) => path.join(env.enginesDir, id, 'config.yaml');
+  for (const id of [broken.id, fine.id]) fs.mkdirSync(path.dirname(config(id)), { recursive: true });
+  const brokenText = 'model:\n  default: claude\n  provider: [anthropic\n';
+  fs.writeFileSync(config(broken.id), brokenText);
+  fs.writeFileSync(config(fine.id), 'model:\n  default: claude\ncommand_allowlist: [ls]\n');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  db.prepare("UPDATE users SET approval_mode='smart' WHERE id=?").run(user.id);
+  syncApprovals(user.id);
+  syncModel(broken.id);
+  expect(allowedActions(user.id)).toEqual(['ls']);
+
+  expect(fs.readFileSync(config(broken.id), 'utf8')).toBe(brokenText);
+  expect(fs.readFileSync(config(fine.id), 'utf8')).toContain('mode: smart');
+  expect(warn.mock.calls.some(([m]) => String(m).includes("isn't valid YAML, so Dispatch won't rewrite it"))).toBe(true);
+  warn.mockRestore();
+});
+
+test("Never Allow rules that can't be read make every action ask first, rather than none", () => {
+  const user = seedOwner();
+  db.prepare("UPDATE users SET approval_mode='off', approval_deny='[\"rm -rf *\"' WHERE id=?").run(user.id);
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  expect(approvalSettings(user.id)).toEqual({ mode: 'manual', deny: [] });
+  expect(error).toHaveBeenCalled();
+  error.mockRestore();
+  db.prepare("UPDATE users SET approval_deny='[\"rm -rf *\"]' WHERE id=?").run(user.id);
+  expect(approvalSettings(user.id)).toEqual({ mode: 'off', deny: ['rm -rf *'] });
 });

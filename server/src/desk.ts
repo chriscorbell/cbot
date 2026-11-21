@@ -85,8 +85,13 @@ async function finish(first: Reply, what: string, maxSec: number): Promise<JobRe
   }
   if (reply.kind === 'OK') return { ok: true };
   if (reply.kind !== 'DONE') throw new Error(`${what} failed: ${reply.raw.trim().slice(-300) || 'no answer from the computer'}`);
-  let result: JobResult = {};
-  try { result = JSON.parse(reply.rest) as JobResult; } catch { /* treated as plain success */ }
+  // The box script always sends JSON after DONE ('{}' at least). Anything else is an answer cut short
+  // or mixed with other output, and counting it as success would hide a job that failed.
+  let result: JobResult;
+  try { result = JSON.parse(reply.rest) as JobResult; } catch {
+    throw new Error(`${what} failed: the computer's answer isn't JSON: ${reply.rest.trim().slice(0, 200) || '(empty)'}`);
+  }
+  if (!result || typeof result !== 'object') throw new Error(`${what} failed: the computer's answer isn't a JSON object`);
   for (const w of result.warnings ?? []) warn(w);
   if (result.ok === false) throw new Error(`${what} failed: ${result.error ?? 'unknown error'}`);
   return result;
