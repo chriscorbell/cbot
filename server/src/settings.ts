@@ -4,7 +4,7 @@ import type { SecretId, SecretState } from './contract.js';
 /**
  * The app's settings that used to come from the server's environment (Settings > Providers): model
  * keys and subscription tokens, the self-hosted model endpoint and the SearXNG address. engine.ts
- * writes them into every bot's Hermes home, and voice.ts reads the DeepSeek key for call summaries.
+ * writes them into every bot's Hermes home.
  *
  * Each one is a row in `settings`; no row means unset. The first start with this table copies what the
  * environment still sets (importEnvironment), so an existing .env keeps working. After that the

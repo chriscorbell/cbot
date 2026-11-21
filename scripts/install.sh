@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
 #
-# It checks the machine (Ubuntu 26.04 on x86-64, with systemd), asks three things (the bots' time
+# It checks the machine (Ubuntu or Debian on x86-64, with systemd), asks three things (the bots' time
 # zone, how many bots at most, and whether to set up Tailscale too), then downloads a commit from
 # GitHub into /srv/cbot/releases and runs that commit's scripts/release.sh, the same step
 # scripts/deploy.sh runs: it provisions the machine, builds the release and the speech image, and
@@ -99,12 +99,17 @@ become_root() {
 # ---------------------------------------------------------------- the machine
 
 check_machine() {
-  local id='' version='' name='' problems=() p
-  [ "$(uname -s)" = Linux ] || die "cbot installs on Ubuntu 26.04."
+  local id='' like='' version='' name='' problems=() p
+  # The releases the installer has been run on end to end: a bot's screen, Chrome, agent and voice.
+  # Ubuntu 26.04 is the main one. provision.sh needs apt and the Ubuntu or Debian repositories of
+  # Chrome, Node.js and Docker, so their derivatives may work too, with a warning. (Inside the
+  # function: become_root carries functions only.)
+  local tested='ubuntu 26.04|ubuntu 24.04|ubuntu 22.04|debian 13|debian 12'
+  [ "$(uname -s)" = Linux ] || die "cbot installs on Ubuntu or Debian."
   [ "$(uname -m)" = x86_64 ] || die "cbot needs an x86-64 (amd64) machine; this one is $(uname -m)."
   # shellcheck disable=SC1091
-  [ -r /etc/os-release ] && { id="$(. /etc/os-release && echo "${ID:-}")"; version="$(. /etc/os-release && echo "${VERSION_ID:-}")"; name="$(. /etc/os-release && echo "${PRETTY_NAME:-}")"; }
-  [ "$id" = ubuntu ] || die "cbot installs on Ubuntu 26.04, and this is ${name:-another system}."
+  [ -r /etc/os-release ] && { id="$(. /etc/os-release && echo "${ID:-}")"; like="$(. /etc/os-release && echo "${ID_LIKE:-}")"; version="$(. /etc/os-release && echo "${VERSION_ID:-}")"; name="$(. /etc/os-release && echo "${PRETTY_NAME:-}")"; }
+  case " $id $like " in *" ubuntu "* | *" debian "*) ;; *) die "cbot installs on Ubuntu or Debian, and this is ${name:-another system}." ;; esac
   [ -d /run/systemd/system ] || die "cbot runs as a systemd service, and systemd isn't running here. Install it on a machine or VM of its own, not in a container."
   local tool
   for tool in curl tar gzip; do
@@ -117,7 +122,7 @@ check_machine() {
   cpus="$(nproc)"
   info "$name, $cpus CPUs, $ram_gb GB of memory, $disk_gb GB free"
 
-  [ "$version" = 26.04 ] || problems+=("cbot is made for Ubuntu 26.04. $version may work, but isn't tested.")
+  case "|$tested|" in *"|$id $version|"*) ;; *) problems+=("cbot is made for Ubuntu 26.04 and tested on Ubuntu 22.04 and 24.04 and Debian 12 and 13. ${name:-This system} may work, but isn't tested.") ;; esac
   [ "$ram_gb" -ge 4 ] || problems+=("cbot wants about 2 GB of memory for voice and 1 GB per bot, and this machine has $ram_gb GB.")
   [ "$disk_gb" -ge 25 ] || problems+=("cbot needs about 25 GB of disk for Chrome, Hermes Agent and the speech service, and $disk_gb GB is free.")
   if ! $installed && ss -Hltn "sport = :$PORT" 2>/dev/null | grep -q .; then

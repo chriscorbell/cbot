@@ -111,7 +111,7 @@ The model's own history is Hermes' business; the app keeps only what it shows.
 
 ## Hermes asks before risky actions, in the chat
 
-Settings > Permissions sets how every bot's Hermes asks before an action it flags as risky, such as a command that matches its dangerous patterns or a write to `~/.ssh/config`: Off (it never asks), Smart (Hermes' auxiliary model clears low-risk actions and asks about the rest) or Ask (`manual`: it always asks). The choice is `users.approval_mode`, Off by default. `engine.ts` writes it into every bot's `config.yaml` as `approvals.mode`, with `approvals.deny` ("Never Allow": glob patterns of terminal commands Hermes refuses in every mode, from `users.approval_deny`) and `command_allowlist` ("Allow without Asking"). Hermes reads these again when the file changes, so a change applies to running gateways at once.
+Settings > Permissions sets how every bot's Hermes asks before an action it flags as risky, such as a command that matches its dangerous patterns or a write to `~/.ssh/config`: Off (it never asks), Smart (Hermes' auxiliary model clears low-risk actions and asks about the rest) or Ask (`manual`: it always asks). The choice is `users.approval_mode`: a new owner starts on Smart (`ensureOwner`), and accounts from before keep the column's old default, Off. `engine.ts` writes it into every bot's `config.yaml` as `approvals.mode`, with `approvals.deny` ("Never Allow": glob patterns of terminal commands Hermes refuses in every mode, from `users.approval_deny`) and `command_allowlist` ("Allow without Asking"). Hermes reads these again when the file changes, so a change applies to running gateways at once.
 
 When Hermes asks, the run sends `approval.request` and waits, for up to its 5-minute timeout. A chat turn or a voice call hands the prompt to `agent/approvals.ts`, which adds an approval card to the bot's chat and a row in `approvals`, and the tool's row waits with it. The card shows Hermes' description and the command, with the answers Hermes offers: Allow (`once`), Always allow and Don't allow. The answer goes to `POST /v1/runs/<id>/approval` with Hermes' prompt id and the run's execution generation, and the run carries on. Hermes saves an "Always allow" into the asking bot's `command_allowlist`; cbot then gives every bot the union, and removing an entry in Settings takes it from all of them. A prompt that ends without an answer (Hermes' timeout, Stop, a call hanging up) expires its card: after each later event of a run with an open prompt, cbot checks the run's `pending_controls`, and the run's end expires whatever is left.
 
@@ -145,7 +145,7 @@ The speech service ends an utterance after 500 ms of silence. When the user star
 - Otherwise the run is stopped (`POST /v1/runs/<id>/stop`, about 0.15 s) and a new one answers. A stopped run keeps the user's words and its finished tool calls in the session's history; a run stopped while still queued doesn't, so its words go into the new run's input.
 - The relay mirrors the browser player's schedule. When the user talks over a reply, the next turn starts with a note saying how much of it they heard, because the agent's history keeps everything it wrote.
 
-When the call ends, a run still going is stopped. The browser posts its transcript to `POST /api/voice/end`, which writes the end row, and DeepSeek then adds a one-sentence summary to that row when Settings > Providers has a DeepSeek key.
+When the call ends, a run still going is stopped. The browser posts its transcript to `POST /api/voice/end`, which writes the end row. The bot's own agent then adds a title and a one-sentence summary to that row: one short Hermes run, on the model the call used, on a session of its own beside the call's (`<call session>-summary`), given the transcript. Hermes holds the bot's model access, so any provider works.
 
 ### A call and the text chat tell each other what they missed
 
@@ -179,7 +179,6 @@ The server runs on the time zone in `TZ` (UTC when unset), set in `/etc/cbot/env
 | Service | Used for |
 |---|---|
 | Anthropic, OpenAI, xAI, GitHub Copilot, Google, OpenRouter, DeepSeek, or a self-hosted server | Model calls from each bot's Hermes, on a subscription token or sign-in, or an API key. cbot itself asks the Anthropic API and the self-hosted server which models they list, and asks GitHub for the Copilot sign-in's code and token |
-| DeepSeek | Call summaries, called by cbot directly with the DeepSeek key |
 | SearXNG | `web_search`, when its address is set in Settings > Providers |
 | Open-Meteo | `show_weather`'s forecast cards, called by cbot directly (`weather.ts`) |
 

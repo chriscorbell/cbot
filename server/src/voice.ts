@@ -6,7 +6,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { body } from './lib/validate.js';
-import OpenAI from 'openai';
 import { db, now, type BotRecord, type RowRecord } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
@@ -14,8 +13,7 @@ import type { AuthVars } from './lib/auth.js';
 import { appendRow, conversation, emitBot, getBotRow, ownBot, requireBot, updateRow } from './store.js';
 import { getLive } from './agent/live.js';
 import { computerState, screenForWork } from './computer.js';
-import { engineFor } from './engine.js';
-import { getSetting } from './settings.js';
+import { engineFor, runSlot } from './engine.js';
 import { instructionsFor } from './agent/prompt.js';
 import { ago, callLength, chatCursor, type ChatCursor } from './agent/catchup.js';
 import type { ActivityKind, CardBody, EventBody, RowBody, VoiceCallRecord } from './types.js';
@@ -23,18 +21,6 @@ import { SAMPLE_RATE, mapSpeed, mapVoice, speak, transcribe, voiceCatalog, type 
 import type { EchoSecond, Transcription, VoiceEnded, VoiceOptions, VoiceSession } from './contract.js';
 
 export const voiceApi = new Hono<AuthVars>();
-
-/** Call summaries, on DeepSeek's OpenAI-compatible API. Without a DeepSeek key in Settings > Providers a call record has no summary. */
-const SUMMARY_MODEL = 'deepseek-flash';
-let deepseek: { key: string; client: OpenAI } | null = null;
-function summarizer(): OpenAI | null {
-  const key = getSetting('deepseek');
-  if (!key) return null;
-  if (deepseek?.key !== key) deepseek = { key, client: new OpenAI({ apiKey: key, baseURL: 'https://api.deepseek.com/v1', timeout: 30_000, maxRetries: 1 }) };
-  return deepseek.client;
-}
-/** DeepSeek's switch for answering without reasoning first. The SDK passes body fields it doesn't know through. */
-const NO_THINKING = { thinking: { type: 'disabled' } } as {};
 
 const NO_SPEECH = 'The speech service is not answering.';
 
@@ -238,20 +224,61 @@ voiceApi.post('/session', async (c) => {
   return c.json({ callId, websocketUrl: `/api/voice/relay/${callId}`, sampleRate: SAMPLE_RATE, voice: s.voice, speed: s.speed } satisfies VoiceSession);
 });
 
-async function summarizeCall(botName: string, transcript: { role: string; text: string }[]): Promise<{ title: string | null; summary: string } | null> {
-  const client = summarizer();
-  if (!client || !transcript.length) return null;
-  const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : botName}: ${t.text}`).join('\n').slice(-12_000);
-  const res = await client.chat.completions.create({
-    model: SUMMARY_MODEL,
-    max_tokens: 140,
-    ...NO_THINKING,
-    messages: [
-      { role: 'system', content: `Describe this voice call between the user and ${botName} in two lines. Line 1: a title of two to four words, sentence case, no period (for example "Tokyo weather check"). Line 2: one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${botName} to…"). No labels, no preamble.` },
-      { role: 'user', content: lines },
-    ],
+/** How long a call's summary may take before the call record keeps no summary. */
+const SUMMARY_WAIT_MS = 120_000;
+const RUN_ENDED = new Set(['failed', 'cancelled', 'interrupted']);
+
+/**
+ * A call's title and one-line summary, written by the bot's own agent on the model the call used: one
+ * short Hermes run on a session of its own beside the call's, given the transcript. Hermes holds the
+ * bot's model access (keys, subscriptions, sign-ins), so whatever model answers the call can summarise
+ * it. The run is polled until it ends rather than streamed; only its final answer matters.
+ */
+async function summarizeCall(call: ActiveCall, transcript: { role: string; text: string }[]): Promise<{ title: string | null; summary: string } | null> {
+  if (!transcript.length) return null;
+  const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : call.botName}: ${t.text}`).join('\n').slice(-12_000);
+  const engine = await engineFor(call.botId);
+  const hermes = (path: string, init: { body?: unknown; timeout: number }) => fetch(`${engine.url}${path}`, {
+    method: init.body === undefined ? 'GET' : 'POST',
+    headers: { 'content-type': 'application/json', ...(engine.key ? { authorization: `Bearer ${engine.key}` } : {}) },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    signal: AbortSignal.timeout(init.timeout),
   });
-  const out = String(res.choices[0]?.message?.content ?? '').trim().split(/\n+/).map((l) => l.replace(/^(title|summary)\s*:\s*/i, '').trim()).filter(Boolean);
+  const slot = await runSlot(call.botId);
+  let runId = '';
+  try {
+    const res = await hermes('/v1/runs', {
+      timeout: 30_000,
+      body: {
+        model: call.model || 'hermes-agent',
+        ...(call.provider ? { provider: call.provider } : {}),
+        input: `The voice call between the user and you (${call.botName}) has ended. Its transcript:\n\n${lines}`,
+        instructions: `Describe the voice call in the input in two lines. Line 1: a title of two to four words, sentence case, no period (for example "Tokyo weather check"). Line 2: one short sentence (max 25 words), past tense, third person ("Talked about…", "Asked ${call.botName} to…"). No labels, no preamble. Use no tools: answer with the two lines only.`,
+        session_id: `${call.conversation}-summary`,
+        model_options: { reasoning_effort: 'low' },
+      },
+    });
+    if (!res.ok) throw new Error(`Hermes refused the run (${res.status})`);
+    runId = String(((await res.json()) as { run_id?: unknown }).run_id ?? '');
+    if (!runId) throw new Error('Hermes started no run');
+  } finally {
+    slot();
+  }
+  for (const until = now() + SUMMARY_WAIT_MS; now() < until;) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const res = await hermes(`/v1/runs/${encodeURIComponent(runId)}`, { timeout: 10_000 }).catch(() => null);
+    if (!res?.ok) continue;
+    const run = (await res.json()) as { status?: string; output?: unknown; error?: unknown };
+    if (run.status === 'completed') return parseSummary(String(run.output ?? ''));
+    if (run.status && RUN_ENDED.has(run.status)) throw new Error(String(run.error ?? `the run was ${run.status}`));
+  }
+  void hermes(`/v1/runs/${encodeURIComponent(runId)}/stop`, { body: {}, timeout: 10_000 }).catch(() => {});
+  throw new Error(`no answer in ${SUMMARY_WAIT_MS / 1000} seconds`);
+}
+
+/** The model's two lines as a title and a summary. One that ignores the format keeps its sentence as the summary. */
+export function parseSummary(text: string): { title: string | null; summary: string } | null {
+  const out = text.trim().split(/\n+/).map((l) => l.replace(/^(title|summary)\s*:\s*/i, '').trim()).filter(Boolean);
   if (!out.length) return null;
   const [first, ...rest] = out;
   // A model that ignores the format sends one sentence: keep it as the summary, with no title.
@@ -315,7 +342,7 @@ voiceApi.post('/end', async (c) => {
   emitBot(bot.id);
 
   // Summarise in the background and rewrite the row.
-  summarizeCall(bot.name, lines)
+  summarizeCall(call, lines)
     .then((r) => { if (r) updateRow(row, callEvent(`${base}. ${r.summary}`, { ...record, summary: r.summary, ...(r.title ? { title: r.title } : {}) })); })
     .catch((e) => console.warn('[voice] call summary failed:', e?.message));
   return c.json({ ok: true, seq: row.seq } satisfies VoiceEnded);

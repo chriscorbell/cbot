@@ -18,6 +18,16 @@ const app = createApp();
 let userId: string;
 beforeAll(() => { userId = seedOwner().id; });
 
+// The bot's gateway, for the summary a call gets when it ends: a run that answers with two lines.
+const hermesCalls: { method: string; path: string; body: Record<string, unknown> | null }[] = [];
+vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+  const { pathname } = new URL(url);
+  hermesCalls.push({ method: init?.method ?? 'GET', path: pathname, body: init?.body ? JSON.parse(String(init.body)) : null });
+  if (pathname === '/v1/runs') return Response.json({ run_id: 'run_1', status: 'started' });
+  if (pathname === '/v1/runs/run_1') return Response.json({ status: 'completed', output: 'Tokyo weather check\nAsked about the weather in Tokyo.' });
+  return new Response('not found', { status: 404 });
+});
+
 const events = (botId: string) => listRows(botId).flatMap((r) => (r.body.type === 'event' && r.body.call ? [`${r.body.call.phase}${r.body.call.transcript ? ` (${r.body.call.transcript.length} lines)` : ''}`] : []));
 
 test('a call writes a start row, and its end row with the transcript when it hangs up', async () => {
@@ -30,6 +40,18 @@ test('a call writes a start row, and its end row with the transcript when it han
   // A second /end (the beacon after the button) is a no-op.
   const again = await app.request('/api/voice/end', json({ botId: bot.id, callId, transcript: [] }));
   expect(await again.json()).toMatchObject({ duplicate: true });
+});
+
+test("the bot's own agent titles and summarises a call when it ends, on a session beside the call's", async () => {
+  const bot = seedBot(userId, { name: 'Tia' });
+  const { callId } = (await (await app.request('/api/voice/session', json({ botId: bot.id }))).json()) as { callId: string };
+  hermesCalls.length = 0;
+  await app.request('/api/voice/end', json({ botId: bot.id, callId, transcript: [{ role: 'user', text: 'Weather in Tokyo?' }, { role: 'assistant', text: 'Sunny.' }] }));
+  const ended = () => listRows(bot.id).find((r) => r.body.type === 'event' && r.body.call?.phase === 'ended')!.body;
+  await vi.waitFor(() => expect(ended()).toMatchObject({ call: { title: 'Tokyo weather check', summary: 'Asked about the weather in Tokyo.' } }), { timeout: 5000 });
+  const run = hermesCalls.find((c) => c.path === '/v1/runs')!.body!;
+  expect(run).toMatchObject({ model: 'hermes-agent', session_id: `cbot-${bot.id}-${callId}-summary` });
+  expect(run.input).toContain('User: Weather in Tokyo?\nTia: Sunny.');
 });
 
 test('a call that spans a New chat keeps its record in the chat the user has open', async () => {

@@ -61,12 +61,14 @@ Signed-By: /usr/share/keyrings/nodesource.gpg
 EOF
 
 if ! $container; then
-  # Docker Engine and Compose from Docker's repository, not Ubuntu's docker.io.
+  # Docker Engine and Compose from Docker's repository, not the distribution's docker.io. Docker
+  # keeps one repository for Debian and one for Ubuntu; Ubuntu's derivatives name their Ubuntu base.
+  docker_os="$(. /etc/os-release && case " $ID ${ID_LIKE:-} " in *" ubuntu "*) echo ubuntu ;; *) echo debian ;; esac)"
   install -d -m 0755 /etc/apt/keyrings
-  [ -s /etc/apt/keyrings/docker.asc ] || curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  [ -s /etc/apt/keyrings/docker.asc ] || curl -fsSL "https://download.docker.com/linux/$docker_os/gpg" -o /etc/apt/keyrings/docker.asc
   cat > /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
-URIs: https://download.docker.com/linux/ubuntu
+URIs: https://download.docker.com/linux/$docker_os
 Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc

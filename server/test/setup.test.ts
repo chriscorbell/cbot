@@ -26,6 +26,8 @@ test('a fresh install starts with the owner and no bot', () => {
   initAuth(owner);
   expect(db.prepare('SELECT COUNT(*) n FROM bots').get()).toEqual({ n: 0 });
   expect(setupPending(owner.id)).toBe(true);
+  // Approvals start on Smart (Settings > Permissions).
+  expect(db.prepare('SELECT approval_mode FROM users WHERE id=?').get(owner.id)).toEqual({ approval_mode: 'smart' });
   // The first visit creates the account (auth.test.ts); here it is written straight in.
   db.prepare("UPDATE users SET username='tess', password_hash='x'").run();
 });

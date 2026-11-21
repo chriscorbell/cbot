@@ -2,136 +2,103 @@
   <img src="assets/readme-banner.svg" alt="cbot: a team of AI agents, each with its own desktop" width="100%">
 </p>
 
-cbot runs a small team of always-on AI agents for one person. Each bot is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) with its own name, instructions, memory, routines and Linux desktop. You give a bot work in a chat, and it does the work in its own Chrome and terminal while you watch.
+**cbot** runs a team of always-on AI agents, **self-hosted on a single machine.**
 
-Everything runs on one machine. The only outside services are the model provider (none, with a self-hosted model), a SearXNG instance for search, and Open-Meteo for weather cards.
+Each bot is a [Hermes Agent](https://github.com/NousResearch/hermes-agent) with its own name, instructions, memory, routines and Linux desktop.
+
+https://github.com/user-attachments/assets/59ae90df-1aba-41bd-9437-f2b7ca8a2895
 
 ## Features
 
-- Chat that shows each step of a task as the bot works
-- A desktop per bot, with Chrome, a terminal and files, that you can watch or take control of
-- Routines on a cron schedule, and check-ins from the primary bot
+- A desktop for each bot (with Chrome, a terminal and file manager) that you can watch or take control of
+- Scheduled routines and check-ins
 - Group chats, and bots that message each other
 - Memory you can review and prune
-- Search (⌘K) across bots, every bot's current chat, and Library files and folders
-- A Library of the files bots save and the files you attach
-- Voice calls answered by the bot's own agent, with all its tools, and dictation. They cancel the bot's echo in the page, so they work on speakers; talking over the bot stops it, and a noise or a "yeah" only pauses it. On a call the bot hears what happens in its text chat as it happens and can post links, lists and other things better read than heard there; afterwards the text chat's agent knows what was said on the call
-- Claude, ChatGPT, Grok and Copilot subscriptions; Anthropic, OpenAI, Gemini, xAI, OpenRouter and DeepSeek API keys; or a self-hosted OpenAI-compatible model
+- Search across bots, messages, library files and folders
+- A library of the files that your bots create and the files you attach
+- Voice calls
+- Dictation
 
-## Install
+## Supported providers
 
-cbot gets a machine of its own, or a VM: Ubuntu 26.04 on x86-64, with about 1 GB of RAM per bot, 2 GB more for voice, and 25 GB of disk. The bots run as root directly on it, so whatever they install stays installed. On that machine, run
+- Claude subscription
+- ChatGPT subscription
+- Grok subscription
+- GitHub Copilot subscription
+- Anthropic API
+- OpenAI API
+- Google Gemini API
+- xAI API
+- DeepSeek API
+- OpenRouter API
+- Self-hosted OpenAI-compatible server (vLLM, llama.cpp, Ollama)
+
+## Approvals
+
+The options in **Settings** > **Permissions** decide whether the bots ask for approval before performing an action:
+
+- **Smart** (default) only asks if the bot's model judges the action as risky
+- **Off** never asks
+- **Ask** always asks
+
+## Requirements
+
+### Hardware
+
+You need a **dedicated** machine:
+
+| | Minimum | Recommended |
+|---|---|---|
+| CPU | x86-64 (amd64), 2 cores | 4+ cores (voice uses up to 4) |
+| Memory | 4 GB (1 bot) | 2 GB + 1 GB per bot (8 GB for the default 4 bots) |
+| Disk | 25 GB free | 40 GB+, since bots install software and keep files |
+
+### Operating system
+
+Ubuntu Server 26.04 LTS is the main target. These are tested too, and install and run the same:
+
+| Distribution | Releases |
+|---|---|
+| Ubuntu | 26.04 LTS, 24.04 LTS, 22.04 LTS |
+| Debian | 13 (trixie), 12 (bookworm) |
+
+Other Ubuntu and Debian derivatives may work; the installer warns that they're untested. Other distributions (Fedora, Arch and so on) and ARM machines aren't supported.
+
+## Quick setup
+
+### Install
+
+On the target machine, run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/install.sh | bash
 ```
 
-The installer checks the machine and asks for the bots' time zone, how many bots to allow, and whether to set up [Tailscale](https://tailscale.com) too. Then it installs Chrome, Node, Docker and Hermes Agent, builds cbot and its speech service, and starts cbot as a systemd service on your local network, at `https://<machine>:8787`. The first install takes 15 to 30 minutes. Run the same command again to update; the settings, bots and chats stay. The settings are in `/etc/cbot/env`, and the installer's log is `/var/log/cbot/install.log`. For an unattended install, set `CBOT_TZ`, `CBOT_MAX_BOTS` and `CBOT_TAILSCALE` (`1` or `0`); the script's header lists the rest.
+After installation is complete, open `https://<ip-address>:8787` in your browser (accept the certificate warning), create your account, then follow the setup wizard.
 
-Open the address it shows right away and create the account: until it exists, anyone who can reach the app can create it. Don't install on a server with a public address without a firewall in front of port 8787. A short setup follows, which makes your first bot: its name and look, its label, About and instructions, and the model it runs on, from an API key, a Claude token, a subscription sign-in or your own server. That bot is the primary one, your main point of contact.
+cbot signs its own certificate, since browsers allow the microphone (and so voice calls) only over HTTPS. To stop the warning on a device, trust the certificate from **Settings** > **General** > **Certificate**. For an address with no warning that works from anywhere, answer yes to the installer's Tailscale question.
 
-### HTTPS
-
-Voice calls need HTTPS, because browsers allow the microphone only there. No public authority signs a certificate for an address on a local network, so cbot signs its own, for the machine's name and address, and browsers warn that the connection isn't private. Continue past the warning once on each device, or stop it by installing the certificate from Settings > General > Certificate and trusting it:
-
-- iPhone and iPad: install the downloaded profile in Settings, then turn it on under General > About > Certificate Trust Settings
-- Android: install it as a CA certificate, under Settings > Security (the path varies by phone)
-- macOS: add it in Keychain Access and set it to Always Trust
-- Windows: open it, choose Install Certificate, and place it in Trusted Root Certification Authorities
-
-The certificate vouches for this machine only. When the machine's address changes, cbot makes a new one, and devices that trusted the old one need the new one.
-
-Tailscale, which the installer offers, adds an address that browsers trust without a warning and that works from anywhere on your tailnet: `https://<machine>.<tailnet>.ts.net`. To add it later, put Tailscale on the machine and run `tailscale serve --bg --https=443 http://127.0.0.1:8787`. To keep cbot off the local network then, set `HOST=127.0.0.1` in `/etc/cbot/env` and run `systemctl restart cbot`.
+[docs/RUNNING.md](docs/RUNNING.md) covers updates, settings, HTTPS, models, a forgotten password and starting over.
 
 ### Uninstall
+
+On the target machine, run this to remove cbot and all its data (Chrome, Node.js, Docker, the desktop packages and Tailscale stay installed):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/cbot/main/scripts/uninstall.sh | bash
 ```
 
-After asking once, it stops cbot and everything it started, and deletes every bot, chat and file, the account, the provider keys and settings, Hermes Agent, the speech service and its images, and cbot's Tailscale address. There's no undo. Google Chrome, Node.js, Docker, the desktop packages, Tailscale and whatever the bots installed stay on the machine. To erase cbot's data but keep it installed, use Reset cbot in Settings > General instead.
-
-## Models
-
-Choose a bot's provider, model and thinking effort in its settings under Model & voice. A new bot copies the primary bot's model, but not its ChatGPT or Grok sign-in: each bot signs in to those itself. The Claude and Copilot tokens in Settings > Providers are shared. Keys, tokens and the self-hosted address are set once for every bot in Settings > Providers; saving one restarts each bot's agent, an idle one at once and a busy one before its next turn.
-
-| Provider | Access |
-|---|---|
-| Claude subscription | A Claude token in Settings > Providers, which every bot uses. Run `claude setup-token` on a computer with Claude Code to get one |
-| ChatGPT subscription | Sign in with a code, for each bot |
-| Grok subscription (SuperGrok or X Premium+) | Sign in with a code, for each bot |
-| GitHub Copilot | Sign in to GitHub with a code, from a bot's settings or Settings > Providers, or paste a GitHub token with Copilot access there. Every bot uses it |
-| Anthropic API | API key in Settings > Providers. Bots on the Claude subscription keep using it |
-| OpenAI API, Google Gemini, xAI API, OpenRouter | API key in Settings > Providers |
-| DeepSeek API | API key in Settings > Providers. A bot with no model chosen runs on `deepseek-flash`, and voice call summaries use it |
-| Self-hosted | The address of an OpenAI-compatible server (vLLM, llama.cpp, Ollama), and its key if it has one, in Settings > Providers. Its models are the ones the server lists |
-
-Signing in to ChatGPT, Grok or Copilot shows a link and a short code. Open the link on any device where you're signed in, enter the code and approve; the sign-in finishes by itself. Nothing happens on the bot's screen.
-
-## Approvals
-
-Settings > Permissions decides whether the bots ask before a command or change that is flagged as risky, such as deleting files with `rm -rf` or editing `~/.ssh/config`. Off, the default, never asks. Smart asks unless the bot's model judges the action low-risk, and Ask always asks. A request shows as a card in the bot's chat, during a voice call too, and the bot waits up to five minutes for Allow, Always allow or Don't allow. Always allow counts for every bot and can be taken back under Allow without Asking. Never Allow lists command patterns, such as `git push --force*`, that the bots refuse even with approvals off.
-
-## Deploying from a checkout
-
-To put your own commits on the machine instead, deploy them over SSH:
-
-```bash
-cp .env.example .env.prod   # set CBOT_HOST in it; every deploy copies it to /etc/cbot/env
-scripts/deploy.sh           # deploy the committed main branch to CBOT_HOST
-scripts/deploy.sh <commit>  # deploy that commit, or roll back to it
-```
-
-A commit has to pass `npm run check` before it deploys. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and gateways. Put HTTPS in front with `tailscale serve --bg --https=8787 http://127.0.0.1:8787`, since browsers allow the microphone only on HTTPS.
-
-## Settings
-
-| Variable | Default | Effect |
-|---|---|---|
-| `MAX_BOTS` | 4 | Most bots the app will create |
-| `TZ` | UTC | The bots' time zone: their clocks, and routines and check-ins without a zone of their own |
-| `HTTPS` | unset | `1` serves HTTPS with cbot's own certificate on the same port, and plain HTTP only to the machine itself. The installer sets it |
-| `CBOT_NO_SCHEDULER` | unset | `1` turns off routines and check-ins, for a dev copy of production data |
-
-[.env.example](.env.example) lists the ports and paths. Model keys, subscription tokens, the self-hosted model and the SearXNG address (for the bots' `web_search`; without one they search in Chrome) are set in Settings > Providers. The first start of this version copies `DEEPSEEK_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `COPILOT_GITHUB_TOKEN`, `SEARXNG_URL` and the other providers' keys from the environment into the app once; after that the environment is not read for them, and they can come out of `.env`.
-
-To reset a forgotten password, run `npm run reset-account -w server` with the server's `DATA_DIR` (in the dev container, `docker exec cbot-dev-cbot-1 node server/dist/reset-account.js`). The next visit creates a new account, and the bots and chats stay.
-
-To start over from nothing, use Reset cbot in Settings > General. It asks twice, then erases every bot, chat, file, provider key and setting and the account, and cbot restarts as a fresh install. Programs the bots installed on the computer stay.
-
 ## Development
 
-Development runs in Docker, because the server starts real X displays, Chrome and Hermes gateways. Don't run it on your machine outside the container.
+[AGENTS.md](AGENTS.md) explains how the code is organized and the rules for changing it. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how it works, including turns, screens, group chats and voice. [docs/RUNNING.md](docs/RUNNING.md#development) has the development container.
 
-```bash
-cp .env.example .env
-CBOT_PORT=8788 docker compose -p cbot-dev up -d --build   # then open http://127.0.0.1:8788
-npm ci
-npm run check                                       # typecheck, lint and unit tests
-CBOT_API=http://127.0.0.1:8788 npm run dev -w web   # Vite against the dev container; add ?fixtures for sample rows
-```
-
-Rebuild the dev container to try server changes. The Playwright scripts in `tests/` run against a live app, and each one's header says how.
-
-```text
-server/   Node server: API, turns, Hermes gateways, screens, voice relay
-web/      React app
-speech/   speech service: recognition, and Phonon's voices
-zonos3/   ZONOS3-Mini voice server (off; speech/README.md says how to run it)
-scripts/  install, uninstall, deploy, release and host provisioning
-deploy/   systemd unit and the speech services' Compose file
-tests/    end-to-end scripts
-```
-
-[AGENTS.md](AGENTS.md) explains how the code is organised and the rules for changing it. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how it runs, including turns, screens, group chats and voice.
-
-## Stack
+### Stack
 
 - TypeScript, Node, Hono, SQLite and zod
 - React 18, Vite and zustand
 - Hermes Agent for each bot's model calls, memory and tools
 - TigerVNC, Chrome and noVNC for the desktops
-- sherpa-onnx with Parakeet, Nemotron and Silero VAD for listening; Phonon for speaking
+- sherpa-onnx with Parakeet, Nemotron and Silero VAD for speech recognition, Phonon 31M for text-to-speech
 
 ## License
 

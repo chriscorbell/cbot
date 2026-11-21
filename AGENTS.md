@@ -99,7 +99,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 
 **Add web state.** Data from the server goes in `web/src/store.ts` with a named action; view-only state stays in the component or `configStore.ts`. An optimistic change keeps the previous value and rolls back only if nothing newer replaced it (see `patchRow`). A request from one part of the UI to another with no shared parent ("put this in the composer") goes through `web/src/lib/uiEvents.ts`, typed. An async answer that may arrive after the user switched bots, or after the panel closed, goes through `guarded()` (`web/src/lib/guarded.ts`) or checks it is still about the bot shown (see `Composer.tsx`, `EngineSettings.tsx`). A reply in the composer names its row by generation too (`web/src/lib/reply.ts`).
 
-**Change behaviour the user sees.** Update `README.md` and `docs/ARCHITECTURE.md` in the same commit, and say in the commit message what changed for the user. Don't invent new UI patterns without asking.
+**Change behaviour the user sees.** Update `README.md` (what cbot is and how to install it), `docs/RUNNING.md` (how to run it) and `docs/ARCHITECTURE.md` in the same commit, and say in the commit message what changed for the user. Don't invent new UI patterns without asking.
 
 ## Tests
 
