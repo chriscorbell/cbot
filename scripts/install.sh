@@ -762,7 +762,7 @@ tailscale_url() {
 }
 
 finish() {
-  local url address listening lan=false scheme=http
+  local url address listening lan=false scheme=http code='' setup=''
   if $up_to_date; then
     printf '\n%s%s Dispatch is up to date%s %s(%s)%s\n\n' "$G$B" "$OK" "$R" "$D" "$commit" "$R"
   else
@@ -773,23 +773,30 @@ finish() {
   case "$listening" in '' | 127.0.0.1:*) ;; *) lan=true ;; esac
   curl -fsk --max-time 5 -o /dev/null "https://127.0.0.1:$PORT/api/health" && scheme=https
   url="$(tailscale_url || true)"
+  url="${url%/}"
   address="$(lan_address)"
+  # Until the account exists, making it takes the setup code (server/src/lib/auth.ts), which the
+  # address carries for the web app to fill in.
+  if curl -fsS --max-time 5 "http://127.0.0.1:$PORT/api/auth/me" 2>/dev/null | grep -q '"needsAccount":true'; then
+    code="$(cat /var/lib/dispatch/setup-code 2>/dev/null || true)"
+    setup="${code:+/#setup=$code}"
+  fi
   if $lan; then
-    info "Open $B$scheme://$address:$PORT$R"
-    [ -z "$url" ] || info "or $B$url$R from anywhere on your tailnet"
+    info "Open $B$scheme://$address:$PORT$setup$R"
+    [ -z "$url" ] || info "or $B$url$setup$R from anywhere on your tailnet"
     if [ "$scheme" = https ]; then
       info "The browser warns that the connection isn't private, because Dispatch signs its own certificate."
       info "Continue past it once per device, or install the certificate from Settings > General."
     fi
   elif [ -n "$url" ]; then
-    info "Open $B$url$R"
+    info "Open $B$url$setup$R"
   else
     info "Dispatch listens on this machine only (HOST in /etc/dispatch/env). Reach it with"
     info "  $B""ssh -N -L $PORT:127.0.0.1:$PORT ${SUDO_USER:-root}@$address$R"
-    info "then open $B""http://127.0.0.1:$PORT$R"
+    info "then open $B""http://127.0.0.1:$PORT$setup$R"
   fi
-  if curl -fsS --max-time 5 "http://127.0.0.1:$PORT/api/auth/me" 2>/dev/null | grep -q '"needsAccount":true'; then
-    info "Make your account there now: until one exists, anyone who can reach Dispatch can make it."
+  if [ -n "$code" ]; then
+    info "Make your account there. The link carries its one-time setup code, $B$code$R; without it nobody can."
   fi
   if $lan && ! private_address "$address"; then
     warn "$address is a public address, so Dispatch is open to the internet. Block port $PORT in a firewall and reach Dispatch through Tailscale instead."

@@ -41,8 +41,10 @@ test('a reset takes every bot down, then erases the data and exits for a fresh s
   fs.writeFileSync(data('dispatch.db.before-something'), '');
   fs.writeFileSync(data('notes.txt'), 'not ours');
 
+  fs.writeFileSync(data('setup-code'), 'OLDC-ODE0\n');
   const res = await reset({ confirm: 'reset' });
   expect(res.status).toBe(200);
+  const { setupCode } = (await res.json()) as { setupCode: string };
   // By the reply every bot is down, the group first; nothing is erased yet.
   expect(bots()).toEqual([]);
   expect(steps).toEqual([`files ${team.id}`, ...[ada, bea.id].flatMap((id) => [`engine ${id}`, `screen ${id}`, `files ${id}`])]);
@@ -52,5 +54,8 @@ test('a reset takes every bot down, then erases the data and exits for a fresh s
   await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
   expect(steps.at(-1)).toBe('all files');
   expect(db.open).toBe(false);
-  expect(fs.readdirSync(env.dataDir)).toEqual(['notes.txt']);
+  // The fresh install's account takes the code the reply gave the browser.
+  expect(fs.readdirSync(env.dataDir).sort()).toEqual(['notes.txt', 'setup-code']);
+  expect(fs.readFileSync(data('setup-code'), 'utf8').trim()).toBe(setupCode);
+  expect(setupCode).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
 });

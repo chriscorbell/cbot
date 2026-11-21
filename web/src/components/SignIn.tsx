@@ -1,7 +1,8 @@
-import { useRef, useState, type Ref } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { BotAvatar } from '../avatar/BotAvatar';
 import { ApiError } from '../lib/api';
+import { givenSetupCode, onSetupCode } from '../lib/setupCode';
 import { useStore } from '../store';
 import { useExiting } from './Presence';
 
@@ -54,7 +55,9 @@ export function PasswordField({ id, label, value, onChange, autoComplete, inputR
 
 /**
  * The screen before the app: the first-run form while no account exists, then the sign-in form.
- * It sits over the app and fades out once signed in, so the chat appears underneath it.
+ * It sits over the app and fades out once signed in, so the chat appears underneath it. The first-run
+ * form also needs the setup code; it asks for it only when the page came without one (lib/setupCode.ts)
+ * or the server refused the one it came with.
  */
 export function SignIn() {
   const exiting = useExiting();
@@ -62,17 +65,29 @@ export function SignIn() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [code, setCode] = useState(givenSetupCode);
+  const [askCode, setAskCode] = useState(() => !givenSetupCode());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which field the error is about: the password, or the setup code.
+  const [codeWrong, setCodeWrong] = useState(false);
   const [shaking, setShaking] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  // The installer's link opened in this tab while the form shows.
+  useEffect(() => onSetupCode((given) => {
+    setCode(given);
+    setAskCode(false);
+    if (codeWrong) { setError(null); setCodeWrong(false); }
+  }), [codeWrong]);
   const name = username.trim();
-  const ready = !!name && !!password && (!firstRun || !!confirm) && !busy;
+  const ready = !!name && !!password && (!firstRun || (!!confirm && !!code.trim())) && !busy;
 
-  const refuse = (message: string) => {
+  const refuse = (message: string, field = passwordRef) => {
     setError(message);
+    setCodeWrong(field === codeRef);
     setShaking(true);
-    passwordRef.current?.focus();
+    field.current?.focus();
   };
 
   const submit = async () => {
@@ -85,13 +100,19 @@ export function SignIn() {
     setError(null);
     try {
       const st = useStore.getState();
-      await (firstRun ? st.createAccount(name, password) : st.signIn(name, password));
+      await (firstRun ? st.createAccount(name, password, code) : st.signIn(name, password));
     } catch (e) {
       // Someone else created the account first, or it was reset meanwhile: switch forms and say why.
       if (e instanceof ApiError && e.status === 409) useStore.setState({ needsAccount: !firstRun });
+      setBusy(false);
+      // A wrong setup code: the passwords can stay, and the code is asked for.
+      if (firstRun && e instanceof ApiError && e.status === 403) {
+        setAskCode(true);
+        setCode('');
+        return refuse(messageOf(e), codeRef);
+      }
       setPassword('');
       setConfirm('');
-      setBusy(false);
       refuse(messageOf(e));
     }
   };
@@ -109,6 +130,27 @@ export function SignIn() {
           <h1 id="signin-title" className="signin__title">{firstRun ? 'Create your account' : 'Sign in to Dispatch'}</h1>
           {firstRun && <p className="signin__sub">Choose the user name and password you’ll sign in with.</p>}
         </div>
+        {firstRun && askCode && (
+          <div className="signin__field signin__reveal-in">
+            <label className="signin__label" htmlFor="signin-code">Setup code</label>
+            <input
+              ref={codeRef}
+              id="signin-code"
+              className="text-input"
+              name="code"
+              autoComplete="one-time-code"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              aria-invalid={codeWrong || undefined}
+              aria-describedby={codeWrong ? 'signin-code-hint signin-error' : 'signin-code-hint'}
+              autoFocus
+            />
+            <div id="signin-code-hint" className="signin__hint">In the link the installer printed</div>
+          </div>
+        )}
         <div className="signin__field">
           <label className="signin__label" htmlFor="signin-user">User name</label>
           <input
@@ -121,7 +163,7 @@ export function SignIn() {
             spellCheck={false}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            autoFocus
+            autoFocus={!(firstRun && askCode)}
           />
         </div>
         <PasswordField
@@ -131,8 +173,8 @@ export function SignIn() {
           onChange={setPassword}
           autoComplete={firstRun ? 'new-password' : 'current-password'}
           inputRef={passwordRef}
-          invalid={!!error}
-          describedBy={error ? 'signin-error' : undefined}
+          invalid={!!error && !codeWrong}
+          describedBy={error && !codeWrong ? 'signin-error' : undefined}
           hint={firstRun ? `At least ${MIN_PASSWORD} characters` : undefined}
         />
         {firstRun && (

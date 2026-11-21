@@ -22,11 +22,12 @@ import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
 import { filesNote } from './library.js';
 import { voiceApi } from './voice.js';
 import { eraseAndExit, takeDown } from './reset.js';
+import { makeSetupCode } from './lib/auth.js';
 import { runningCommit } from './updates.js';
 import { searchLibraries, searchMessages } from './search.js';
 import { mapSpeed, mapVoice, voiceCatalog } from './speech.js';
 import { AVATAR_COLORS, AVATAR_SHAPES, EFFORTS, type ServerEvent } from './types.js';
-import type { BotResponse, BotsResponse, ComputerResponse, Ok, PermissionsResponse, ProvidersResponse, RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, SearchResponse, SecretId, SecretState } from './contract.js';
+import type { BotResponse, BotsResponse, ComputerResponse, Ok, PermissionsResponse, ResetResponse, ProvidersResponse, RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, SearchResponse, SecretId, SecretState } from './contract.js';
 
 export const api = new Hono<AuthVars>();
 
@@ -119,13 +120,15 @@ api.post('/setup/finish', async (c) => {
 
 /**
  * Settings > General > Reset Dispatch (reset.ts). The reply comes once every bot is down; then the data is
- * erased and the server restarts empty, so the web app waits for an answer that asks for a new account.
+ * erased and the server restarts empty, so the web app waits for an answer that asks for a new account,
+ * and makes it with the setup code in this reply.
  */
 api.post('/reset', async (c) => {
   await body(c, z.object({ confirm: z.literal('reset') }));
   await takeDown();
-  setTimeout(() => eraseAndExit().catch((e) => { console.error('[reset] erasing failed:', e); process.exit(1); }), 300);
-  return c.json({ ok: true } satisfies Ok);
+  const setupCode = makeSetupCode();
+  setTimeout(() => eraseAndExit(setupCode).catch((e) => { console.error('[reset] erasing failed:', e); process.exit(1); }), 300);
+  return c.json({ ok: true, setupCode } satisfies ResetResponse);
 });
 
 /** What a bot's settings, look, voice and rail menu may change, and the column each one is. */

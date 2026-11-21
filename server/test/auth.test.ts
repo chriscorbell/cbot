@@ -1,7 +1,8 @@
 import { beforeAll, expect, test } from 'vitest';
 
 const { createApp } = await import('../src/app.js');
-const { initAuth, resetAccount, startSession } = await import('../src/lib/auth.js');
+const { initAuth, resetAccount, setupCode, SETUP_CODE_FILE, startSession } = await import('../src/lib/auth.js');
+const fs = await import('node:fs');
 const { seedOwner } = await import('./helpers.js');
 const { hub } = await import('../src/lib/hub.js');
 const { db } = await import('../src/db.js');
@@ -13,7 +14,7 @@ beforeAll(() => { owner = seedOwner(); db.prepare('UPDATE users SET setup_at=NUL
 
 const post = (path: string, body: unknown, cookie?: string) =>
   app.request(path, { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body) });
-const setup = (username: string, password: string) => post('/api/auth/setup', { username, password });
+const setup = (username: string, password: string, code = setupCode()) => post('/api/auth/setup', { username, password, code });
 const login = (username: string, password: string) => post('/api/auth/login', { username, password });
 const cookieOf = (res: Response) => res.headers.get('set-cookie')!.split(';')[0];
 const me = async (cookie?: string) => (await app.request('/api/auth/me', { headers: cookie ? { cookie } : {} })).json() as Promise<{ user: { id: string; username: string } | null; needsAccount: boolean; needsSetup: boolean }>;
@@ -38,6 +39,26 @@ test('a fresh install has no account: the app is open, the API is not, and nobod
   expect((await app.request('/api/bots', { headers: { authorization: `Basic ${Buffer.from('a:b').toString('base64')}` } })).status).toBe(401);
 });
 
+test('a fresh install makes a setup code, and the account needs it, however it is typed', async () => {
+  initAuth(owner);
+  const code = setupCode()!;
+  expect(code).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+  expect(fs.statSync(SETUP_CODE_FILE).mode & 0o777).toBe(0o600);
+  // The same code across restarts until the account exists.
+  initAuth(owner);
+  expect(setupCode()).toBe(code);
+  for (const wrong of ['', 'AAAA-AAAA', code.slice(0, 8)]) {
+    const r = await setup('ada', 'correct horse', wrong);
+    expect(r.status).toBe(403);
+    expect(((await r.json()) as { error: string }).error).toBe(`That setup code isn’t right. It’s in the link the installer printed, and on the machine in ${SETUP_CODE_FILE}.`);
+  }
+  expect((await me()).needsAccount).toBe(true);
+  // A deleted code comes back as a new one rather than shutting everyone out.
+  fs.rmSync(SETUP_CODE_FILE);
+  expect((await setup('ada', 'correct horse', code)).status).toBe(403);
+  expect(setupCode()).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+});
+
 test('the first-run form checks the user name and password before creating anything', async () => {
   expect((await setup('', 'long enough')).status).toBe(400);
   expect((await setup('two words', 'long enough')).status).toBe(400);
@@ -46,7 +67,8 @@ test('the first-run form checks the user name and password before creating anyth
 });
 
 test('the first visit creates the account and is signed in; a second can only sign in', async () => {
-  const [a, b] = await Promise.all([setup('ada', 'correct horse'), setup('eve', 'battery staple')]);
+  const typed = setupCode()!.toLowerCase().replace('-', ' ');
+  const [a, b] = await Promise.all([setup('ada', 'correct horse', typed), setup('eve', 'battery staple')]);
   expect([a.status, b.status].sort()).toEqual([200, 409]);
   const first = a.status === 200 ? a : b;
   const name = a.status === 200 ? 'ada' : 'eve';
@@ -55,6 +77,8 @@ test('the first visit creates the account and is signed in; a second can only si
   expect(await me(cookie)).toEqual({ user: { id: owner.id, username: name, avatarUrl: null }, needsAccount: false, needsSetup: true });
   expect(await signedIn(cookie)).toBe(true);
   expect(((await (a.status === 409 ? a : b).json()) as { error: string }).error).toBe('An account already exists. Sign in instead.');
+  // The code is spent.
+  expect(setupCode()).toBeNull();
   // Settle on one account for the rest of the file.
   if (name !== 'ada') { resetAccount(); expect((await setup('ada', 'correct horse')).status).toBe(200); }
 });
@@ -107,10 +131,12 @@ test('changing the password needs the current one and signs out every other brow
 test('resetting the account signs everyone out and brings back the first-run form; the data stays', async () => {
   db.prepare('UPDATE users SET setup_at=1').run();
   const cookie = cookieOf(await login('ada', 'new password'));
-  resetAccount();
+  const code = resetAccount();
   expect(await signedIn(cookie)).toBe(false);
   expect(await me()).toEqual({ user: null, needsAccount: true, needsSetup: false });
-  const again = await setup('ada', 'another one');
+  // The reset hands out a new code, and only it makes the account.
+  expect(setupCode()).toBe(code);
+  const again = await setup('ada', 'another one', code);
   expect(again.status).toBe(200);
   // The bots are still there, so the setup wizard doesn't come back.
   expect(await me(cookieOf(again))).toMatchObject({ user: { id: owner.id }, needsSetup: false });

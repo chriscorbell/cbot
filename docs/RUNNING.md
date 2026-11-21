@@ -78,11 +78,15 @@ On the machine, run:
 sudo DATA_DIR=/var/lib/dispatch node /srv/dispatch/current/server/dist/reset-account.js
 ```
 
-The next visit creates a new account, and the bots and chats stay. In the development container, it's `docker exec dispatch-dev-dispatch-1 node server/dist/reset-account.js`.
+It prints a new setup code. The next visit creates a new account with it, and the bots and chats stay. In the development container, it's `docker exec dispatch-dev-dispatch-1 node server/dist/reset-account.js`.
+
+## The setup code
+
+Until an account exists, making one takes a one-time setup code, so that nobody else who can reach Dispatch makes it first. The installer prints a link that carries it. Without the link, the first-run form asks for the code; it's on the machine in `/var/lib/dispatch/setup-code` (`sudo cat` it), and in the log (`journalctl -u dispatch | grep 'setup code'`). In the development container, it's `docker exec dispatch-dev-dispatch-1 cat /data/setup-code`.
 
 ## Starting over
 
-**Settings** > **General** > **Reset Dispatch** asks twice, then erases every bot, chat, file, provider key and setting and the account, and Dispatch restarts as a fresh install. Programs the bots installed on the machine stay. To remove Dispatch altogether, use the [uninstaller](../README.md#uninstall).
+**Settings** > **General** > **Reset Dispatch** asks twice, then erases every bot, chat, file, provider key and setting and the account, and Dispatch restarts as a fresh install. The page reloads into the first-run form with the new setup code already filled in. Programs the bots installed on the machine stay. To remove Dispatch altogether, use the [uninstaller](../README.md#uninstall).
 
 ## Deploying from a checkout
 

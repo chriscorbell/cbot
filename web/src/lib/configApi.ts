@@ -1,6 +1,6 @@
 import type { ApprovalMode, Bot, Skill } from '@shared/types';
 import type {
-  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UpdateResponse, UrlResponse,
+  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, ResetResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UpdateResponse, UrlResponse,
 } from '@shared/contract';
 import { fileStart, request as req } from './http';
 
@@ -35,7 +35,7 @@ export const configApi = {
   computerDetails: () => req<ComputerDetails>('GET', '/computer/details'),
   resetScreen: (botId: string) => req<Ok>('POST', `/bots/${botId}/screen/reset`),
   /** Erases everything and restarts the server empty (server/src/reset.ts). */
-  resetDispatch: () => req<Ok>('POST', '/reset', { confirm: 'reset' }),
+  resetDispatch: () => req<ResetResponse>('POST', '/reset', { confirm: 'reset' }),
   /** Tells the bot the person has stopped driving its screen. */
   handback: (botId: string) => req<Ok>('POST', `/bots/${botId}/handback`),
   /** Switch the open screen connection `conn` (ComputerScreen names it) between watching and control. */

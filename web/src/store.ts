@@ -3,6 +3,7 @@ import type { Bot, ComputerState, LiveState, Routine, Row, UpdateState, User } f
 import { api, type RowPatch } from './lib/api';
 import { configApi } from './lib/configApi';
 import { onSignedOut } from './lib/http';
+import { forgetSetupCode, reloadWithSetupCode } from './lib/setupCode';
 
 export type ModalKind = 'create' | 'search' | 'group' | null;
 
@@ -50,7 +51,7 @@ interface State {
   /** The sign-in screen's form. Throws the server's message when it refuses. */
   signIn(username: string, password: string): Promise<void>;
   /** The first-run form: creates the one account and signs in. Throws the server's message when it refuses. */
-  createAccount(username: string, password: string): Promise<void>;
+  createAccount(username: string, password: string, code: string): Promise<void>;
   /** Ends the session and reloads, so nothing from it stays in memory. */
   signOut(): Promise<void>;
   /** The setup wizard's last step. `greet`: the first bot has a model, so it says hello now. */
@@ -144,8 +145,9 @@ export const useStore = create<State>((set, get) => ({
     set({ user, needsAccount: false, needsSetup, transcripts: {}, routines: {} });
   },
 
-  async createAccount(username, password) {
-    const { user, needsSetup } = await api.setup(username, password);
+  async createAccount(username, password, code) {
+    const { user, needsSetup } = await api.setup(username, password, code);
+    forgetSetupCode();
     set({ user, needsAccount: false, needsSetup });
   },
 
@@ -155,7 +157,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async resetDispatch() {
-    await configApi.resetDispatch();
+    const { setupCode } = await configApi.resetDispatch();
     // Every bot is down; the server now erases its data and restarts (server/src/reset.ts). Until the
     // new one asks for an account, a 401 is part of the reset, not a session running out.
     resetting = true;
@@ -167,7 +169,8 @@ export const useStore = create<State>((set, get) => ({
       if (Date.now() > giveUp) { resetting = false; throw new Error('Dispatch hasn’t started again yet. Check that its service is running, then reload this page.'); }
     }
     // A fresh page: nothing loaded for the old bots stays behind. Until it goes, the dialog stays as it is.
-    window.location.reload();
+    // It opens with the new install's setup code, so the first-run form needs nothing from the machine.
+    reloadWithSetupCode(setupCode);
     return new Promise<void>(() => {});
   },
 
