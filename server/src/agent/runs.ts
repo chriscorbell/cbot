@@ -1,6 +1,7 @@
+import { db, now, type RunRecord } from '../db.js';
 import { failureText, sseEvents } from '../lib/sse.js';
 import { errorText } from '../lib/errors.js';
-import { engineFor, runSlot, type Engine } from '../engine.js';
+import { engineFor, gatewayIfRunning, runSlot, type Engine } from '../engine.js';
 import type { Conversation } from '../store.js';
 import { askApproval, runEnded, runMoved, type Settled } from './approvals.js';
 import { eventName, runEvent, runState, startedRun, stoppedStatus, type ApprovalRequest, type StepEvent } from './run-events.js';
@@ -23,6 +24,10 @@ import { eventName, runEvent, runState, startedRun, stoppedStatus, type Approval
  * The caller's own Stop aborts `follow`'s signal, which throws. `close` is the end, however it came:
  * the gateway's warm-up slot is released, prompts still waiting expire (agent/approvals.ts) and a run
  * that hasn't ended is stopped, since nobody follows it any more.
+ *
+ * A run is in `runs` from when Hermes has it until it is seen to end or Hermes answers its stop. The
+ * gateways outlive this server, so a restart (every deploy and update) finds there the runs nobody
+ * follows any more and settles them before any new run starts (settleLeftoverRuns).
  */
 
 export interface RunRequest {
@@ -48,13 +53,70 @@ const LOST = 'the agent stopped answering before it finished; its gateway may ha
 /** Statuses of a run that is over (GET /v1/runs/<id>). */
 const OVER = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
 
-/** Who asked for the run, for the log. */
-export type Surface = 'chat' | 'voice' | 'summary';
+/** Who asked for the run. */
+export type Surface = RunRecord['surface'];
 
 const headers = (e: Engine, json: boolean) => ({
   ...(json ? { 'content-type': 'application/json' } : { accept: 'text/event-stream' }),
   ...(e.key ? { authorization: `Bearer ${e.key}` } : {}),
 });
+
+const remember = db.prepare<[string, string, number, string]>('INSERT OR REPLACE INTO runs(id,bot_id,surface,started_at) SELECT ?, id, ?, ? FROM bots WHERE id=?');
+const forget = db.prepare<[string]>('DELETE FROM runs WHERE id=?');
+
+/** What GET /v1/runs/<id> says of a run, or null when the gateway doesn't answer or doesn't know it. */
+async function stateOf(engine: Engine, id: string) {
+  const res = await fetch(`${engine.url}/v1/runs/${id}`, { headers: headers(engine, true), signal: AbortSignal.timeout(5_000) }).catch(() => null);
+  return res?.ok ? runState(await res.json().catch(() => null)) : null;
+}
+
+/** Asks Hermes to stop a run. The status it answered, or null when it didn't answer or refused. */
+async function requestStop(engine: Engine, id: string, what: string): Promise<string | null> {
+  const res = await fetch(`${engine.url}/v1/runs/${id}/stop`, { method: 'POST', headers: headers(engine, true), body: '{}', signal: AbortSignal.timeout(10_000) })
+    .catch((e: unknown) => {
+      console.warn(`[hermes] couldn't stop ${what} ${id}; it may still be running: ${errorText(e)}`);
+      return null;
+    });
+  if (!res) return null;
+  if (!res.ok) {
+    console.warn(`[hermes] Hermes refused to stop ${what} ${id} (HTTP ${res.status}); it may still be running`);
+    return null;
+  }
+  return stoppedStatus(await res.json().catch(() => null));
+}
+
+/** Settles once the runs the last process left are settled; new runs wait for it. */
+let leftovers: Promise<unknown> = Promise.resolve();
+
+/** A run the last process left, settled: `answer` is its final answer if Hermes finished it meanwhile. */
+export interface Leftover { botId: string; surface: Surface; answer: string | null }
+
+/**
+ * On server start: the runs the last process started and never saw end. Their events went to a
+ * process that is gone, so nobody follows them. One Hermes still has going is stopped; one it finished
+ * meanwhile hands back its answer. By run id.
+ */
+export function settleLeftoverRuns(): Promise<Map<string, Leftover>> {
+  const left = db.prepare<[], RunRecord>('SELECT * FROM runs').all();
+  const settled = (async () => {
+    const out = new Map<string, Leftover>();
+    await Promise.all(left.map(async (r) => {
+      let answer: string | null = null;
+      const engine = gatewayIfRunning(r.bot_id);
+      const state = engine ? await stateOf(engine, r.id) : null;
+      if (engine && state?.status === 'completed') answer = state.output.trim();
+      else if (engine && state && !OVER.has(state.status)) {
+        const stopped = await requestStop(engine, r.id, `the ${r.surface} run the last process left`);
+        if (stopped !== null) console.log(`[hermes] ${r.bot_id}: stopped the ${r.surface} run ${r.id}, which nobody follows since the restart`);
+      }
+      forget.run(r.id);
+      out.set(r.id, { botId: r.bot_id, surface: r.surface, answer });
+    }));
+    return out;
+  })();
+  leftovers = settled.catch(() => {});
+  return settled;
+}
 
 export class HermesRun {
   private engine: Engine | null = null;
@@ -87,6 +149,9 @@ export class HermesRun {
   async start(req: RunRequest, signal: AbortSignal): Promise<boolean> {
     const engine = await this.gateway();
     if (signal.aborted) return false;
+    // Not beside a run the last process left on the same session.
+    await leftovers;
+    if (signal.aborted) return false;
     this.slot = await runSlot(this.botId);
     if (signal.aborted) return false;
     let answered!: () => void;
@@ -110,6 +175,7 @@ export class HermesRun {
       const id = startedRun(await res.json());
       if (!id) throw new Error('Hermes started no run');
       this.runId = id;
+      remember.run(id, this.surface, now(), this.botId);
       return true;
     } finally {
       answered();
@@ -138,15 +204,15 @@ export class HermesRun {
         if (ev.event !== 'approval.request' && ev.event !== 'approval.responded') runMoved(id);
         switch (ev.event) {
           case 'run.completed':
-            this.ended = true;
+            this.over();
             return { how: 'completed', output: typeof ev.output === 'string' ? ev.output.trim() : '' };
           case 'run.failed':
-            this.ended = true;
+            this.over();
             return { how: 'failed', error: typeof ev.error === 'string' && ev.error ? ev.error : 'the agent run failed' };
           case 'run.cancelled':
           case 'run.interrupted':
             // Not a Stop from here (that aborts `signal`): Hermes, or something else, stopped the run.
-            this.ended = true;
+            this.over();
             return { how: 'failed', error: typeof ev.error === 'string' && ev.error ? ev.error : 'the run was stopped' };
           default:
             handling = true;
@@ -170,14 +236,13 @@ export class HermesRun {
    * still has going is stopped when the caller closes it, since nobody can follow it now.
    */
   private async lost(engine: Engine, id: string): Promise<RunEnd> {
-    const res = await fetch(`${engine.url}/v1/runs/${id}`, { headers: headers(engine, true), signal: AbortSignal.timeout(5_000) }).catch(() => null);
-    const state = res?.ok ? runState(await res.json().catch(() => null)) : null;
+    const state = await stateOf(engine, id);
     if (state?.status === 'completed') {
-      this.ended = true;
+      this.over();
       return { how: 'completed', output: state.output.trim(), recovered: true };
     }
     // Over, or the gateway that ran it is gone: nothing is left to stop.
-    if (!state || OVER.has(state.status)) this.ended = true;
+    if (!state || OVER.has(state.status)) this.over();
     console.warn(`[hermes] ${this.botId}: the ${this.surface} run ${id} sent no end; Hermes says ${state ? state.status : 'nothing of it'}`);
     return { how: 'failed', error: LOST };
   }
@@ -208,19 +273,18 @@ export class HermesRun {
       const engine = this.engine;
       const id = this.runId;
       if (!engine || !id) return '';
-      const res = await fetch(`${engine.url}/v1/runs/${id}/stop`, { method: 'POST', headers: headers(engine, true), body: '{}', signal: AbortSignal.timeout(10_000) })
-        .catch((e: unknown) => {
-          console.warn(`[hermes] ${this.botId}: couldn't stop the ${this.surface} run ${id}; it may still be running: ${errorText(e)}`);
-          return null;
-        });
-      if (!res) return '';
-      if (!res.ok) {
-        console.warn(`[hermes] ${this.botId}: Hermes refused to stop the ${this.surface} run ${id} (HTTP ${res.status}); it may still be running`);
-        return '';
-      }
-      return stoppedStatus(await res.json().catch(() => null));
+      const status = await requestStop(engine, id, `${this.botId}'s ${this.surface} run`);
+      // Hermes has it; one it couldn't be asked about stays in `runs` for the next start to settle.
+      if (status !== null) forget.run(id);
+      return status ?? '';
     })();
     return this.stopping;
+  }
+
+  /** Hermes says the run is over: nothing is left to stop or settle. */
+  private over() {
+    this.ended = true;
+    if (this.runId) forget.run(this.runId);
   }
 
   /** Done with the run, however it went. A run that hasn't ended is stopped: nobody follows it any more. */

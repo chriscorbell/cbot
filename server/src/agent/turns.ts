@@ -1,4 +1,5 @@
-import { db, type RowRecord } from '../db.js';
+import { z } from 'zod';
+import { db, now, type RowRecord, type TurnRecord } from '../db.js';
 import { appendRow, conversation, emitBot, getBotRow, requireBot, type Conversation } from '../store.js';
 import { screenForWork } from '../computer.js';
 import type { Engine } from '../engine.js';
@@ -6,8 +7,8 @@ import type { RowBody } from '../types.js';
 import { instructionsFor } from './prompt.js';
 import { callNews, markTold } from './catchup.js';
 import * as live from './live.js';
-import { TurnTranscript, type ToolClaim } from './transcript.js';
-import { HermesRun } from './runs.js';
+import { closeCutShort, TurnTranscript, type ToolClaim } from './transcript.js';
+import { HermesRun, settleLeftoverRuns } from './runs.js';
 
 /**
  * Turns: each one hands a message to the bot's Hermes gateway and streams the answer into the chat.
@@ -24,6 +25,10 @@ import { HermesRun } from './runs.js';
  * started is skipped, and a running one writes only into its own conversation (store.ts Conversation),
  * so nothing of an old chat appears in a new one.
  *
+ * The runners live in memory, and every turn queued or running is also a row in `turns` until it ends,
+ * with its Hermes run once it has one. A restart (every deploy and update) starts from there
+ * (resumeTurns): queued turns run again, and one that was running is closed off in its chat.
+ *
  * The turn itself: make sure the bot's screen is ready (its browser tools point at it), then start a
  * Hermes run (agent/runs.ts) on the conversation's session and feed the run's events to a
  * TurnTranscript (transcript.ts). Stop asks Hermes to stop the run, which a dropped connection alone
@@ -32,13 +37,20 @@ import { HermesRun } from './runs.js';
  * (catchup.ts).
  */
 
-export type Trigger =
-  | { type: 'user'; text: string }
-  | { type: 'routine'; routineId: string; name: string; prompt: string }
-  | { type: 'bot'; fromBotId: string; fromName: string; text: string; depth: number }
-  | { type: 'system'; text: string };
+/** What a turn answers. Kept in `turns` as JSON and read back after a restart. */
+const TriggerSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('user'), text: z.string() }),
+  z.object({ type: z.literal('routine'), routineId: z.string(), name: z.string(), prompt: z.string() }),
+  z.object({ type: z.literal('bot'), fromBotId: z.string(), fromName: z.string(), text: z.string(), depth: z.number() }),
+  z.object({ type: z.literal('system'), text: z.string() }),
+]);
+export type Trigger = z.infer<typeof TriggerSchema>;
 
-interface Job { trigger: Trigger; generation: number }
+/** A queued or running turn: its row in `turns`, what it answers and the conversation it belongs to. */
+interface Job { id: number; trigger: Trigger; generation: number }
+
+const insertTurn = db.prepare<[string, number, string, number]>('INSERT INTO turns(bot_id,generation,trigger,created_at) VALUES (?,?,?,?)');
+const forgetTurn = db.prepare<[number]>('DELETE FROM turns WHERE id=?');
 
 interface Running {
   job: Job;
@@ -67,7 +79,8 @@ export function enqueue(botId: string, trigger: Trigger): boolean {
   let r = runners.get(botId);
   if (trigger.type === 'routine' && r && [r.current?.job, ...r.queued].some((j) => j?.trigger.type === 'routine' && j.trigger.routineId === trigger.routineId)) return false;
   if (!r) runners.set(botId, (r = { current: null, queued: [], idle: [] }));
-  r.queued.push({ trigger, generation: bot.generation });
+  const id = Number(insertTurn.run(botId, bot.generation, JSON.stringify(trigger), now()).lastInsertRowid);
+  r.queued.push({ id, trigger, generation: bot.generation });
   pump(botId, r);
   return true;
 }
@@ -81,7 +94,7 @@ export function interrupt(botId: string) {
 export function clear(botId: string) {
   const r = runners.get(botId);
   if (!r) return;
-  r.queued.length = 0;
+  for (const job of r.queued.splice(0)) forgetTurn.run(job.id);
   r.current?.abort.abort();
 }
 
@@ -105,9 +118,56 @@ function pump(botId: string, r: Runner) {
   runTurn(botId, running)
     .catch((e) => console.error('[agent] turn failed', botId, e))
     .finally(() => {
+      forgetTurn.run(job.id);
       r.current = null;
       pump(botId, r);
     });
+}
+
+/**
+ * On server start: the turns the last process had queued or running, in the order they were queued.
+ * One whose run hadn't started never reached Hermes, so it is queued again (it starts once the runs the
+ * last process left are settled, so never beside one), unless its chat was cleared since. One whose
+ * run had started was cut short: the run is settled with the others (agent/runs.ts: stopped, or its
+ * answer kept if Hermes finished it meanwhile), and its chat shows the answer or that it was
+ * interrupted, with the rows it left half-written closed (transcript.ts closeCutShort).
+ */
+export async function resumeTurns() {
+  const left = db.prepare<[], TurnRecord>('SELECT * FROM turns ORDER BY id').all();
+  // Read before anything new can write: every row still open now was left by the last process. By
+  // bot, in the chat it has open now; a New chat meanwhile leaves them in that one.
+  const open = new Map(db.prepare<[], { bot_id: string; generation: number; seqs: string }>(
+    `SELECT r.bot_id, r.generation, json_group_array(r.seq) AS seqs FROM rows r JOIN bots b ON b.id = r.bot_id AND b.generation = r.generation
+     WHERE (r.kind = 'message' AND json_extract(r.body, '$.streaming') = 1)
+        OR (r.kind = 'tool-call' AND json_extract(r.body, '$.status') IN ('running', 'awaiting-approval'))
+     GROUP BY r.bot_id`,
+  ).all().map((o) => [o.bot_id, { generation: o.generation, seqs: z.array(z.number()).parse(JSON.parse(o.seqs)) }]));
+  const cut = new Map<string, { generation: number; runId: string }>();
+  for (const t of left) {
+    forgetTurn.run(t.id);
+    const bot = getBotRow(t.bot_id);
+    // Its chat was cleared since, or the bot is gone.
+    if (!bot || bot.generation !== t.generation) continue;
+    if (t.run_id) {
+      cut.set(bot.id, { generation: t.generation, runId: t.run_id });
+      continue;
+    }
+    let json: unknown = null;
+    try { json = JSON.parse(t.trigger); } catch { /* checked below */ }
+    const trigger = TriggerSchema.safeParse(json);
+    if (trigger.success) enqueue(bot.id, trigger.data);
+    else console.warn(`[agent] ${bot.id}: dropped a queued turn that can't be read: ${t.trigger.slice(0, 200)}`);
+  }
+  const runs = await settleLeftoverRuns();
+  for (const botId of new Set([...cut.keys(), ...open.keys()])) {
+    // A run not among those left ended while the last process still followed it: its turn was ending too.
+    const run = runs.get(cut.get(botId)?.runId ?? '');
+    const seqs = open.get(botId)?.seqs ?? [];
+    const generation = open.get(botId)?.generation ?? cut.get(botId)?.generation;
+    if (!getBotRow(botId) || generation === undefined || (!run && !seqs.length)) continue;
+    closeCutShort(conversation(botId, generation), seqs, run?.answer ?? null);
+    emitBot(botId);
+  }
 }
 
 // ---------- what the app's tools (mcp.ts) see of the running turn ----------
@@ -230,6 +290,7 @@ async function runTurn(botId: string, running: Running) {
       session: sessionFor(botId, convo.generation), effort: bot.effort ?? 'medium',
     }, signal);
     if (!started) throw new Error('interrupted');
+    db.prepare('UPDATE turns SET run_id=? WHERE id=?').run(run.id, running.job.id);
     sessions.set(botId, convo.generation);
     // Hermes has the run and its input: the news in it is told.
     if (news) markTold(botId, convo.generation, news.upTo);

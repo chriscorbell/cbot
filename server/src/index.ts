@@ -11,7 +11,7 @@ import { initSpeech } from './speech.js';
 import { initVoice } from './voice.js';
 import { initRoutines } from './routines.js';
 import { initProactive } from './proactive.js';
-import { enqueue } from './agent/turns.js';
+import { enqueue, resumeTurns } from './agent/turns.js';
 import { expireStaleApprovals } from './agent/approvals.js';
 import { initEngines } from './engine.js';
 import { initMemoryWatch } from './engine-memory.js';
@@ -32,7 +32,8 @@ import { initChromeUpdates } from './chrome-updates.js';
  *     too with HTTPS=1 (https.ts), once its certificate is ready.
  *  4. Routines and check-ins are scheduled, unless DISPATCH_NO_SCHEDULER=1.
  *  5. Gateways, screens and the speech catalog are brought back in the background, and stale
- *     voice calls are swept every 10 minutes.
+ *     voice calls are swept every 10 minutes. The turns and Hermes runs the last process left are
+ *     settled: runs nobody follows any more are stopped, and queued turns run again.
  *  6. Every bot's memory files are watched, so an open Memories tab shows what the bot saves.
  *  7. On a machine the installer set up, GitHub is checked for a newer Dispatch now and then (updates.ts).
  *  8. Every hour, a bot's Chrome that runs an older version than apt installed starts again once the
@@ -76,6 +77,7 @@ if (process.env.DISPATCH_NO_SCHEDULER !== '1') {
 // After a server restart the displays and gateways still run as their systemd units and are used as
 // they are; after a reboot (or in a new dev container) nothing runs yet: bring back what the bots had.
 initEngines();
+resumeTurns().catch((e: unknown) => console.error('[agent] settling what the last process left failed:', e));
 initScreens();
 initSpeech();
 initVoice();

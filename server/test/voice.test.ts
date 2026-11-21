@@ -12,7 +12,7 @@ const { createApp } = await import('../src/app.js');
 const { mapVoice } = await import('../src/speech.js');
 const { clearConversation, listRows } = await import('../src/store.js');
 const { json, seedBot, seedOwner } = await import('./helpers.js');
-const { browserName, echoSeconds } = await import('../src/voice.js');
+const { browserName, dropCalls, echoSeconds } = await import('../src/voice.js');
 
 const app = createApp();
 let userId: string;
@@ -42,6 +42,21 @@ test('a call writes a start row, and its end row with the transcript when it han
   // A second /end (the beacon after the button) is a no-op.
   const again = await app.request('/api/voice/end', json({ botId: bot.id, callId, transcript: [] }));
   expect(await again.json()).toMatchObject({ duplicate: true });
+});
+
+test('a call the server lost in a restart still ends with its record and transcript, once', async () => {
+  const bot = seedBot(userId, { name: 'Rae' });
+  const { callId } = (await (await app.request('/api/voice/session', json({ botId: bot.id }))).json()) as { callId: string };
+  dropCalls(bot.id); // all a restart leaves of the calls in memory
+  const end = await app.request('/api/voice/end', json({ botId: bot.id, callId, transcript: [{ role: 'user', text: 'Hi' }, { role: 'assistant', text: 'Hello.' }] }));
+  expect(((await end.json()) as { seq?: number }).seq).toBeTypeOf('number');
+  expect(events(bot.id)).toEqual(['started', 'ended (2 lines)']);
+  const again = await app.request('/api/voice/end', json({ botId: bot.id, callId, transcript: [] }));
+  expect(await again.json()).toMatchObject({ duplicate: true });
+  // A call nobody started is no call.
+  const made = await app.request('/api/voice/end', json({ botId: bot.id, callId: 'call_never', transcript: [] }));
+  expect(await made.json()).toMatchObject({ duplicate: true });
+  expect(events(bot.id)).toEqual(['started', 'ended (2 lines)']);
 });
 
 test("the bot's own agent titles and summarises a call when it ends, on a session beside the call's", async () => {

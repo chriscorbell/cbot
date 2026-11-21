@@ -12,6 +12,7 @@ vi.mock('../src/computer.js', async (orig) => ({
 vi.mock('../src/engine.js', async (orig) => ({
   ...(await orig<typeof import('../src/engine.js')>()),
   engineFor: async () => ({ url: 'http://engine.test', key: 'k', home: '/nonexistent' }),
+  gatewayIfRunning: () => ({ url: 'http://engine.test', key: 'k', home: '/nonexistent' }),
 }));
 
 const loop = await import('../src/agent/turns.js');
@@ -532,5 +533,79 @@ describe("Hermes' approval prompts", () => {
     expect(card(bot.id)!.command).toBeUndefined();
     after.open();
     await loop.whenIdle(bot.id);
+  });
+});
+
+describe('after a restart', () => {
+  /** What a server process that stopped mid-turn leaves: the turn in `turns`, its run in `runs`, and the rows it was writing. */
+  function leftMidTurn(runId: string) {
+    const bot = seedBot(userId);
+    store.appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'one' });
+    store.appendRow(bot.id, 'tool-call', { type: 'tool-call', callId: 'c1', name: 'terminal', label: 'Running commands', status: 'running' });
+    store.appendRow(bot.id, 'message', { type: 'message', role: 'assistant', text: 'The answer', streaming: true });
+    const at = Date.now();
+    db.prepare("INSERT INTO turns(bot_id,generation,trigger,run_id,created_at) VALUES (?,1,'{\"type\":\"user\",\"text\":\"one\"}',?,?)").run(bot.id, runId, at);
+    db.prepare("INSERT INTO runs(id,bot_id,surface,started_at) VALUES (?,?,'chat',?)").run(runId, bot.id, at);
+    return bot;
+  }
+  const left = (botId: string) => [
+    db.prepare('SELECT COUNT(*) n FROM turns WHERE bot_id=?').get(botId),
+    db.prepare('SELECT COUNT(*) n FROM runs WHERE bot_id=?').get(botId),
+  ];
+
+  test('a turn cut short is closed and says so, its run is stopped, and the messages queued behind it run', async () => {
+    const bot = leftMidTurn('run_old');
+    store.appendRow(bot.id, 'message', { type: 'message', role: 'user', text: 'two' });
+    db.prepare("INSERT INTO turns(bot_id,generation,trigger,created_at) VALUES (?,1,'{\"type\":\"user\",\"text\":\"two\"}',?)").run(bot.id, Date.now());
+    // A voice reply the last process was following: nobody hears it now.
+    db.prepare("INSERT INTO runs(id,bot_id,surface,started_at) VALUES ('run_call',?,'voice',?)").run(bot.id, Date.now());
+    const hermes = fakeHermes([ev.completed('Two it is.')]);
+    hermes.states.set('run_old', { status: 'running' });
+    hermes.sessions.add(`dispatch-${bot.id}-g1`); // the cut-short run made it
+    hermes.states.set('run_call', { status: 'waiting_for_approval' });
+
+    await loop.resumeTurns();
+    await loop.whenIdle(bot.id);
+    expect(rows(bot.id).map((r) => r.body)).toEqual([
+      expect.objectContaining({ text: 'one' }),
+      expect.objectContaining({ type: 'tool-call', status: 'error', summary: 'Interrupted' }),
+      { type: 'message', role: 'assistant', text: 'The answer', streaming: false },
+      expect.objectContaining({ text: 'two' }),
+      { type: 'notice', text: 'Interrupted: Dispatch restarted before this was finished.', tone: 'warn' },
+      { type: 'message', role: 'assistant', text: 'Two it is.', streaming: false },
+    ]);
+    expect(hermes.map((r) => r.input)).toEqual(['two']);
+    expect(hermes.calls.filter((c) => c.path.endsWith('/stop')).map((c) => c.path).sort()).toEqual(['/v1/runs/run_call/stop', '/v1/runs/run_old/stop']);
+    expect(left(bot.id)).toEqual([{ n: 0 }, { n: 0 }]);
+  });
+
+  test('a run that finished while the server was down shows its answer', async () => {
+    const bot = leftMidTurn('run_done');
+    const hermes = fakeHermes();
+    hermes.states.set('run_done', { status: 'completed', output: 'The answer is 42.' });
+    await loop.resumeTurns();
+    expect(rows(bot.id).slice(1).map((r) => r.body)).toEqual([
+      expect.objectContaining({ type: 'tool-call', status: 'done' }),
+      { type: 'message', role: 'assistant', text: 'The answer is 42.', streaming: false },
+    ]);
+    expect(unread(bot.id)).toBe(1);
+    expect(hermes.calls.some((c) => c.path.endsWith('/stop'))).toBe(false);
+  });
+
+  test('a queued turn of a chat cleared since, or that the gateway has forgotten, is dropped quietly', async () => {
+    const bot = seedBot(userId);
+    db.prepare("INSERT INTO turns(bot_id,generation,trigger,created_at) VALUES (?,1,'{\"type\":\"user\",\"text\":\"old\"}',?)").run(bot.id, Date.now());
+    store.clearConversation(bot.id);
+    const hermes = fakeHermes();
+    await loop.resumeTurns();
+    await loop.whenIdle(bot.id);
+    expect(hermes.length).toBe(0);
+    expect(rows(bot.id)).toEqual([]);
+    expect(left(bot.id)).toEqual([{ n: 0 }, { n: 0 }]);
+  });
+
+  test('a turn runs and ends with nothing left in turns or runs', async () => {
+    const id = await turn([ev.completed('ok')]);
+    expect(left(id)).toEqual([{ n: 0 }, { n: 0 }]);
   });
 });

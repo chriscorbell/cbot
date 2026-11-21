@@ -139,9 +139,10 @@ const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
  *
  * The relay closing does not end the call: the browser posts /end (a beacon when the tab closes),
  * because it holds the transcript. A reservation nobody ended goes after 2 hours with a bare
- * 'ended' row in the chat the call started in, or none if that chat was cleared; one lost in a
- * server restart leaves its 'started' row as it is; deleting the bot drops its reservations
- * (dropCalls).
+ * 'ended' row in the chat the call started in, or none if that chat was cleared. Reservations live in
+ * memory: after a server restart (a deploy, an update) /end finds the call by its 'started' row
+ * instead, once, so its record and transcript are still written, and a call nobody ends keeps its
+ * 'started' row as it is. Deleting the bot drops its reservations (dropCalls).
  */
 export interface ActiveCall {
   id: string; botId: string; userId: string; startedAt: number;
@@ -163,6 +164,13 @@ export interface ActiveCall {
   relayed: boolean;
 }
 const calls = new Map<string, ActiveCall>();
+
+/** The call's own session in the bot's Hermes. */
+const callSession = (botId: string, callId: string) => `dispatch-${botId}-${callId}`;
+
+/** The call's 'started' or 'ended' row, in whichever chat it is. */
+const callRow = (botId: string, callId: string, phase: 'started' | 'ended') =>
+  db.prepare<[string, string, string], RowRecord>("SELECT * FROM rows WHERE bot_id=? AND kind='event' AND json_extract(body, '$.call.id')=? AND json_extract(body, '$.call.phase')=? LIMIT 1").get(botId, callId, phase);
 
 /** The call for the relay's socket, once: it must be the user's and not have a relay yet. */
 export function claimCall(callId: string, userId: string): ActiveCall | null {
@@ -216,7 +224,7 @@ voiceApi.post('/session', async (c) => {
     id: callId, botId: bot.id, userId: user.id, startedAt: now(), generation: startRow.generation,
     botName: bot.name, firstName,
     instructions: `${await instructionsFor(user.id, bot.id)}\n${callPart}`,
-    conversation: `dispatch-${bot.id}-${callId}`, chat,
+    conversation: callSession(bot.id, callId), chat,
     model: bot.model ?? null, provider: bot.provider ?? null, effort: bot.effort ?? 'medium',
     greeting: pick(GREETINGS).replace('{name}', firstName),
     voice: s.voice, speed: s.speed, relayed: false,
@@ -236,7 +244,7 @@ const SUMMARY_WAIT_MS = 120_000;
  * Hermes holds the bot's model access (keys, subscriptions, sign-ins), so whatever model answers the
  * call can summarise it. Only the run's final answer matters.
  */
-async function summarizeCall(call: ActiveCall, transcript: { role: string; text: string }[]): Promise<{ title: string | null; summary: string } | null> {
+async function summarizeCall(call: Pick<ActiveCall, 'botId' | 'botName' | 'model' | 'provider' | 'conversation'>, transcript: { role: string; text: string }[]): Promise<{ title: string | null; summary: string } | null> {
   if (!transcript.length) return null;
   const lines = transcript.map((t) => `${t.role === 'user' ? 'User' : call.botName}: ${t.text}`).join('\n').slice(-12_000);
   const run = new HermesRun(call.botId, 'summary');
@@ -301,9 +309,14 @@ voiceApi.post('/end', async (c) => {
   }));
   const bot = ownBot(user.id, botId);
   if (!bot) return c.json({ error: 'not found' }, 404);
-  const call = calls.get(callId);
-  if (!call || call.botId !== bot.id) return c.json({ ok: true, duplicate: true } satisfies VoiceEnded);
+  const known = calls.get(callId);
+  if (known && known.botId !== bot.id) return c.json({ ok: true, duplicate: true } satisfies VoiceEnded);
+  // A call this process didn't start (the server restarted during it) is found by its 'started' row.
+  // It ends once: a second /end finds its 'ended' row.
+  const startedAt = known ? known.startedAt : callRow(bot.id, callId, 'ended') ? null : callRow(bot.id, callId, 'started')?.created_at ?? null;
+  if (startedAt === null) return c.json({ ok: true, duplicate: true } satisfies VoiceEnded);
   calls.delete(callId);
+  const call = known ?? { botId: bot.id, botName: bot.name, model: bot.model, provider: bot.provider, conversation: callSession(bot.id, callId) };
   if (echo) {
     // How much of the bot's voice reached the microphone, and what took it out, to tune the call's echo handling by.
     const db = echo.coupling > 0 ? `${(20 * Math.log10(echo.coupling)).toFixed(0)} dB` : 'nothing';
@@ -314,7 +327,7 @@ voiceApi.post('/end', async (c) => {
     if (echo.seconds?.length) console.log(`[voice] ${callId} echo by second (played/heard/after AEC3 in dBFS, the echo's delay, mic gaps, output latency): ${echoSeconds(echo.seconds)}`);
   }
 
-  const durationMs = now() - call.startedAt;
+  const durationMs = now() - startedAt;
   const lines = (Array.isArray(transcript) ? transcript : [])
     .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string' && t.text.trim())
     .slice(-200)

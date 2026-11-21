@@ -92,7 +92,7 @@ export function fakeHermes(...scripts: Step[][]) {
       return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
     }
     if (method === 'GET' && (m = path.match(/^\/v1\/runs\/([^/]+)$/))) {
-      if (!plays.has(m[1])) return json({ error: { message: `Run not found: ${m[1]}` } }, 404);
+      if (!plays.has(m[1]) && !states.has(m[1])) return json({ error: { message: `Run not found: ${m[1]}` } }, 404);
       return json({ run_id: m[1], status: 'running', ...states.get(m[1]), pending_controls: [...(open.get(m[1]) ?? [])].map((id) => ({ kind: 'approval', prompt_id: id })) });
     }
     if (method === 'POST' && (m = path.match(/^\/v1\/runs\/([^/]+)\/approval$/))) {

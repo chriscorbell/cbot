@@ -654,6 +654,13 @@ export async function engineFor(botId: string): Promise<Engine> {
   return { url, key: managedKey(botId), home: homeFor(botId) };
 }
 
+/** Where the bot's gateway answers if it is running, without starting it; null when the bot has none. */
+export function gatewayIfRunning(botId: string): Engine | null {
+  const b = botRow(botId);
+  if (!b || b.engine !== 'managed' || !b.engine_port) return null;
+  return { url: `http://127.0.0.1:${b.engine_port}`, key: managedKey(botId), home: homeFor(botId) };
+}
+
 // ---------- the first run on a gateway ----------
 
 /**

@@ -112,6 +112,15 @@ export interface ProactivityRecord {
 export interface SettingRecord { key: string; value: string; updated_at: number }
 
 /**
+ * A chat turn queued or running (agent/turns.ts), so a restart finds what the last process left.
+ * `trigger` is the turn's Trigger as JSON; `run_id` is its Hermes run once Hermes has it.
+ */
+export interface TurnRecord { id: number; bot_id: string; generation: number; trigger: string; run_id: string | null; created_at: number }
+
+/** A Hermes run started and not yet seen to end (agent/runs.ts), by Hermes' run id. */
+export interface RunRecord { id: string; bot_id: string; surface: 'chat' | 'voice' | 'summary'; started_at: number }
+
+/**
  * The schema, one migration per change. The first is the whole schema as it stood before the first
  * release with real installs: the migrations that led there were folded into it once, when the only
  * install was about to be wiped, and the tables and columns nothing used any more went with them.
@@ -241,6 +250,25 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updated_at INTEGER NOT NULL
+      );
+    `);
+  },
+  // 2. What a restart finds of the last process's turns and runs (agent/turns.ts, agent/runs.ts).
+  (d) => {
+    d.exec(`
+      CREATE TABLE turns (
+        id INTEGER PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        generation INTEGER NOT NULL,
+        trigger TEXT NOT NULL,
+        run_id TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        surface TEXT NOT NULL,
+        started_at INTEGER NOT NULL
       );
     `);
   },

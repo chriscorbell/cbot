@@ -306,6 +306,35 @@ export class TurnTranscript {
   }
 }
 
+/**
+ * A turn the last server process was running when it stopped (agent/turns.ts resumeTurns). `open` are
+ * the rows it left half-written: a message still streaming is closed as it stands, and a tool still
+ * running is done if the run finished, else it says it was interrupted. `answer` is the run's final
+ * answer when Hermes finished it meanwhile: it completes the message that was streaming, or comes as
+ * a message of its own. Without one, the chat says the turn was interrupted.
+ */
+export function closeCutShort(convo: Conversation, open: number[], answer: string | null) {
+  let answered = false;
+  for (const seq of open) {
+    const row = convo.get(seq);
+    if (row?.body.type === 'message' && row.body.streaming) {
+      const text = row.body.text.trim();
+      if (answer && text && !answered && answer.startsWith(text)) {
+        convo.update(seq, { ...row.body, text: answer, streaming: false });
+        answered = true;
+      } else convo.update(seq, { ...row.body, streaming: false });
+    } else if (row?.body.type === 'tool-call' && (row.body.status === 'running' || row.body.status === 'awaiting-approval')) {
+      convo.update(seq, { ...row.body, ...(answer === null ? { status: 'error', summary: 'Interrupted' } : { status: 'done' }) });
+    }
+  }
+  if (answer === null) {
+    convo.append('notice', { type: 'notice', text: 'Interrupted: Dispatch restarted before this was finished.', tone: 'warn' });
+    return;
+  }
+  if (!answered && answer) answered = !!convo.append('message', { type: 'message', role: 'assistant', text: answer, streaming: false });
+  if (answered && convo.isCurrent()) markUnread(convo.botId);
+}
+
 /** Why a tool failed, from the start of its result that Hermes sends along (it may send none). */
 function errorSummary(preview: unknown): string | undefined {
   const text = typeof preview === 'string' ? preview.trim() : '';

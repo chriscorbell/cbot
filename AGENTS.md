@@ -60,15 +60,15 @@ Each lifecycle has one owner module. Its states are written down there; other co
 
 | Lifecycle | Owner | States |
 |---|---|---|
-| A bot's turns | `agent/turns.ts` | idle, running (with a queue). Stop ends the running turn; New chat and delete also drop the queue. A turn belongs to the generation it was queued in |
+| A bot's turns | `agent/turns.ts` | idle, running (with a queue). Stop ends the running turn; New chat and delete also drop the queue. A turn belongs to the generation it was queued in. Queued and running turns are also rows in `turns`: after a restart the queued ones run again and a running one is closed off (`resumeTurns`) |
 | A turn's text and tool rows | `agent/transcript.ts` | text: nothing, holding, streaming, closed as a message or a note. Tool rows: running, done or error |
 | What a bot is doing | `agent/live.ts` | idle, running. `LiveState` in `types.ts` allows only those two shapes |
 | A conversation | `store.ts` | generation N, then N+1 on New chat. Rows are addressed by bot, generation and seq |
-| A Hermes run | `agent/runs.ts` | started, then completed, failed (Hermes failed or stopped it on its own, or its events stopped with no end and Hermes has no answer) or left, or stopped from here; `close` stops one that hasn't ended |
+| A Hermes run | `agent/runs.ts` | started, then completed, failed (Hermes failed or stopped it on its own, or its events stopped with no end and Hermes has no answer) or left, or stopped from here; `close` stops one that hasn't ended. In `runs` until it ends; a restart settles the ones left (`settleLeftoverRuns`) |
 | A bot's gateway | `engine.ts` | none, starting, ready, error (diagram in the file header). The process is `dispatch-gateway@<bot>.service`, which systemd restarts when it crashes and keeps across server restarts; `units.ts` names the units |
 | A provider sign-in | `signin.ts` | starting, waiting (link and code shown), then done, failed or cancelled once. One per bot, one for Copilot; in memory |
 | A bot's screen | `computer.ts` | lease, display (`displays.ts`, `dispatch-display@<n>.target`), dressed (`desk.ts`). A dressing job (its own scope) holds the display's lock (`held_lock` in `dispatchlib.py`); undressing waits for it, then stops it. What runs on the screen runs as units in the bot's slice, which systemd knows, so nothing searches the process table for it |
-| A voice call (server) | `voice.ts` | created, relayed once, ended |
+| A voice call (server) | `voice.ts` | created, relayed once, ended (after a restart, found by its 'started' row) |
 | A voice reply | `voice-relay.ts` | `planAnswer` decides barge-in; a Reply's flags are listed in the header |
 | A voice call (browser) | `web/src/voice/call.ts` | idle, connecting, live, error |
 | A question card | `routes.ts` (answer route) | pending, then answered once |
