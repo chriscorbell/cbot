@@ -6,13 +6,13 @@ How to look after a Dispatch machine once the [installer](../README.md#install) 
 
 Dispatch checks GitHub for a new release a minute after it starts and every six hours after that. When there is one, **Update available** shows above your account in the sidebar. It opens **Settings** > **General** > **Updates**, where **Update** installs it and **What's new** lists the changes. The page shows each step and reloads on the new version when it's done. **Check Now** asks GitHub straight away.
 
-The button runs the installer of the version you have again. Running the installer yourself does the same: it downloads the newest release, checks that one of Dispatch's release keys signed it ([SECURITY.md](../SECURITY.md#how-releases-are-checked)), builds it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. The settings, bots and chats stay. A release that isn't signed, or is older than the one running, isn't installed.
+The button runs the installer of the version you have again. Running the installer yourself does the same: it downloads the newest release, already built, checks that one of Dispatch's release keys signed it ([SECURITY.md](../SECURITY.md#how-releases-are-checked)), unpacks it beside the running one and restarts the server, which takes over the bots' screens, Chromes and agents as they are. A release brings its own Node, so it doesn't depend on the machine's. The settings, bots and chats stay. A release that isn't signed, or is older than the one running, isn't installed.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 ```
 
-The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why. That includes a new version that installs but doesn't answer within a minute of starting: Dispatch goes back to the version before it, and **Settings** > **General** > **Updates** says which one didn't start. Running the installer again tries it again.
+The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. A branch is downloaded as source and built on the machine. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why. That includes a new version that installs but doesn't answer within a minute of starting: Dispatch goes back to the version before it, and **Settings** > **General** > **Updates** says which one didn't start. Running the installer again tries it again.
 
 Dispatch's updates don't update the machine's other packages, Chrome among them. Keep them current with `sudo apt update && sudo apt upgrade`.
 
@@ -92,13 +92,19 @@ Until an account exists, making one takes a one-time setup code, so that nobody 
 
 ## Publishing a release
 
-Installs and updates take the newest signed `vX.Y.Z` tag. To publish one from a checkout:
+Installs and updates take the newest signed `vX.Y.Z` tag, and the build GitHub Actions made from it. To publish one from a checkout, on Linux (it builds in Docker on anything but x86-64):
 
 ```bash
 scripts/publish.sh v1.2.0
 ```
 
-It tags `main` as GitHub has it, after `npm run check` passes on that commit, and signs the tag with whichever key in `release_signers` (in `scripts/install/install-release.sh`, part of `scripts/install.sh`) your ssh-agent holds (`ssh-add -L` lists them). Before pushing, it checks the tag with this commit's installer and with the last release's, since machines updating run the last release's. It then pushes the tag and makes the GitHub release, whose notes list the commits since the last release. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
+1. It tags `main` as GitHub has it, after `npm run check` passes on that commit, and signs the tag with whichever key in `release_signers` (in `scripts/install/install-release.sh`, part of `scripts/install.sh`) your ssh-agent holds (`ssh-add -L` lists them). Before pushing, it checks the tag with this commit's installer and with the last release's, since machines updating run the last release's.
+2. The pushed tag starts `.github/workflows/release.yml`, which builds the release once with `scripts/build-release.sh`, builds the speech image and pushes it to `ghcr.io/chriscorbell/dispatch-speech`, and attaches the tarball, `install.sh`, `uninstall.sh`, `manifest.json` (the version, commit and speech image by digest) and `SHA256SUMS` of them to a draft release. `publish.sh` waits for it.
+3. It builds the same commit itself and stops unless the result is the same as the tarball, file for file. Then it signs `SHA256SUMS` with the same key, checks the files the way the installer will, attaches the signature and publishes the release, whose notes list the commits since the last release.
+
+If it stops after pushing the tag, the tag and the draft release stay; fix what it says, delete both, and publish again. To sign with a new key, add it to `release_signers` and publish that change with a key already listed; machines trust the new key once they have that release.
+
+The first time the workflow pushes the speech image, GitHub makes the `dispatch-speech` package. It is linked to this repository and should be public like it; if **Packages** on GitHub shows it private, make it public in its settings, or machines can't download it.
 
 ## Deploying from a checkout
 
@@ -110,7 +116,7 @@ scripts/deploy.sh           # deploy the committed main branch to DISPATCH_HOST
 scripts/deploy.sh <commit>  # deploy that commit, or roll back to it
 ```
 
-A commit has to pass `npm run check` before it deploys. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
+A commit has to pass `npm run check` before it deploys. The machine builds it with `scripts/build-release.sh`, as GitHub Actions builds a release, and builds the speech image from its source. The first deploy to a fresh machine provisions it. A deploy restarts only the server, which takes over the running displays, Chromes and agents. `.env.prod` replaces `/etc/dispatch/env`, so set `HOST` and `HTTPS` there if you want them.
 
 ## Development
 

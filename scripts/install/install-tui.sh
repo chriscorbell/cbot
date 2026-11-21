@@ -296,7 +296,7 @@ work_begin() {
     note="Dispatch keeps running until the new version is ready."
   else
     keys+=(download provision packages hermes "${build[@]}" speech start)
-    note="This takes 10 to 30 minutes, and can be left to finish."
+    note="This takes 15 to 30 minutes, and can be left to finish."
   fi
   # Measured here, not in the background job, which could start after the first step is written.
   offset="$(stat -c %s "$LOG")"

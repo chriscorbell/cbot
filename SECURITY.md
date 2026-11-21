@@ -20,9 +20,16 @@ Dispatch is made for one owner, on a machine of its own. Know this first:
 
 ## How releases are checked
 
-Dispatch installs and updates only from signed releases. A release is a `vX.Y.Z` tag signed with one of the keys listed in the installer (`release_signers` in [scripts/install/install-release.sh](scripts/install/install-release.sh), which is part of `scripts/install.sh`). The installer downloads the release with git, which checks every file against its hash, and checks the tag's signature before it runs anything from the release. It never installs a release older than the one running. The one way back is automatic: when a new release doesn't answer within a minute of starting, `release.sh` switches back to the release that ran before it, which was checked when it was installed.
+Dispatch installs and updates only from signed releases, with the keys listed in the installer (`release_signers` in [scripts/install/install-release.sh](scripts/install/install-release.sh), which is part of `scripts/install.sh`):
 
-**Update** in the app runs the installer of the version you already have, so a new release has to be signed by a key that version trusts. Someone who took over the GitHub repository couldn't push an update to your machine without one of those keys.
+- A release is a `vX.Y.Z` tag signed with one of those keys. The installer fetches the tag with git and checks its signature, which names the release's commit.
+- GitHub Actions builds the release from that commit once, for everyone ([release.yml](.github/workflows/release.yml)): a tarball with its own Node, and the speech service's image. `SHA256SUMS` lists the tarball and a manifest naming the version, the commit and the speech image by its digest.
+- Before signing, `scripts/publish.sh` builds the same commit on the publisher's machine and stops unless the result is the tarball, file for file, so a build GitHub Actions changed doesn't get signed.
+- One of the keys signs `SHA256SUMS`. The installer downloads the tarball and manifest and installs them only when that signature checks out, both files match it, and the manifest names the tag and the commit its signature names. The speech image is pulled by that digest.
+
+So GitHub Actions is trusted to build, and the publisher's own build checks it; nothing it builds runs on a machine until a release key has signed its checksums. It never installs a release older than the one running. The one way back is automatic: when a new release doesn't answer within a minute of starting, `release.sh` switches back to the release that ran before it, which was checked when it was installed.
+
+**Update** in the app runs the installer of the version you already have, so a new release has to be signed by a key that version trusts. Someone who took over the GitHub repository couldn't push an update to your machine without one of those keys: not by moving a tag, and not by changing a release's files.
 
 The first install trusts what GitHub serves when you run it. To read the installer before it runs, download it, read it, then run it:
 
