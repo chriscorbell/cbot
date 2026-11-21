@@ -232,6 +232,10 @@ def render_home(look):
     return re.sub(r'\{\{([A-Z_]+)\}\}', lambda m: values.get(m.group(1), ''), template)
 
 
+# How Chrome and the box scripts name this server (dispatchlib.HOME_URL).
+LOCAL_HOSTS = ('127.0.0.1:%d' % dispatchlib.HOME_PORT, 'localhost:%d' % dispatchlib.HOME_PORT)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'dispatch-home'
     protocol_version = 'HTTP/1.1'
@@ -255,6 +259,15 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, code, obj):
         self._send(code, json.dumps(obj), 'application/json')
 
+    def _named_us(self):
+        """Whether the request names this server as Chrome reaches it. A web page that points its own
+        name at 127.0.0.1 (DNS rebinding) still sends that name, and gets nothing: the bots' names
+        and roles are on the home page."""
+        if self.headers.get('Host') in LOCAL_HOSTS:
+            return True
+        self._send(403, 'Forbidden', 'text/plain')
+        return False
+
     def _screen(self, query):
         forced = (query.get('screen') or [''])[0]
         if forced.isdigit() and self.command == 'GET':
@@ -267,6 +280,8 @@ class Handler(BaseHTTPRequestHandler):
         return n, (look or NEUTRAL)
 
     def do_GET(self):
+        if not self._named_us():
+            return
         url = urlparse(self.path)
         query = parse_qs(url.query)
         path = url.path
@@ -325,6 +340,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         length = min(int(self.headers.get('Content-Length') or 0), 4096)
         raw = self.rfile.read(length) if length else b''
+        if not self._named_us():
+            return
         if url.path != '/launch':
             self._send(404, 'Not found', 'text/plain')
             return

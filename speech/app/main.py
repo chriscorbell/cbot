@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from . import config
 from .asr import Recognizers
 from .audio import DecodeError, decode_clip, to_pcm16, wav_header
+from .guard import RefuseBrowsers
 from .listen import ListenSession, Options
 from .tts import SPEED_MAX, SPEED_MIN, Phonon
 from .zonos3 import Zonos3, Zonos3Error
@@ -41,6 +42,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Dispatch speech", lifespan=lifespan, docs_url=None, redoc_url=None)
+# Only Dispatch's server may use the service, not the web pages the bots open (guard.py).
+app.add_middleware(RefuseBrowsers)
 
 
 @app.get("/health")
@@ -153,6 +156,10 @@ async def transcribe(request: Request):
     return await loop.run_in_executor(None, asr.transcribe, x)
 
 
+# (option, lowest, highest) for a listening socket's timings, in milliseconds.
+LISTEN_BOUNDS = (("min_speech_ms", 0, 5_000), ("silence_ms", 0, 10_000), ("prefix_ms", 0, 5_000), ("max_utterance_ms", 1_000, 120_000))
+
+
 def _flag(v: str | None, default: bool) -> bool:
     return default if v is None else v.lower() not in ("0", "false", "no", "off")
 
@@ -180,6 +187,10 @@ async def transcribe_stream(ws: WebSocket):
             raise ValueError("final must be stream or offline")
         if not 0.05 <= opts.threshold <= 0.95:
             raise ValueError("threshold must be 0.05 to 0.95")
+        # They decide how much audio a session keeps, so they are bounded.
+        for name, low, high in LISTEN_BOUNDS:
+            if not low <= getattr(opts, name) <= high:
+                raise ValueError(f"{name} must be {low} to {high}")
     except (KeyError, ValueError) as e:
         await ws.accept()
         await ws.send_json({"type": "error", "message": f"bad parameter: {e}"})

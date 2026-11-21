@@ -1,6 +1,6 @@
 # Speech service
 
-Local text-to-speech and speech recognition for Dispatch's voice features. Compose runs it as the `speech` service next to `dispatch`, on an internal network with no route out and no published port. From the `dispatch` container it is `http://speech:8000`, which compose passes to Dispatch as `SPEECH_URL`. There is no authentication: only Dispatch can reach it. English only.
+Local text-to-speech and speech recognition for Dispatch's voice features. Compose runs it as the `speech` service next to `dispatch`, on an internal network with no route out and no published port. From the `dispatch` container it is `http://speech:8000`, which compose passes to Dispatch as `SPEECH_URL`. There is no authentication: only Dispatch can reach it. The machine itself can too, and with it the web pages the bots open in Chrome, so a request that carries an `Origin` header, which browsers always send on a WebSocket handshake and a POST and Dispatch never does, is refused with 403 (`app/guard.py`). English only.
 
 | Job | Model | Runtime |
 |---|---|---|

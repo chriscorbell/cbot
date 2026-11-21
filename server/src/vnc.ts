@@ -2,7 +2,7 @@ import type { IncomingMessage, Server } from 'node:http';
 import net from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { db, type BotRecord } from './db.js';
-import { authenticate } from './lib/auth.js';
+import { authenticate, crossSite, headerOf } from './lib/auth.js';
 import { displayFor, vncPortFor } from './machine.js';
 import { readyScreen, screenFor } from './computer.js';
 import { ByteQueue, rfbHandshake } from './lib/rfb.js';
@@ -95,7 +95,12 @@ export function attachVncRelay(server: Server) {
     const url = new URL(req.url ?? '/', 'http://x');
     const m = url.pathname.match(/^\/api\/bots\/([^/]+)\/screen$/);
     if (!m) return; // not ours
-    // Same check as every HTTP request: the session cookie (see lib/auth.ts).
+    // Same checks as every HTTP request: from the app's own page, with the session cookie (see lib/auth.ts).
+    if (crossSite((name) => headerOf(req, name))) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const user = authenticate(req.headers.cookie);
     const bot = user ? db.prepare<[string, string], BotRecord>('SELECT * FROM bots WHERE id=? AND user_id=?').get(m[1], user.id) : null;
     if (!user || !bot) {
