@@ -98,7 +98,7 @@ class ReleaseCheckTest(unittest.TestCase):
         self.assertFalse(older("v1.0.0", "v1.0.0"))
         self.assertTrue(older("v1.9.9", "v2.0.0"))
 
-    @unittest.skipIf(os.path.exists("/etc/dispatch/source"), "this machine has Dispatch installed")
+    @unittest.skipIf(os.path.exists("/srv/dispatch/current"), "this machine has Dispatch installed")
     def test_a_fresh_machine_runs_no_version(self):
         r = self.bash('had="$(installed_version)"; echo "[$had]"')
         self.assertEqual((r.returncode, r.stdout.strip()), (0, "[]"), r.stderr)

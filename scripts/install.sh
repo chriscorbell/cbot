@@ -606,22 +606,22 @@ EOF
 }
 
 # Where this install comes from, which the app checks for updates (server/src/updates.ts): the
-# repository, and either the release it runs or the branch it follows. Written on every run, so
-# updates follow what was installed last.
+# repository, and the branch it follows if it follows one. Written on every run, so updates follow
+# what was installed last. The version a machine runs is the running release's VERSION file
+# (fetch_release), so a release that fails and is rolled back never counts as installed.
 write_source() {
   install -d -m 0700 /etc/dispatch
   {
     echo '# Where scripts/install.sh installed Dispatch from. The app checks it for updates: the newest'
-    echo '# signed release after DISPATCH_VERSION, or with DISPATCH_REF the newest commit of that branch.'
-    printf 'DISPATCH_REPO=%s\nDISPATCH_REF=%s\nDISPATCH_VERSION=%s\n' "$repo" "$ref" "$tag"
+    echo '# signed release, or with DISPATCH_REF the newest commit of that branch.'
+    printf 'DISPATCH_REPO=%s\nDISPATCH_REF=%s\n' "$repo" "$ref"
   } >/etc/dispatch/source.new
   mv /etc/dispatch/source.new /etc/dispatch/source
 }
 
-# The release this machine runs, as the last run wrote it, or nothing.
+# The release this machine runs, from its VERSION file, or nothing (none yet, or a branch's commit).
 installed_version() {
-  [ -r /etc/dispatch/source ] || return 0
-  sed -nE 's/^DISPATCH_VERSION=(v[0-9]+\.[0-9]+\.[0-9]+)$/\1/p' /etc/dispatch/source | tail -n 1
+  sed -nE '1s/^(v[0-9]+\.[0-9]+\.[0-9]+)$/\1/p' /srv/dispatch/current/VERSION 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------- Tailscale
@@ -768,6 +768,13 @@ fetch_release() {
     fi
     info "$what is $commit"
     script="$releases/$commit.new/scripts/release.sh"
+  fi
+  # A signed release says which version it is, for the app and installed_version. Only a checked tag
+  # is written down; a branch's commit has no version.
+  if [ -n "$tag" ]; then
+    local dir="$releases/$commit"
+    [ -d "$dir" ] || dir="$releases/$commit.new"
+    echo "$tag" >"$dir/VERSION"
   fi
   [ -z "$fetch_dir" ] || { rm -rf "$fetch_dir"; fetch_dir=''; }
 }

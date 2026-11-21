@@ -15,7 +15,7 @@ vi.mock('node:child_process', () => ({
   },
 }));
 
-const { checkForUpdate, initUpdates, laterRelease, parseSource, releaseCommit, startUpdate, stepFrom, updateState } = await import('../src/updates.js');
+const { checkForUpdate, initUpdates, laterRelease, parseSource, releaseCommit, releaseVersion, startUpdate, stepFrom, updateState } = await import('../src/updates.js');
 const { hub } = await import('../src/lib/hub.js');
 
 const RUNNING = '7fb35aa1c2d3';
@@ -29,31 +29,44 @@ const fetches = vi.fn(async (_url: string) => github());
 const commitAnswer = (short: string) => () => Response.json({ sha: `${short}${'0'.repeat(28)}`, commit: { message: 'x' } });
 const tagsAnswer = (...tags: string[]) => () => Response.json(tags.map((t) => ({ ref: `refs/tags/${t}`, object: { sha: '0'.repeat(40), type: 'tag' } })));
 
-/** Starts over as a machine the installer set up from `source`, running RUNNING. */
-function installedFrom(source: string) {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-source-')), 'source');
+/**
+ * Starts over as a machine the installer set up from `source`, running RUNNING, which is `release`
+ * when it is a signed release. `lastUpdate` is what release.sh left in /etc/dispatch/last-update.
+ */
+function installedFrom(source: string, release: string | null = null, lastUpdate?: object) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-source-'));
+  const file = path.join(dir, 'source');
   fs.writeFileSync(file, `# Where scripts/install.sh installed Dispatch from.\n${source}`);
-  initUpdates(file, RUNNING);
+  const result = path.join(dir, 'last-update');
+  if (lastUpdate) fs.writeFileSync(result, JSON.stringify(lastUpdate));
+  initUpdates(file, RUNNING, release, result);
+  return result;
 }
 
 beforeAll(() => {
   vi.stubGlobal('fetch', fetches);
-  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\nDISPATCH_VERSION=\n');
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\n');
 });
 afterEach(() => { vi.useRealTimers(); fetches.mockClear(); sys.calls = []; });
 
-test('the source names a repository and a release or a branch, and nothing that could reach a shell', () => {
-  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\nDISPATCH_VERSION=v0.10.2\n'))
-    .toEqual({ repo: 'chriscorbell/dispatch', ref: null, version: 'v0.10.2' });
-  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\n')).toEqual({ repo: 'chriscorbell/dispatch', ref: 'main', version: null });
-  expect(parseSource('DISPATCH_REPO="me/dispatch-fork"\nDISPATCH_REF=feature/voice\nDISPATCH_VERSION=\n')).toEqual({ repo: 'me/dispatch-fork', ref: 'feature/voice', version: null });
-  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\n')).toBeNull();
-  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_VERSION=v1.0.0-rc1\n')).toBeNull();
+test('the source names a repository and maybe a branch, and nothing that could reach a shell', () => {
+  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n')).toEqual({ repo: 'chriscorbell/dispatch', ref: null });
+  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\n')).toEqual({ repo: 'chriscorbell/dispatch', ref: null });
+  expect(parseSource('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\n')).toEqual({ repo: 'chriscorbell/dispatch', ref: 'main' });
+  expect(parseSource('DISPATCH_REPO="me/dispatch-fork"\nDISPATCH_REF=feature/voice\n')).toEqual({ repo: 'me/dispatch-fork', ref: 'feature/voice' });
   expect(parseSource('')).toBeNull();
   expect(parseSource('DISPATCH_REPO=a/b;reboot\nDISPATCH_REF=main\n')).toBeNull();
   expect(parseSource('DISPATCH_REPO=a/b\nDISPATCH_REF=$(reboot)\n')).toBeNull();
   expect(parseSource('DISPATCH_REPO=a/b\nDISPATCH_REF=../../x\n')).toBeNull();
-  expect(parseSource('DISPATCH_REPO=a/b\nDISPATCH_VERSION=v1.0.0;reboot\n')).toBeNull();
+});
+
+test('a release says its version in its own VERSION file, and nothing else counts as one', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-release-'));
+  expect(releaseVersion(dir)).toBeNull();
+  fs.writeFileSync(path.join(dir, 'VERSION'), 'v0.10.2\n');
+  expect(releaseVersion(dir)).toBe('v0.10.2');
+  fs.writeFileSync(path.join(dir, 'VERSION'), 'v1.0.0-rc1\n');
+  expect(releaseVersion(dir)).toBeNull();
 });
 
 test('releases go by number', () => {
@@ -140,7 +153,7 @@ test('an update that cannot start says so, and one that finds nothing newer goes
 });
 
 test('a machine on the releases is offered a later release, by number, and only a release', async () => {
-  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\nDISPATCH_VERSION=v0.9.0\n');
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n', 'v0.9.0');
   expect(updateState()).toMatchObject({ current: 'v0.9.0', available: null, status: 'idle' });
 
   github = tagsAnswer('v0.8.0', 'v0.9.0', 'v1.0.0-rc1', 'vnext');
@@ -160,7 +173,7 @@ test('a machine on the releases is offered a later release, by number, and only 
 
 test('updating to a release runs the installer with no branch, so it installs the newest signed one', async () => {
   vi.useFakeTimers();
-  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\nDISPATCH_VERSION=v0.9.0\n');
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n', 'v0.9.0');
   github = tagsAnswer('v0.10.0');
   await checkForUpdate();
   sys.unit = 'active';
@@ -170,4 +183,31 @@ test('updating to a release runs the installer with no branch, so it installs th
   expect(run.some((a) => a.startsWith('--setenv=DISPATCH_REF'))).toBe(false);
   expect(run.slice(-2)).toEqual(['/bin/bash', `/srv/dispatch/releases/${RUNNING}/scripts/install.sh`]);
   expect(updateState()).toMatchObject({ status: 'updating', current: 'v0.9.0', available: { version: 'v0.10.0' } });
+});
+
+test('a release with no VERSION on a machine that follows the releases offers nothing', () => {
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n');
+  expect(updateState()).toBeNull();
+});
+
+test('an update that release.sh rolled back shows as failed once, on the release it went back to', async () => {
+  vi.useFakeTimers();
+  github = tagsAnswer('v0.10.0');
+  const lastUpdate = { result: 'rolled-back', from: RUNNING, to: NEWER, version: 'v0.10.0', at: '2026-11-21T12:00:00Z' };
+  const file = installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n', 'v0.9.0', lastUpdate);
+  expect(updateState()).toMatchObject({
+    current: 'v0.9.0', status: 'failed',
+    error: 'v0.10.0 didn’t start, so Dispatch went back to this version. On the machine, journalctl -u dispatch-update says why.',
+  });
+  expect(fs.existsSync(file)).toBe(false);
+  // It asks GitHub straight away, so Try Again has the release to try.
+  await vi.advanceTimersByTimeAsync(0);
+  expect(updateState()).toMatchObject({ status: 'failed', available: { version: 'v0.10.0' } });
+
+  // A notice about another release (an older rollback) is dropped.
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=\n', 'v0.9.0', { ...lastUpdate, from: NEWER });
+  expect(updateState()).toMatchObject({ status: 'idle', error: null });
+  // On a branch the notice names the commit.
+  installedFrom('DISPATCH_REPO=chriscorbell/dispatch\nDISPATCH_REF=main\n', null, { ...lastUpdate, version: '' });
+  expect(updateState()).toMatchObject({ current: RUNNING.slice(0, 7), status: 'failed', error: expect.stringMatching(/^a1b2c3d didn’t start/) });
 });

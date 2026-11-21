@@ -7,7 +7,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | Command | What it does |
 |---|---|
 | `npm run check` | Typecheck both workspaces, lint, and run every unit test. Run it before every commit. GitHub Actions runs it, with shellcheck, on every pull request (`.github/workflows/check.yml`) and `main` requires it to pass; `scripts/deploy.sh` and `scripts/publish.sh` refuse a commit that fails it |
-| `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`), the speech service's (`npm run test:speech`) and the installer's release check (`npm run test:install`, which needs git and ssh-keygen), all stdlib only. Seconds, no services needed |
+| `npm test` | Unit tests only: Vitest in both workspaces, the box scripts' Python tests (`npm run test:box`), the speech service's (`npm run test:speech`) and the installer's release check and `release.sh`'s rollback (`npm run test:install`, which needs git and ssh-keygen), all stdlib only. Seconds, no services needed |
 | `npm run lint` | ESLint: floating promises and non-exhaustive switches on the server, hooks rules on the web app |
 | `DISPATCH_PORT=8788 docker compose -p dispatch-dev up -d --build` | The dev app, in Docker. Never run the server on a developer's machine outside the container: it starts real X displays, Chrome and Hermes gateways |
 | `node tests/e2e.mjs`, `tests/voice-*.mjs` | End-to-end scripts against a running app (real gateways, screens and speech). See their headers |
@@ -63,7 +63,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A voice reply | `voice-relay.ts` | `planAnswer` decides barge-in; a Reply's flags are listed in the header |
 | A voice call (browser) | `web/src/voice/call.ts` | idle, connecting, live, error |
 | A question card | `routes.ts` (answer route) | pending, then answered once |
-| An update of Dispatch | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle |
+| An update of Dispatch | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle. A new release that doesn't answer is rolled back by `scripts/release.sh`, and the old one starts failed from `/etc/dispatch/last-update` |
 | A Hermes approval prompt | `agent/approvals.ts` | pending, then allowed, always, denied or expired once. Pending ones live in memory beside their run |
 | First-run setup | `bots.ts` (`setupPending`, `finishSetup`) | no account, then pending (`users.setup_at` null) while `web/src/components/SetupWizard.tsx` makes the first bot, then done once. The first bot is primary and greets when setup finishes |
 

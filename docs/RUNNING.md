@@ -12,7 +12,7 @@ The button runs the installer of the version you have again. Running the install
 curl -fsSL https://raw.githubusercontent.com/chriscorbell/dispatch/main/scripts/install.sh | bash
 ```
 
-The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why.
+The installer writes where it installed from to `/etc/dispatch/source`, and updates follow that. To install a branch instead, give the installer `DISPATCH_REF`, as in `curl -fsSL …/install.sh | DISPATCH_REF=main bash`. Nothing checks a branch's signature, and updates then follow its newest commit; running the installer without `DISPATCH_REF` goes back to releases. When an update started from the app fails, Dispatch keeps running the version it had, and `journalctl -u dispatch-update` says why. That includes a new version that installs but doesn't answer within a minute of starting: Dispatch goes back to the version before it, and **Settings** > **General** > **Updates** says which one didn't start. Running the installer again tries it again.
 
 Dispatch's updates don't update the machine's other packages, Chrome among them. Keep them current with `sudo apt update && sudo apt upgrade`.
 

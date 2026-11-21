@@ -4,17 +4,19 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { hub } from './lib/hub.js';
-import { INSTALL_LOG, INSTALL_SOURCE, RELEASES_ROOT } from './machine.js';
+import { INSTALL_LOG, INSTALL_SOURCE, RELEASES_ROOT, UPDATE_RESULT } from './machine.js';
 import type { UpdateState } from './types.js';
 
 /**
  * Updating Dispatch from GitHub: the sidebar's "Update available" and Settings > General > Updates.
  *
  * Only a machine the installer set up updates itself. It runs a release under /srv/dispatch/releases,
- * named by its commit, and has /etc/dispatch/source, where scripts/install.sh writes the repository and
- * either the release it installed (DISPATCH_VERSION) or, when it was told to, the branch it follows
- * (DISPATCH_REF). A host that scripts/deploy.sh looks after has no such file, and the dev container
- * runs no release, so neither checks or offers anything (updateState() is null).
+ * named by its commit, and has /etc/dispatch/source, where scripts/install.sh writes the repository and,
+ * when it was told to follow one, the branch (DISPATCH_REF). A signed release also has a VERSION file,
+ * written by the installer, saying which release it is; it lives in the release, so a release that
+ * was rolled back never counts as the one installed. A host that scripts/deploy.sh looks after has no
+ * source file, and the dev container runs no release, so neither checks or offers anything
+ * (updateState() is null).
  *
  * The update's states, one per machine and in memory:
  *   idle      A check asks GitHub for the newest release, the highest vX.Y.Z tag, or for the branch's
@@ -27,7 +29,9 @@ import type { UpdateState } from './types.js';
  *             the new release beside this one, and its release.sh restarts the `dispatch` service on
  *             it: this process ends there, and the new one starts idle. A page that saw `updating`
  *             reloads when the server it reconnects to names another commit (the `hello` event).
- *   failed    The unit failed while this process still runs, so this release goes on. Update tries
+ *   failed    The unit failed while this process still runs, so this release goes on. Or the new
+ *             release didn't answer once started, release.sh went back to this one, and this process
+ *             starts `failed` from what it wrote (/etc/dispatch/last-update, read once). Update tries
  *             again.
  * The installer takes a lock, so an update and someone running it in a terminal can't both build.
  */
@@ -43,27 +47,54 @@ const WATCH_MS = 2_000;
 /** Under Settings' "The update didn’t finish". */
 const FAILED = 'Dispatch stays on this version. On the machine, journalctl -u dispatch-update says why.';
 
-/** A machine follows the releases, after the one it runs (`version`), or a branch (`ref`). */
-export type Source = { repo: string } & ({ ref: null; version: string } | { ref: string; version: null });
+/** A machine follows the releases (`ref` null), or a branch. */
+export type Source = { repo: string; ref: string | null };
 
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REF = /^[A-Za-z0-9_][A-Za-z0-9_./-]*$/;
 /** A release, as install.sh's newest_release takes them: v2.0.0-rc1 isn't one. */
 const VERSION = /^v\d+\.\d+\.\d+$/;
 
-/** /etc/dispatch/source, as the installer writes it (KEY=value lines). Null unless it names a repository, and a release or a branch. */
+/** /etc/dispatch/source, as the installer writes it (KEY=value lines). Null unless it names a repository, and any branch is a safe one. */
 export function parseSource(text: string): Source | null {
   const v = new Map<string, string>();
   for (const line of text.split('\n')) {
-    const m = /^\s*(DISPATCH_REPO|DISPATCH_REF|DISPATCH_VERSION)=(.*)$/.exec(line);
+    const m = /^\s*(DISPATCH_REPO|DISPATCH_REF)=(.*)$/.exec(line);
     if (m) v.set(m[1], m[2].trim().replace(/^(['"])(.*)\1$/, '$2'));
   }
   const repo = v.get('DISPATCH_REPO') ?? '';
   const ref = v.get('DISPATCH_REF') ?? '';
-  const version = v.get('DISPATCH_VERSION') ?? '';
   if (!REPO.test(repo)) return null;
-  if (ref) return REF.test(ref) && !ref.includes('..') ? { repo, ref, version: null } : null;
-  return VERSION.test(version) ? { repo, ref: null, version } : null;
+  if (ref) return REF.test(ref) && !ref.includes('..') ? { repo, ref } : null;
+  return { repo, ref: null };
+}
+
+/** The release a release directory is, from the VERSION file the installer writes into a signed one, or null. */
+export function releaseVersion(dir: string): string | null {
+  let text: string;
+  try { text = fs.readFileSync(path.join(dir, 'VERSION'), 'utf8').trim(); } catch { return null; }
+  return VERSION.test(text) ? text : null;
+}
+
+const LastUpdate = z.object({ result: z.literal('rolled-back'), from: z.string(), to: z.string(), version: z.string(), at: z.string() });
+
+/**
+ * Why the last update didn't take, when release.sh rolled it back to the release this process runs
+ * (`current`), or null. The file is removed once read, so the notice shows until the next restart.
+ */
+export function rolledBack(file: string, current: string): string | null {
+  let text: string;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return null; }
+  fs.rmSync(file, { force: true });
+  let json: unknown;
+  try { json = JSON.parse(text); } catch {
+    console.warn(`[updates] ${file} isn't JSON; ignoring it`);
+    return null;
+  }
+  const last = LastUpdate.safeParse(json);
+  if (!last.success || last.data.from !== current) return null;
+  const to = last.data.version || last.data.to.slice(0, 7);
+  return `${to} didn’t start, so Dispatch went back to this version. On the machine, journalctl -u dispatch-update says why.`;
 }
 
 /** Whether release `a` comes after release `b` (both vX.Y.Z), by number: v0.10.0 is after v0.9.0. */
@@ -80,13 +111,21 @@ export function releaseCommit(dir: string): string | null {
   return path.dirname(dir) === RELEASES_ROOT && /^[0-9a-f]{12}$/.test(name) ? name : null;
 }
 
-let running: string | null | undefined;
-/** The running release's commit. The service starts in /srv/dispatch/current, the link to it, so the working directory is the release. */
+/** The running release's directory. The service starts in /srv/dispatch/current, the link to it, so the working directory is the release. */
+function releaseDir(): string | null {
+  try { return fs.realpathSync(process.cwd()); } catch { return null; }
+}
+
+/** The running release's commit. */
 export function runningCommit(): string | null {
-  if (running === undefined) {
-    try { running = releaseCommit(fs.realpathSync(process.cwd())); } catch { running = null; }
-  }
-  return running;
+  const dir = releaseDir();
+  return dir ? releaseCommit(dir) : null;
+}
+
+/** The running release's version, or null when it isn't a signed release. */
+export function runningVersion(): string | null {
+  const dir = releaseDir();
+  return dir ? releaseVersion(dir) : null;
 }
 
 /**
@@ -140,10 +179,10 @@ async function latestRelease(repo: string): Promise<string> {
 }
 
 /** What to update to, or null when this is the newest. Throws a sentence to show. */
-async function findUpdate(from: Source, running: string): Promise<UpdateState['available']> {
+async function findUpdate(from: Source, running: string, version: string | null): Promise<UpdateState['available']> {
   if (from.ref === null) {
     const latest = await latestRelease(from.repo);
-    return laterRelease(latest, from.version) ? { version: latest, url: `https://github.com/${from.repo}/releases/tag/${latest}` } : null;
+    return !version || laterRelease(latest, version) ? { version: latest, url: `https://github.com/${from.repo}/releases/tag/${latest}` } : null;
   }
   const latest = await latestCommit(from.repo, from.ref);
   return latest === running ? null : { version: latest.slice(0, 7), url: `https://github.com/${from.repo}/compare/${running}...${latest}` };
@@ -152,6 +191,8 @@ async function findUpdate(from: Source, running: string): Promise<UpdateState['a
 let source: Source | null = null;
 /** The running release's commit, twelve characters. */
 let commit = '';
+/** The running release, on a machine that follows the releases. */
+let version: string | null = null;
 let state: UpdateState | null = null;
 let checking: Promise<UpdateState | null> | null = null;
 let checkTimer: NodeJS.Timeout | undefined;
@@ -174,17 +215,29 @@ function nextCheck(ms: number) {
 }
 
 /** From index.ts. The arguments are for tests. */
-export function initUpdates(sourceFile = INSTALL_SOURCE, current = runningCommit()): void {
+export function initUpdates(sourceFile = INSTALL_SOURCE, current = runningCommit(), release = runningVersion(), resultFile = UPDATE_RESULT): void {
   let text = '';
   try { text = fs.readFileSync(sourceFile, 'utf8'); } catch { /* not installed by the installer */ }
   source = parseSource(text);
+  state = null;
   if (!current || !source) {
     console.log('[updates] off: Dispatch was not installed by scripts/install.sh');
     return;
   }
+  if (source.ref === null && !release) {
+    console.log(`[updates] off: release ${current} has no VERSION, so it isn't a signed release`);
+    return;
+  }
   commit = current;
-  state = { current: source.ref === null ? source.version : current.slice(0, 7), available: null, checkedAt: null, status: 'idle', error: null };
-  nextCheck(FIRST_CHECK_MS);
+  version = release;
+  const shown = source.ref === null ? release! : current.slice(0, 7);
+  const failed = rolledBack(resultFile, current);
+  if (failed) console.warn(`[updates] ${failed}`);
+  state = failed
+    ? { current: shown, available: null, checkedAt: null, status: 'failed', error: failed }
+    : { current: shown, available: null, checkedAt: null, status: 'idle', error: null };
+  // After a rollback, Settings offers Try Again, which needs to know what's available.
+  nextCheck(failed ? 0 : FIRST_CHECK_MS);
 }
 
 /** Asks GitHub now. Calls while one is out share its answer. */
@@ -194,7 +247,7 @@ export function checkForUpdate(): Promise<UpdateState | null> {
   checking ??= (async () => {
     let found: UpdateState['available'] | undefined;
     let error: string | null = null;
-    try { found = await findUpdate(from, commit); } catch (e) { error = (e as Error).message; }
+    try { found = await findUpdate(from, commit, version); } catch (e) { error = (e as Error).message; }
     nextCheck(CHECK_EVERY_MS);
     const s = state!;
     // A failed check keeps what the last one found; an update that started meanwhile keeps its status.

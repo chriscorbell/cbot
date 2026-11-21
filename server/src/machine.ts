@@ -39,5 +39,7 @@ export const vncPortFor = (n: number) => 5900 + n;
 export const RELEASES_ROOT = '/srv/dispatch/releases';
 /** The repository and branch scripts/install.sh installed from, which updates.ts checks for a newer commit. */
 export const INSTALL_SOURCE = '/etc/dispatch/source';
+/** What release.sh writes when an update didn't start and it went back to the release before; updates.ts reads it once at startup. */
+export const UPDATE_RESULT = '/etc/dispatch/last-update';
 /** The installer's log: release.sh and provision.sh name each step there. */
 export const INSTALL_LOG = '/var/log/dispatch/install.log';
