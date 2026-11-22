@@ -185,7 +185,7 @@ fi
 # /var/lib/dispatch: DATA_DIR (database, generated secret, setup code), root's alone.
 # /etc/dispatch/env: the settings, from the installer or .env.prod on the dev machine (scripts/deploy.sh).
 # ~<the bots' account>/dispatch: the bots' Hermes homes, Chrome profiles and Library files, which the
-# server makes as it needs them. /opt/dispatch: the box scripts (desk.ts).
+# server makes as it needs them. /opt/dispatch: what the box scripts make as they set up screens (desk.ts).
 install -d -m 0755 /srv/dispatch /srv/dispatch/releases /var/log/dispatch
 install -d -m 0700 /var/lib/dispatch /etc/dispatch
 
