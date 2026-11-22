@@ -4,10 +4,12 @@
 # a release only when one of them signed both its tag (as git) and the checksums of what GitHub
 # Actions built from it (as dispatch-release, so neither signature can stand in for the other). An
 # update runs the installer of the release it updates from, so a release can change this list only if
-# a key already on it signed that release. scripts/publish.sh signs with one of them.
+# a key already on it signed that release. scripts/publish.sh signs with one of them. The second key
+# is a spare, kept apart from the first, so losing one key doesn't leave every machine unable to update.
 release_signers() {
   cat <<'EOF'
 dispatch namespaces="git,dispatch-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBMSc9gHrkDHjyiDVKCPOIm1aJlbAGswe01RpgEsWdFV
+dispatch namespaces="git,dispatch-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMoIj3NuOp6Jo5z0pwNqmBJXiM5SHTGLP5vbtrnUo6Jh
 EOF
 }
 

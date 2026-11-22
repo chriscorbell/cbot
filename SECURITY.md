@@ -27,6 +27,7 @@ Dispatch is made for one owner, on a machine of its own. Know this first:
 
 Dispatch installs and updates only from signed releases, with the keys listed in the installer (`release_signers` in [scripts/install/install-release.sh](scripts/install/install-release.sh), which is part of `scripts/install.sh`):
 
+- There are two keys: the one releases are signed with, and a spare kept apart from it, so losing one doesn't leave every machine unable to update.
 - A release is a `vX.Y.Z` tag signed with one of those keys. The installer fetches the tag with git and checks its signature, which names the release's commit.
 - GitHub Actions builds the release from that commit once, for everyone ([release.yml](.github/workflows/release.yml)): a tarball with its own Node, and the speech service's image. `SHA256SUMS` lists the tarball and a manifest naming the version, the commit and the speech image by its digest.
 - Before signing, `scripts/publish.sh` builds the same commit on the publisher's machine and stops unless the result is the tarball, file for file, so a tarball GitHub Actions changed doesn't get signed. The speech image isn't rebuilt that way (it takes over an hour): its digest is signed as GitHub Actions reports it. It runs in a container whose only network is the one to Dispatch, with no way out, but it hears every call and speaks the bots' replies.
