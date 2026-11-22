@@ -1,23 +1,32 @@
 import { db, now, type BotRecord, type RoutineRecord, type RowRecord } from './db.js';
 import { env } from './env.js';
 import { hub } from './lib/hub.js';
+import { notify } from './notifications.js';
 import { mapSpeed, mapVoice } from './speech.js';
 import type { AvatarColor, AvatarShape, Bot, Row, RowBody, RowKind, Routine } from './types.js';
 import { Cron } from 'croner';
 
 // ---------- bots ----------
 
-export function toBot(r: BotRecord): Bot {
-  // The newest row worth previewing; the bot's notes to itself and the routine-run lines older chats still have don't count.
+/**
+ * The newest row of the bot's current chat worth a preview (the sidebar's, a notification's): its text,
+ * the other bot that wrote it (in a group chat), and when. The bot's notes to itself and the routine-run
+ * lines older chats still have don't count. Null when the chat has no such row.
+ */
+export function chatPreview(r: BotRecord): { text: string; from: string | null; at: number } | null {
   const last = db
     .prepare<[string, number], Pick<RowRecord, 'body' | 'created_at'>>("SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event') AND json_extract(body, '$.event') IS NOT 'routine-run' ORDER BY seq DESC LIMIT 8")
     .all(r.id, r.generation).find((x) => !JSON.parse(x.body).note);
-  let lastPreview: string | null = null;
-  if (last) {
-    const b = JSON.parse(last.body) as RowBody;
-    lastPreview =
-      b.type === 'message' ? (b.text || (b.attachments?.length ? `Attached ${b.attachments.map((a) => a.name).join(', ')}` : '')) : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : `Weather in ${b.place}`) : b.type === 'event' ? b.text : null;
-  }
+  if (!last) return null;
+  const b = JSON.parse(last.body) as RowBody;
+  const text =
+    b.type === 'message' ? (b.text || (b.attachments?.length ? `Attached ${b.attachments.map((a) => a.name).join(', ')}` : '')) : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : `Weather in ${b.place}`) : b.type === 'event' ? b.text : '';
+  return { text, from: b.type === 'message' && b.from?.kind === 'bot' ? b.from.name : null, at: last.created_at };
+}
+
+export function toBot(r: BotRecord): Bot {
+  const last = chatPreview(r);
+  const lastPreview = last?.text || null;
   return {
     id: r.id,
     workspaceId: r.workspace_id,
@@ -38,7 +47,7 @@ export function toBot(r: BotRecord): Bot {
     generation: r.generation,
     unread: r.unread,
     lastPreview: lastPreview ? lastPreview.slice(0, 140) : null,
-    lastActivityAt: last?.created_at ?? r.updated_at,
+    lastActivityAt: last?.at ?? r.updated_at,
     createdAt: r.created_at,
   };
 }
@@ -188,9 +197,10 @@ export function clearConversation(botId: string) {
   hub.emit(b.user_id, { type: 'cleared', botId, generation: b.generation + 1 });
 }
 
-/** Something new for the user to read in this bot's chat: the rail's unread badge goes up by one. */
+/** Something new for the user to read in this bot's chat: the rail's unread badge goes up by one, and their devices hear of it. */
 export function markUnread(botId: string) {
   db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(botId);
+  notify(botId);
 }
 
 // ---------- routines ----------

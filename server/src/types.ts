@@ -336,6 +336,13 @@ export type UpdateState = {
   | { status: 'failed'; error: string }
 );
 
+/**
+ * A notification as the server sends it, encrypted by Web Push, to a device's service worker
+ * (server/src/notifications.ts, web/src/sw.ts). `botId` is the chat a tap opens (null for the test
+ * notification); `unread` is the count for the app's badge.
+ */
+export interface PushNotice { botId: string | null; title: string; body: string; unread: number }
+
 /** Server-sent events on GET /api/events */
 export type ServerEvent =
   /** `version`: the running release's commit (null outside a release), so a page can tell an update restarted the server. */

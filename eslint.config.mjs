@@ -30,7 +30,7 @@ export default tseslint.config(
     files: ['web/**/*.{ts,tsx}'],
     languageOptions: {
       parser: tseslint.parser,
-      parserOptions: { project: ['web/tsconfig.json'], tsconfigRootDir: import.meta.dirname },
+      parserOptions: { project: ['web/tsconfig.json', 'web/tsconfig.sw.json'], tsconfigRootDir: import.meta.dirname },
     },
     plugins: { '@typescript-eslint': tseslint.plugin, 'react-hooks': reactHooks },
     rules: {

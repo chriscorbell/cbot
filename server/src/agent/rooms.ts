@@ -1,7 +1,7 @@
 import { db, now, type BotRecord, type RowRecord } from '../db.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
-import { appendRow, requireBot } from '../store.js';
+import { appendRow, markUnread, requireBot } from '../store.js';
 import { copyToUploads, filesNote, uploadsDir } from '../library.js';
 import type { Attachment } from '../types.js';
 import type { Trigger } from './turns.js';
@@ -118,6 +118,6 @@ export function postToRoom(fromBotId: string, roomName: string, text: string) {
   const members: string[] = room.members ? JSON.parse(room.members) : [];
   if (!members.includes(fromBotId)) return `You're not a member of "${room.name}".`;
   appendRow(room.id, 'message', { type: 'message', role: 'assistant', text, from: { kind: 'bot', id: from.id, name: from.name } });
-  db.prepare('UPDATE bots SET unread = unread + 1 WHERE id=?').run(room.id);
+  markUnread(room.id);
   return 'Posted to the group.';
 }

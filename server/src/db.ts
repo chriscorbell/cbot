@@ -166,6 +166,15 @@ export interface TaskRecord {
 export interface TeamLogRecord { id: number; user_id: string; workspace_id: string; actor_id: string | null; audience: string | null; text: string; created_at: number }
 
 /**
+ * A device that takes notifications (notifications.ts): a browser's Web Push subscription, its address
+ * at the push service and its keys (base64url). It belongs to the session that sent it, and goes with it.
+ */
+export interface PushDeviceRecord { endpoint: string; user_id: string; session: string; p256dh: string; auth: string; created_at: number; updated_at: number }
+
+/** The server's one VAPID key pair (lib/webpush.ts), which every device subscribes with. Made on first use. */
+export interface PushKeysRecord { id: 1; public_key: string; private_key: string; created_at: number }
+
+/**
  * The schema, one migration per change. The first is the whole schema as it stood before the first
  * release with real installs: the migrations that led there were folded into it once, when the only
  * install was about to be wiped, and the tables and columns nothing used any more went with them.
@@ -401,6 +410,30 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         SELECT w.id, p.enabled, p.times, p.timezone, p.last_fired, p.updated_at FROM proactivity p JOIN workspaces w ON w.user_id = p.user_id;
       DROP TABLE proactivity;
       ALTER TABLE proactivity_by_workspace RENAME TO proactivity;
+    `);
+  },
+  // 6. Notifications (notifications.ts): the devices that take them, each tied to the session that turned
+  // them on, so a device that signs out (or whose session ends any other way) gets nothing more; and the
+  // key pair they subscribe with.
+  (d) => {
+    d.exec(`
+      CREATE TABLE push_devices (
+        endpoint TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        session TEXT NOT NULL REFERENCES auth_sessions(token) ON DELETE CASCADE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX push_devices_user ON push_devices(user_id);
+      CREATE INDEX push_devices_session ON push_devices(session);
+      CREATE TABLE push_keys (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        public_key TEXT NOT NULL,
+        private_key TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
     `);
   },
 ];

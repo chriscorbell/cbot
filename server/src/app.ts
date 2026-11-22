@@ -3,6 +3,7 @@ import { api } from './routes.js';
 import { workspacesApi } from './routes-workspaces.js';
 import { roomsApi } from './routes-rooms.js';
 import { tasksApi } from './routes-tasks.js';
+import { notificationsApi } from './routes-notifications.js';
 import { configApi, httpsApi } from './routes-config.js';
 import { mcpApi } from './mcp.js';
 import { authApi } from './routes-auth.js';
@@ -94,6 +95,7 @@ export function createApp() {
   app.route('/api/workspaces', workspacesApi);
   app.route('/api/rooms', roomsApi);
   app.route('/api/tasks', tasksApi);
+  app.route('/api/notifications', notificationsApi);
   app.route('/api', api);
   app.route('/api', configApi);
   return app;

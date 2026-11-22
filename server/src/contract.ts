@@ -54,6 +54,11 @@ export interface ProvidersResponse {
   searxngUrl: string;
 }
 
+/** GET /api/notifications: the key a browser subscribes with (Web Push's applicationServerKey, base64url). */
+export interface NotificationsResponse { publicKey: string }
+/** POST /api/notifications/test: whether the device's push service took the test notification, and why not. */
+export interface NotificationTestResponse { ok: boolean; error: string | null }
+
 /** GET /api/tasks: every open task, and the ones finished in the last 14 days. */
 export interface TasksResponse { tasks: Task[] }
 export interface WorkspacesResponse { workspaces: Workspace[] }

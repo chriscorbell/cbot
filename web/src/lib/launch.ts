@@ -2,10 +2,12 @@
  * What the address the app opened with asks for, taken out of it as the page loads (main.tsx), so a
  * reload or a bookmark doesn't ask again:
  *
+ * - `/?bot=<id>`: the chat to open, from tapping a notification while no page was open (sw.ts).
  * - `/share?title=&text=&url=`: text another app shared with Dispatch, through the share sheet of a
  *   phone that installed it (`share_target` in public/manifest.webmanifest; Android, not iOS). It
  *   goes in the composer of the chat that opens, for the user to send or change.
  */
+let bot: string | null = null;
 let shared: string | null = null;
 
 /**
@@ -26,6 +28,11 @@ export function sharedText(title: string | null, text: string | null, url: strin
 export function captureLaunch() {
   const u = new URL(window.location.href);
   let changed = false;
+  if (u.searchParams.has('bot')) {
+    bot = u.searchParams.get('bot') || null;
+    u.searchParams.delete('bot');
+    changed = true;
+  }
   if (u.pathname === '/share') {
     shared = sharedText(u.searchParams.get('title'), u.searchParams.get('text'), u.searchParams.get('url')) || null;
     u.pathname = '/';
@@ -33,6 +40,13 @@ export function captureLaunch() {
     changed = true;
   }
   if (changed) history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+}
+
+/** The chat a notification asked to open, once. */
+export function takeLaunchBot(): string | null {
+  const b = bot;
+  bot = null;
+  return b;
 }
 
 /** Text shared from another app, once. */

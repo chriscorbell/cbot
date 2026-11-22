@@ -223,6 +223,9 @@ export function authenticate(cookieHeader: string | undefined): User | null {
 /** The signed-in user of a request, or null. */
 export const sessionUser = (c: Context) => authenticate(c.req.header('cookie'));
 
+/** The session a signed-in request came with, for what must end with it (a device's notifications). */
+export const sessionToken = (c: Context): string | undefined => getCookie(c, COOKIE);
+
 export const requireUser: MiddlewareHandler<AuthVars> = async (c, next) => {
   // app.ts checks every request; routers that use this too find the user already set.
   if (c.get('user')) return next();

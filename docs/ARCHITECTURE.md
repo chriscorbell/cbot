@@ -57,6 +57,7 @@ server ── voice-relay.ts ──► speech container (Phonon, Parakeet, Nemot
 | UI | `web/src` | React and zustand: a sign-in screen, a rail of bot icons that opens into a full sidebar (a workspace switcher, names, previews, hidden bots), chat with a live "thinking" line, details panel (activity, tasks, computer, Library, an in-place look editor), the task board, a preview for Library files and chat attachments (next row), cards (approvals, questions, weather), voice call bar with captions, settings, viewer |
 | File preview | `FilePreview.tsx` | Pictures, PDFs, audio and video sent in place by `files/raw?inline=1` for the types in `INLINE_TYPES`, and text and Markdown read here, the first 512 KB of a long file through a byte range. HTML shows as source and SVG as a picture from a data: URL, so neither runs script at the app's address, even opened in a tab of its own |
 | On a phone | `lib/longPress.ts`, `lib/viewport.ts`, `lib/launch.ts`, `voice/wakeLock.ts`, `public/manifest.webmanifest` | The sidebar as a drawer, dialogs as sheets, a hold for what a mouse does with hover and right-click (`lib/longPress.ts`), and the app kept as tall as what the keyboard leaves visible (`lib/viewport.ts`); `public/manifest.webmanifest` and the icons make it a home-screen app, and its `share_target` puts what Android shares with it in the composer (`lib/launch.ts`). The screen stays on during a call (`voice/wakeLock.ts`) |
+| Notifications | `notifications.ts`, `routes-notifications.ts`, `lib/webpush.ts`, `web/src/sw.ts`, `web/src/lib/notifications.ts` | Web Push to each device that turned them on, when a bot's chat gets something new while nobody is looking at it. See [Notifications](#notifications-reach-a-device-when-nobody-is-looking) |
 
 ## Every bot is a Hermes home that Dispatch manages
 
@@ -333,6 +334,23 @@ A workspace (`workspaces.ts`) is a separate team of bots under the one account, 
 - Moving a bot to another workspace (`moveBot`) takes it off its team as deleting it would (its tasks go back to nobody, the others hear it left), takes it out of its group chats, and has it join the new team caught up. Questions to or from it end. A primary bot can't move until another bot is made primary.
 - The web app shows one workspace at a time: the selected bot's. The sidebar, Search, the board and new bots and groups are that workspace's, and switching opens the bot last open there, or its primary bot.
 
+## Notifications reach a device when nobody is looking
+
+A browser that turns on Settings > General > Notifications on This Device registers the service worker (`web/src/sw.ts`, served as `/sw.js`), subscribes at its maker's push service (Apple, Google, Mozilla or Microsoft) with the server's VAPID public key, and hands the subscription to `PUT /api/notifications/device`: the service's endpoint and the browser's keys. It is a row in `push_devices`, tied to the session that sent it, so signing out or any other end of the session (a new password, a reset, expiry) ends the device's notifications with it. The page hands it over again on every start, which ties it to a new session after the user signs in again; a subscription made with another key (after Reset Dispatch) is made again.
+
+What sends one (`notifications.ts`):
+
+- `markUnread` in `store.ts`: a message the user hasn't read, in a bot's chat or a group chat.
+- An approval card (`agent/approvals.ts`) and a question card (`ask_user`), which ask the push service to wake the phone at once (`Urgency: high`), since a run waits on them.
+
+What a bot writes in one breath, such as a message and the question it leads into, is one notification: the first waits 1.5 seconds, then the notification shows the chat's newest preview (`chatPreview`, the sidebar's), with the bot's name as its title and the unread count for the app's badge. A bot's notification replaces its last one on the device (its tag) and while it waits at the push service (its `Topic`); the service keeps one for a device out of reach for a day.
+
+Nothing is sent about a chat someone has in front of them, on any device. Each tab says which chat it shows while it is visible and focused (`PUT /api/notifications/presence`), and again every 20 seconds; the server forgets a tab after 45 seconds without a word, so a phone that locked before it could say so stops counting soon after. What the tabs say lives in memory.
+
+Each message is encrypted for its device with Node's own crypto (`lib/webpush.ts`: RFC 8291's aes128gcm, checked against the RFC's worked example in `test/webpush.test.ts`) and signed with the VAPID key (RFC 8292), whose pair is made on first use and kept in `push_keys`. A subscription the service says has ended (404 or 410) is forgotten. Tapping a notification focuses an open page and opens the chat (the worker's message to the page), or opens the app at `/?bot=<id>`.
+
+Browsers run a service worker only on an address they trust, so a device that went past the warning for Dispatch's own certificate gets none until it trusts the certificate; the Tailscale address works as it is. iPhones and iPads have Web Push only in an app added to the Home Screen.
+
 ## A voice call is the bot's own agent behind a speech relay
 
 Each thing the user says on a call is a turn of the bot's Hermes agent, on the bot's model and with all its tools.
@@ -506,7 +524,7 @@ The first bot a user makes is the primary one of their first workspace, Personal
 
 ### Sessions
 
-`POST /api/auth/login` gives a 30-day session cookie, `/logout` ends it, and `/password` changes the password and ends every other session. Ten wrong passwords from one address in 15 minutes shut it out for the rest of that window.
+`POST /api/auth/login` gives a 30-day session cookie, `/logout` ends it, and `/password` changes the password and ends every other session. A device's notifications end with its session. Ten wrong passwords from one address in 15 minutes shut it out for the rest of that window.
 
 Every `/api` route needs the session except `/api/health`, those before one and the HTTPS certificate (`/api/https/certificate`); the web app's files and `/mcp/*` (bearer tokens) don't. A 401 carries no basic-auth challenge.
 
@@ -571,7 +589,7 @@ The old release starts `failed`, saying which version didn't start, and removes 
 
 While it runs, the server reads each step from the installer's log and sends `update` events. Each SSE `hello` names the running commit, and a page that saw an update start reloads when the commit changes.
 
-## The model providers, SearXNG and Open-Meteo are the only services Dispatch needs
+## The model providers, SearXNG, Open-Meteo and the push services are the only services Dispatch needs
 
 | Service | Used for |
 |---|---|
@@ -579,6 +597,7 @@ While it runs, the server reads each step from the installer's log and sends `up
 | SearXNG | `web_search`, when its address is set in Settings > Providers |
 | GitHub | On a machine the installer set up, the repository's release tags (or the newest commit of the branch it follows) every six hours (`updates.ts`), and the release when the user clicks Update: its tag, its built tarball and checksums, and its speech image from GitHub's container registry (GHCR). At a terminal, the installer also downloads gum, a pinned release checked against its checksum, for its full-screen questions |
 | Open-Meteo | `show_weather`'s forecast cards, called by Dispatch directly (`weather.ts`) |
+| Push services of the browsers' makers (Apple, Google, Mozilla, Microsoft) | Notifications to the devices that turned them on, encrypted for each device (`notifications.ts`) |
 
 Hermes still fetches the models.dev registry and installs missing Python packages from PyPI when a tool needs one, and Chrome keeps its own Google traffic.
 

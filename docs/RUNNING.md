@@ -1,6 +1,6 @@
 # Running Dispatch
 
-How to look after a Dispatch machine once the [installer](../README.md#install) has set it up: updates, settings, HTTPS, models, approvals, backups, and getting back in. [ARCHITECTURE.md](ARCHITECTURE.md) explains how it all works underneath.
+How to look after a Dispatch machine once the [installer](../README.md#install) has set it up: updates, settings, HTTPS, models, notifications, approvals, backups, and getting back in. [ARCHITECTURE.md](ARCHITECTURE.md) explains how it all works underneath.
 
 ## Updating
 
@@ -78,12 +78,14 @@ Model keys, subscription tokens, the self-hosted model and the SearXNG address a
 
 ## HTTPS
 
-Voice calls need HTTPS, because browsers allow the microphone only there. No public authority signs a certificate for an address on a local network, so Dispatch signs its own, for the machine's name and address, and browsers warn that the connection isn't private. Continue past the warning once on each device, or stop it by installing the certificate from **Settings** > **General** > **Certificate** and trusting it:
+Voice calls and notifications need HTTPS, because browsers allow the microphone and the service worker only there. No public authority signs a certificate for an address on a local network, so Dispatch signs its own, for the machine's name and address, and browsers warn that the connection isn't private. Continue past the warning once on each device, or stop it by installing the certificate from **Settings** > **General** > **Certificate** and trusting it:
 
 - iPhone and iPad: install the downloaded profile in Settings, then turn it on under General > About > Certificate Trust Settings
 - Android: install it as a CA certificate, under Settings > Security (the path varies by phone)
 - macOS: add it in Keychain Access and set it to Always Trust
 - Windows: open it, choose Install Certificate, and place it in Trusted Root Certification Authorities
+
+Continuing past the warning is enough for voice calls, but not for notifications: browsers run Dispatch's service worker only on an address they trust. Trust the certificate or use the Tailscale address on the devices that should get them.
 
 The certificate vouches for this machine only. When the machine's address changes, Dispatch makes a new one, and devices that trusted the old one need the new one.
 
@@ -111,6 +113,15 @@ Signing in to ChatGPT, Grok or Copilot shows a link and a short code. Open the l
 Dispatch works in a phone's browser, and **Add to Home Screen** (Safari's Share menu, or Chrome's menu) gives it an icon and a window of its own. The sidebar opens from the button at the top left. Hold a message to react, reply or copy its text, and hold a bot in the sidebar for its menu (mark as unread, copy, hide, delete). The chat stays above the keyboard while you type.
 
 The screen stays on during a voice call, since a phone that locks stops the page and with it the call. On Android, Dispatch added to the home screen shows in the share sheet: what you share goes in the composer of the chat that opens.
+
+## Notifications
+
+Turn on **Settings** > **General** > **Notifications on This Device** on each phone or computer that should hear from the bots, and allow notifications when the browser asks. A notification comes when a bot writes, needs your approval or asks you something, unless its chat is open in front of you on any device. Tapping it opens that chat, and the home-screen icon shows how many chats are unread where the system has a badge. **Send a Test** checks that one reaches this device.
+
+- iPhone and iPad (iOS 16.4 or later): add Dispatch to the Home Screen first and turn them on in the app from there. Safari in a tab has none.
+- The address has to be one the browser trusts: the Tailscale address, or Dispatch's own certificate installed and trusted (see [HTTPS](#https)).
+- Each browser's maker carries the notifications (Apple, Google, Mozilla or Microsoft), so the machine needs to reach the internet. They are encrypted for the device, so the push service can't read them.
+- Signing out on a device stops its notifications. Signing in again starts them again.
 
 ## Approvals
 

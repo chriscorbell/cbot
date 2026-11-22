@@ -1,10 +1,10 @@
 import type { ApprovalChoice, Attachment, Bot, CheckinSettings, TaskStatus } from '@shared/types';
 import type {
-  BotResponse, BotsResponse, ComputerResponse, MeResponse, Ok, RoomCreated, RoomMembersResponse, RoomMembersSet, SearchResponse,
+  BotResponse, BotsResponse, ComputerResponse, MeResponse, NotificationTestResponse, NotificationsResponse, Ok, RoomCreated, RoomMembersResponse, RoomMembersSet, SearchResponse,
   RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, TaskResponse, TasksResponse, UploadResponse,
   WorkspaceCreated, WorkspaceResponse, WorkspacesResponse,
 } from '@shared/contract';
-import { request as req, upload } from './http';
+import { request as req, sendKeepalive, upload } from './http';
 
 export { ApiError } from './http';
 export type { RoomMember } from '@shared/contract';
@@ -80,4 +80,14 @@ export const api = {
   deleteWorkspace: (id: string) => req<Ok>('DELETE', `/workspaces/${id}`),
   /** The workspace's primary bot checks in now. */
   checkInNow: (id: string) => req<Ok>('POST', `/workspaces/${id}/checkin`),
+  // Notifications on this device (server/src/notifications.ts, lib/notifications.ts).
+  notifications: () => req<NotificationsResponse>('GET', '/notifications'),
+  addDevice: (sub: PushSubscriptionJSON) => req<Ok>('PUT', '/notifications/device', { endpoint: sub.endpoint, keys: sub.keys }),
+  removeDevice: (endpoint: string) => req<Ok>('DELETE', '/notifications/device', { endpoint }),
+  testDevice: (endpoint: string) => req<NotificationTestResponse>('POST', '/notifications/test', { endpoint }),
+  /** Which chat this tab shows in front of the user, or null. `leaving`: the page is going, so the request must outlive it. */
+  presence: (tab: string, botId: string | null, leaving = false) => {
+    if (leaving) { sendKeepalive('PUT', '/notifications/presence', { tab, botId }); return Promise.resolve(); }
+    return req<Ok>('PUT', '/notifications/presence', { tab, botId }).then(() => {});
+  },
 };

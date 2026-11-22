@@ -3,6 +3,7 @@ import { db, now, type ApprovalRecord } from '../db.js';
 import { failureText } from '../lib/sse.js';
 import { getRow, getBotRow, updateRow, type Conversation, type RowRef } from '../store.js';
 import { syncApprovals, type Engine } from '../engine.js';
+import { notify } from '../notifications.js';
 import type { ApprovalChoice, CardBody } from '../types.js';
 import { openPrompts, type ApprovalRequest } from './run-events.js';
 
@@ -91,6 +92,8 @@ export function askApproval(o: {
     id, userId: bot.user_id, runId: o.runId, engine: o.engine, promptId, executionGeneration,
     card: { botId: bot.id, generation: card.generation, seq: card.seq }, answering: false, onSettled: o.onSettled,
   });
+  // The run waits on the user, and Hermes gives up after a while: tell their devices at once.
+  notify(bot.id, true);
   return id;
 }
 

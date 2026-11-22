@@ -12,9 +12,10 @@ import { relativeShort } from '../../lib/time';
 import { useConfigUI, type AppSection, type Theme } from '../../configStore';
 import { useStore } from '../../store';
 import { notifyFailure } from '../../lib/uiEvents';
+import { sendTest, turnOff, turnOn, usePush, type PushState } from '../../lib/notifications';
 import { computerStatusText } from '../DetailsPanel';
 import { Icon } from '../Icon';
-import { ConfirmButton, PageHead, Segmented } from './ui';
+import { ConfirmButton, PageHead, Segmented, Switch } from './ui';
 import { ProvidersSection } from './ProvidersSection';
 import { WorkspaceSection } from './WorkspaceSection';
 import { Select } from '../Select';
@@ -67,14 +68,6 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' },
 ];
-
-function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} className={`toggle${on ? ' is-on' : ''}`} onClick={() => onChange(!on)}>
-      <span className="toggle__knob" />
-    </button>
-  );
-}
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
@@ -138,6 +131,7 @@ function GeneralSection() {
           </div>
         </div>
       </section>
+      <NotificationsSection />
       <section className="cfg-section">
         <div className="cfg-section__label">System</div>
         <div className="cfg-card">
@@ -165,6 +159,67 @@ function GeneralSection() {
       <UpdatesSection />
       <ResetSection />
     </>
+  );
+}
+
+/** What the notifications row says for each state of this device (lib/notifications.ts). */
+const PUSH_NOTE: Record<PushState, string> = {
+  checking: 'Checking this browser…',
+  on: 'When a bot writes, needs your approval or asks you something while its chat isn’t in front of you.',
+  off: 'When a bot writes, needs your approval or asks you something while its chat isn’t in front of you.',
+  unsupported: 'This browser can’t show notifications from Dispatch.',
+  install: 'On an iPhone or iPad, add Dispatch to your Home Screen first (Share › Add to Home Screen), then turn them on there.',
+  insecure: 'Notifications need HTTPS. Open Dispatch at its https:// address.',
+  untrusted: 'This browser doesn’t trust Dispatch’s certificate, so it won’t run notifications. Install and trust the certificate below, or use the Tailscale address.',
+  blocked: 'Notifications are blocked for Dispatch in this browser’s settings. Allow them there, then come back.',
+};
+
+/** Settings > General > Notifications: this device's switch and a test. */
+function NotificationsSection() {
+  const state = usePush((s) => s.state);
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [tested, setTested] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { if (!tested) return; const t = setTimeout(() => setTested(false), 4000); return () => clearTimeout(t); }, [tested]);
+  const toggle = (on: boolean) => {
+    setBusy(true);
+    setError(null);
+    (on ? turnOn() : turnOff())
+      .catch((e: unknown) => setError(e instanceof Error && e.message ? e.message : 'That didn’t work. Try again.'))
+      .finally(() => setBusy(false));
+  };
+  const test = () => {
+    setTesting(true);
+    setError(null);
+    sendTest()
+      .then(() => setTested(true))
+      .catch((e: unknown) => setError(e instanceof Error && e.message ? e.message : 'The test didn’t go.'))
+      .finally(() => setTesting(false));
+  };
+  return (
+    <section className="cfg-section">
+      <div className="cfg-section__label">Notifications</div>
+      <div className="cfg-card">
+        <div className="cfg-row">
+          <div className="cfg-row__text">
+            <div className="cfg-row__title">Notifications on This Device</div>
+            <div className="cfg-row__sub cfg-fade" key={state === 'on' || state === 'off' ? 'switch' : state}>{PUSH_NOTE[state]}</div>
+          </div>
+          <Switch on={state === 'on'} onChange={toggle} label="Notifications on this device" disabled={busy || (state !== 'on' && state !== 'off')} />
+        </div>
+        {state === 'on' && (
+          <div className="cfg-row cfg-fade">
+            <div className="cfg-row__text">
+              <div className="cfg-row__title">Test</div>
+              {tested && <div className="cfg-row__sub account__changed" role="status"><Icon name="check" size={12} />Sent. It shows in a moment.</div>}
+            </div>
+            <button type="button" className="cfg-btn cfg-btn--secondary" onClick={test} disabled={testing}>{testing ? 'Sending…' : 'Send a Test'}</button>
+          </div>
+        )}
+        {error && <div className="cfg-error cfg-error--inset" role="alert">{error}</div>}
+      </div>
+    </section>
   );
 }
 

@@ -32,6 +32,11 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   return res.json() as Promise<T>;
 }
 
+/** A JSON request the browser sends even as the page goes away (pagehide). Nobody reads its answer. */
+export function sendKeepalive(method: string, path: string, body: unknown): void {
+  fetch(`/api${path}`, { method, credentials: 'include', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+}
+
 /** A multipart upload to /api<path>. `tooLarge` is the message for a 413 without one of its own. */
 export async function upload<T>(path: string, form: FormData, tooLarge?: string): Promise<T> {
   const res = await fetch(`/api${path}`, { method: 'POST', credentials: 'include', body: form });

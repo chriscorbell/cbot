@@ -18,6 +18,7 @@ import { BOTS_DIR, libraryDir } from '../machine.js';
 import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
 import { boardOn } from '../workspaces.js';
+import { notify } from '../notifications.js';
 
 export interface ToolCtx {
   userId: string;
@@ -432,7 +433,8 @@ export const TOOLS: ToolDef[] = [
     activity: 'waiting_for_you',
     label: 'Waiting on you',
     impl: async (a, ctx) => {
-      ctx.convo.append('card', { type: 'card', card: 'question', question: a.question, options: (a.options ?? []).slice(0, 6), ...(a.multiple ? { multiple: true } : {}), status: 'pending' });
+      const card = ctx.convo.append('card', { type: 'card', card: 'question', question: a.question, options: (a.options ?? []).slice(0, 6), ...(a.multiple ? { multiple: true } : {}), status: 'pending' });
+      if (card) notify(ctx.botId, true);
       return { output: 'Question shown to the user. Stop here and wait for their answer.', endTurn: true };
     },
   }),

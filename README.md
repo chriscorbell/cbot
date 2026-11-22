@@ -21,6 +21,7 @@ https://github.com/user-attachments/assets/54f0e200-13e1-416a-9181-69a80f4627e5
 - Voice calls
 - Dictation
 - A phone layout you can add to your home screen as an app
+- Notifications on your phone and computer when a bot writes, needs your approval or asks you something
 
 ## Supported providers
 

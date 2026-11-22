@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { startEvents } from './lib/events';
+import { startNotifications } from './lib/notifications';
 import { useStore } from './store';
 import { ChatView } from './components/ChatView';
 import { ComputerViewer } from './components/ComputerViewer';
@@ -38,7 +39,9 @@ function Shell() {
     st.loadUpdate().catch(console.error);
     st.loadTasks().catch(console.error);
     st.loadWorkspaces().catch(console.error);
-    return startEvents();
+    const stopEvents = startEvents();
+    const stopNotifications = startNotifications();
+    return () => { stopEvents(); stopNotifications(); };
   }, []);
 
   // Global shortcuts: ⌘K search, ⌘B sidebar, ⇧⌘, details, ⌘N new bot.

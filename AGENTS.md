@@ -49,6 +49,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/computer.ts`, `displays.ts`, `desk.ts`, `vnc.ts`, `server/box/` | Screens: leases, X displays, dressing, the viewer relay, the Python desk scripts |
 | `server/src/chrome-updates.ts` | Starting a bot's Chrome again, once the bot is idle, when apt has installed a newer Chrome than it runs |
 | `server/src/voice-relay.ts`, `speech.ts`, `speech/` | Voice calls: the realtime relay, the speech service client, the speech service |
+| `server/src/notifications.ts`, `routes-notifications.ts`, `lib/webpush.ts`, `web/src/sw.ts`, `web/src/lib/notifications.ts` | Notifications by Web Push: the devices that take them, which chat each tab shows, the encryption, the service worker (built on its own as `/sw.js`, typed by `web/tsconfig.sw.json`) |
 | `server/src/account.ts` | The ordinary account every bot runs as (`DISPATCH_USER`), and handing it what the root server writes for the bots |
 | `server/src/machine.ts` | Paths, ports and display numbers on the computer |
 | `server/src/types.ts`, `contract.ts`, `voice-protocol.ts` | Everything shared with the web app (imported there as `@shared/types`, `@shared/contract`, `@shared/voice-protocol`) |
@@ -80,6 +81,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A task on the team's board | `agent/team.ts` | todo, doing, blocked, done (and back); owned by one bot of its workspace or nobody. Deleting or moving its owner hands it back (`teamLeft`) |
 | A bot's question to another (`ask_bot`) | `agent/asks.ts` | asking, then answered or failed once. In memory beside its run; deleting either bot ends it |
 | An update of Dispatch | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle. A new release that doesn't answer is rolled back by `scripts/release.sh`, and the old one starts failed from `/etc/dispatch/last-update` |
+| A device's notifications | `notifications.ts`, `web/src/lib/notifications.ts` | off, on: a row in `push_devices` tied to the session that turned them on, gone with that session or when the push service says the subscription ended. The browser holds the subscription and hands it over again on every start |
 | A Hermes approval prompt | `agent/approvals.ts` | pending, then allowed, always, denied or expired once. Pending ones live in memory beside their run |
 | First-run setup | `bots.ts` (`setupPending`, `finishSetup`) | no account, then pending (`users.setup_at` null) while `web/src/components/SetupWizard.tsx` makes the first bot, then done once. The first bot is the primary one of the first workspace, Personal, and greets when setup finishes |
 
