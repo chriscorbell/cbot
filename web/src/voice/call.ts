@@ -8,6 +8,7 @@ import { voiceApi, type VoiceSession } from './api';
 import { EchoCanceller, loadAec3 } from './aec';
 import { CallOutput, MicCapture, PcmPlayer, ThinkingLoop, base64ToPcm, createAudioContext, micErrorMessage, openMic, pcmToBase64 } from './audio';
 import { EchoGate } from './echo';
+import { keepScreenOn, letScreenSleep } from './wakeLock';
 import type { VoiceEcho } from '@shared/contract';
 import type { ClientEvent, RelayEvent } from '@shared/voice-protocol';
 
@@ -174,6 +175,7 @@ class VoiceCall {
   async start() {
     setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, activity: null, captions: [], error: null, startedAt: null });
     window.addEventListener('pagehide', this.onUnload);
+    keepScreenOn();
     const aec = await this.aec;
     let stream: MediaStream;
     try {
@@ -387,6 +389,7 @@ class VoiceCall {
     if (this.ended) return;
     this.ended = true;
     window.removeEventListener('pagehide', this.onUnload);
+    letScreenSleep();
     if (this.connectTimer) clearTimeout(this.connectTimer);
     if (this.loopTimer) clearTimeout(this.loopTimer);
     try { this.ws?.close(1000, 'call ended'); } catch { /* ignore */ }
