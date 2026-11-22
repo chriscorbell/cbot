@@ -70,7 +70,7 @@ speech_up() {
 copy_db() {
   local s
   for s in '' -wal -shm; do
-    if [ -f "$1$s" ]; then cp -p "$1$s" "$2$s"; else rm -f "$2$s"; fi
+    if [ -f "$1$s" ]; then cp -p "$1$s" "$2$s" || return 1; else rm -f "$2$s" || return 1; fi
   done
 }
 # start <link>: point current at releases/<commit> and start Dispatch on it. Fails unless /api/health
@@ -119,9 +119,22 @@ speech_up "$rel" "$speech"
 # is whole.
 switching=''
 if [ -n "$before" ] && [ "$before" != "releases/$commit" ] && [ -f "$db" ]; then
+  # Room for the copy and as much again for the new release's migrations, asked before anything stops.
+  size=0 free=0
+  for f in "$db" "$db-wal"; do [ ! -f "$f" ] || size=$((size + $(stat -c %s "$f"))); done
+  free="$(df -P -B1 "$(dirname "$db")" | awk 'NR == 2 { print $4 }')"
+  [ ! -f "$saved" ] || free=$((free + $(stat -c %s "$saved")))
+  if [ "$free" -lt $((size * 2)) ]; then
+    echo "$(dirname "$db") has $((free / 1048576)) MB free, and copying the database before the update needs $((size * 2 / 1048576)) MB. Dispatch stays on ${before#releases/}." >&2
+    exit 1
+  fi
   switching=1
   systemctl stop dispatch
-  copy_db "$db" "$saved"
+  if ! copy_db "$db" "$saved"; then
+    systemctl start dispatch
+    echo "Couldn't copy the database to $saved, so Dispatch stays on ${before#releases/}." >&2
+    exit 1
+  fi
 fi
 
 say "starting $commit"
@@ -135,7 +148,7 @@ if ! start "releases/$commit"; then
   say "going back to $old"
   if [ -n "$switching" ]; then
     systemctl stop dispatch
-    copy_db "$saved" "$db"
+    copy_db "$saved" "$db" || echo "Couldn't put the database back from $saved; $old may not open the one $commit left." >&2
   fi
   speech_up "$srv/$before" "$(cat "$srv/$before/SPEECH_IMAGE")"
   # The app reads this when it starts (server/src/updates.ts), so it is there before the old release is.

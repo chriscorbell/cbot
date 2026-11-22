@@ -8,6 +8,7 @@ Standard library and jq only:
 """
 import json
 import os
+import shutil as _shutil
 import shutil
 import subprocess
 import tempfile
@@ -37,6 +38,9 @@ if [ "$1" = restart ] && grep -qx "${cur#releases/}" "$MIGRATES"; then
   echo "schema of ${cur#releases/}" >"$DB"; rm -f "$DB-wal"
 fi""",
     "journalctl": 'echo "the journal"',
+    # A full disk: copies of the database fail with $FULL set, and df reports no room with $NO_ROOM.
+    "cp": f'case "${{*: -1}}" in *.before-update*) [ -z "$FULL" ] || {{ echo "No space left on device" >&2; exit 1; }} ;; esac; exec {_shutil.which("cp")} "$@"',
+    "df": f'[ -z "$NO_ROOM" ] || {{ printf "Filesystem 1-blocks Used Available Capacity Mounted on\\nx 100 100 0 100%% /\\n"; exit 0; }}; exec {_shutil.which("df")} "$@"',
     "sleep": ":",
     "curl": """cur="$(readlink "$DISPATCH_ROOT/srv/dispatch/current")"; cur="${cur#releases/}"
 grep -qx "$cur" "$BROKEN" && exit 7
@@ -221,6 +225,28 @@ class ReleaseTest(unittest.TestCase):
         self.write(shim, self.read(shim).replace("#!/usr/bin/env bash\n", '#!/usr/bin/env bash\necho "curl $*" >>"$CALLS"\n', 1))
         self.assertEqual(self.release(OLD).returncode, 0)
         self.assertIn("http://127.0.0.1:9000/api/health", " ".join(c for c in self.logged() if c.startswith("curl ")))
+
+    def test_a_database_that_cannot_be_copied_leaves_the_release_before_running(self):
+        self.assertEqual(self.release(OLD).returncode, 0)
+        self.write(self.db, "schema of old")
+        self.env["FULL"] = "1"
+        r = self.release(NEW)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(f"so Dispatch stays on {OLD}", r.stderr)
+        self.assertEqual(self.current(), f"releases/{OLD}")
+        calls = [c for c in self.logged() if c.startswith("systemctl ") and c.endswith(" dispatch")]
+        self.assertEqual(calls, ["systemctl stop dispatch", "systemctl start dispatch"])
+        self.assertEqual(self.read(self.db), "schema of old")
+
+    def test_no_room_for_the_copy_stops_the_update_before_dispatch_does(self):
+        self.assertEqual(self.release(OLD).returncode, 0)
+        self.write(self.db, "schema of old")
+        self.env["NO_ROOM"] = "1"
+        r = self.release(NEW)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("MB free", r.stderr)
+        self.assertEqual(self.current(), f"releases/{OLD}")
+        self.assertFalse([c for c in self.logged() if c.startswith("systemctl ") and c.endswith(" dispatch")])
 
     def test_the_next_good_release_clears_the_notice(self):
         self.release(OLD)
