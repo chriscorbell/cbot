@@ -11,10 +11,14 @@ export type Theme = 'system' | 'light' | 'dark';
 export type Jump = { kind: 'row'; botId: string; generation: number; seq: number } | { kind: 'file'; botId: string; path: string };
 export type BotSettingsTab = 'general' | 'engine' | 'skills' | 'memories' | 'routines';
 export type AppSection = 'general' | 'providers' | 'computer' | 'permissions';
+/** What the task editor opened on: a task on the board, or a new one (for a bot, or nobody yet). */
+export type TaskEditorTarget = { kind: 'edit'; taskId: string } | { kind: 'new'; ownerId: string | null };
 
 interface ConfigUI {
   botSettings: { botId: string; tab: BotSettingsTab } | null;
   appSettings: AppSection | null;
+  /** The task editor, opened from a bot's details or the board. */
+  taskEditor: TaskEditorTarget | null;
   theme: Theme;
   /** The browser's spell check in the composer. */
   spellcheck: boolean;
@@ -32,6 +36,8 @@ interface ConfigUI {
   closeBotSettings(): void;
   openAppSettings(section?: AppSection): void;
   closeAppSettings(): void;
+  openTaskEditor(t: TaskEditorTarget): void;
+  closeTaskEditor(): void;
   setTheme(t: Theme): void;
   setPref(p: Partial<Pick<ConfigUI, 'spellcheck' | 'sendWithMod' | 'micId'>>): void;
   bump(key: string): void;
@@ -62,6 +68,7 @@ export function applyTheme(t: Theme) {
 export const useConfigUI = create<ConfigUI>((set, get) => ({
   botSettings: null,
   appSettings: null,
+  taskEditor: null,
   theme: readTheme(),
   ...readPrefs(),
   versions: {},
@@ -72,6 +79,8 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   closeBotSettings: () => set({ botSettings: null }),
   openAppSettings: (section = 'general') => set({ appSettings: section }),
   closeAppSettings: () => set({ appSettings: null }),
+  openTaskEditor: (taskEditor) => set({ taskEditor }),
+  closeTaskEditor: () => set({ taskEditor: null }),
   setTheme: (theme) => {
     try { localStorage.setItem(LS_THEME, theme); } catch { /* ignore */ }
     applyTheme(theme);

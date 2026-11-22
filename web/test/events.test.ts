@@ -1,9 +1,9 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { Bot, LiveState } from '@shared/types';
+import type { Bot, LiveState, Task } from '@shared/types';
 
 vi.mock('../src/lib/api', async (orig) => ({
   ...(await orig<typeof import('../src/lib/api')>()),
-  api: { patchRow: vi.fn(), rows: vi.fn(), markRead: vi.fn(async () => ({ ok: true })), markUnread: vi.fn(async () => ({ ok: true })), routines: vi.fn(async () => ({ routines: [] })), bots: vi.fn(async () => ({ bots: [], live: [] })) },
+  api: { patchRow: vi.fn(), rows: vi.fn(), markRead: vi.fn(async () => ({ ok: true })), markUnread: vi.fn(async () => ({ ok: true })), routines: vi.fn(async () => ({ routines: [] })), bots: vi.fn(async () => ({ bots: [], live: [] })), tasks: vi.fn(async () => ({ tasks: [] })) },
 }));
 
 const { applyServerEvent } = await import('../src/lib/events');
@@ -32,6 +32,30 @@ test('live, bot and computer events update the store', () => {
   expect(useStore.getState().bots[0].name).toBe('Renamed');
   applyServerEvent({ type: 'computer', state: { status: 'running', error: null, screens: [] } });
   expect(useStore.getState().computer?.status).toBe('running');
+});
+
+const task = (id: string, p: Partial<Task> = {}): Task => ({
+  id, title: id, notes: '', status: 'todo', ownerId: null, previousOwner: null, createdBy: null, createdAt: 0, updatedAt: 0, ...p,
+});
+
+test('a tasks event fetches the board again', async () => {
+  useStore.setState({ tasks: [] });
+  vi.mocked(api.tasks).mockResolvedValueOnce({ tasks: [task('task_1', { ownerId: 'bot_1' })] });
+  applyServerEvent({ type: 'tasks' });
+  await vi.waitFor(() => expect(useStore.getState().tasks?.map((t) => t.id)).toEqual(['task_1']));
+});
+
+test('a board that comes back after a newer one does not replace it', async () => {
+  useStore.setState({ tasks: [] });
+  let first!: (v: { tasks: Task[] }) => void;
+  vi.mocked(api.tasks)
+    .mockReturnValueOnce(new Promise((res) => { first = res; }))
+    .mockResolvedValueOnce({ tasks: [task('task_1', { status: 'done' })] });
+  const older = useStore.getState().loadTasks();
+  await useStore.getState().loadTasks();
+  first({ tasks: [task('task_1', { status: 'doing' })] });
+  await older;
+  expect(useStore.getState().tasks?.[0].status).toBe('done');
 });
 
 test('memories events move the version open views watch', () => {

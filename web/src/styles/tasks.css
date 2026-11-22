@@ -1,0 +1,104 @@
+/* ---------- the team's task board, a bot's tasks, and one bot's question to another ---------- */
+
+/* a status glyph, tinted by where the task is */
+.task-status { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--color-text-tertiary); transition: color var(--dur-med) var(--ease-out); }
+.task-status.is-doing { color: var(--color-switch); }
+.task-status.is-blocked { color: var(--color-warn); }
+.task-status.is-done { color: var(--color-success); }
+.task-status svg { animation: status-in var(--dur-slow) var(--ease-spring); }
+@keyframes status-in { from { transform: scale(0.6); opacity: 0.3; } to { transform: none; opacity: 1; } }
+
+.task-owner { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-secondary); }
+.task-owner.is-none { color: var(--color-text-tertiary); }
+.task-owner__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a bot's details: its tasks, as rows like its routines */
+.panel-row--task { min-height: 44px; animation: rise var(--dur-med) var(--ease-out); }
+
+/* the board: cards stand off the dialog, which is the surface colour itself in dark */
+:root { --task-card: var(--surface); --task-card-hover: var(--surface-hover); }
+:root[data-theme='dark'] { --task-card: var(--surface-hover); --task-card-hover: var(--surface-active); }
+.task-board { width: min(1080px, 100%); min-height: min(460px, calc(100dvh - 48px)); }
+.task-board__header { gap: 10px; }
+.task-board__new { margin-left: auto; gap: 4px; padding: 0 12px 0 9px; }
+.task-board__cols {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; flex: 1 1 auto; min-height: 0;
+  padding: 4px 14px 16px; overflow-y: auto; overscroll-behavior: contain;
+  transition: opacity var(--dur-med) var(--ease-out);
+}
+.task-board__cols.is-loading { opacity: 0.4; }
+.task-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.task-col__head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 4px;
+  background: var(--color-bg-elevated); font-size: var(--text-xs); font-weight: 500; line-height: var(--leading-xs); color: var(--color-text-secondary);
+}
+.task-col__count { margin-left: auto; font-weight: 400; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
+.task-col__list { display: flex; flex-direction: column; gap: 6px; }
+
+.task-card {
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: 100%; padding: 10px 11px 9px; border-radius: 12px; text-align: left;
+  background: var(--task-card); box-shadow: inset 0 1px 0 var(--highlight);
+  animation: rise var(--dur-slow) var(--ease-out) both; animation-delay: calc(var(--i, 0) * 28ms);
+  transition: background-color var(--dur-fast), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
+}
+.task-card:hover { background: var(--task-card-hover); }
+.task-card:active { transform: scale(0.985); }
+.task-card__title {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+  font-size: var(--text-sm); font-weight: 500; line-height: var(--leading-sm); color: var(--color-text-primary);
+}
+.task-card.is-done .task-card__title { color: var(--color-text-secondary); }
+.task-card.is-blocked { box-shadow: inset 0 1px 0 var(--highlight), inset 2px 0 0 var(--color-warn); }
+.task-card__notes { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
+.task-card__foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; min-width: 0; }
+.task-card__when { flex-shrink: 0; font-size: var(--text-2xs); line-height: var(--leading-2xs); color: var(--color-text-tertiary); }
+
+@media (max-width: 900px) {
+  .task-board__cols { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 18px; }
+}
+/* phones: one column under another, the board a full-height sheet */
+@media (max-width: 560px) {
+  .task-board { min-height: calc(var(--visible-h) - 8px); }
+  .task-board__cols { grid-template-columns: minmax(0, 1fr); padding: 4px 12px 20px; }
+  .task-card { padding: 12px; }
+}
+
+/* the editor */
+.task-editor { width: 460px; }
+.task-editor form { display: flex; flex-direction: column; min-height: 0; }
+.task-editor__body { display: flex; flex-direction: column; gap: 8px; padding: 4px 18px 6px; overflow-y: auto; }
+.task-editor__body > * { flex-shrink: 0; }
+.task-editor__title { height: 38px; font-size: var(--text-message); font-weight: 500; }
+.task-editor__notes { height: auto; min-height: 104px; resize: vertical; line-height: 19px; font-family: inherit; }
+.task-editor__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.task-editor__field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.task-editor__field .field-label { margin-top: 0; padding: 0 2px; }
+.task-editor__field .mini-select {
+  justify-content: space-between; width: 100%; height: 34px; padding: 0 10px 0 12px; border-radius: var(--radius-sm);
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--border);
+}
+.task-editor__field .mini-select:hover:not(:disabled) { background: var(--surface-hover); }
+.task-editor__note { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-secondary); animation: rise var(--dur-med) var(--ease-out); }
+.task-editor__meta { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--color-text-tertiary); }
+.task-editor__delete { margin-right: auto; color: var(--color-danger-text); }
+.task-editor__delete:hover:not(:disabled) { background: var(--color-danger-bg); color: var(--color-danger-text); }
+
+/* one bot's question to another: the call row's quiet line, with the question beside who asked */
+.ask-row .call-row__head { max-width: 100%; }
+.ask-row__title { max-width: 100%; min-width: 0; }
+.ask-row__icon { flex-shrink: 0; }
+.ask-row__head { flex-shrink: 0; color: var(--color-text-secondary); }
+.ask-row__question { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ask-row__question::before { content: '·'; margin-right: 6px; }
+.ask-row.is-asking .ask-row__icon, .ask-row.is-asking .ask-row__head { animation: breathe 1.6s ease-in-out infinite; }
+.ask-row.is-failed .ask-row__icon { color: var(--color-warn); }
+.ask-row__body { display: flex; flex-direction: column; gap: 10px; width: min(460px, 100%); }
+.ask-row__part { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ask-row__who { font-size: var(--text-xs); font-weight: 500; line-height: var(--leading-xs); color: var(--color-text-tertiary); }
+.ask-row__text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text-primary); }
+.ask-row__part.is-failed .ask-row__text { color: var(--color-text-secondary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .task-card { animation-delay: 0ms; }
+  .ask-row.is-asking .ask-row__icon, .ask-row.is-asking .ask-row__head { animation: none; }
+}

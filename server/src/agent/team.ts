@@ -1,0 +1,232 @@
+import { db, now, type BotRecord, type TaskRecord, type TeamLogRecord, type UserRecord } from '../db.js';
+import { newId } from '../lib/ids.js';
+import { hub } from '../lib/hub.js';
+import { conversation, getBotRow } from '../store.js';
+import type { Task, TaskStatus } from '../types.js';
+
+/**
+ * The team: its shared task board, and what each agent is told when the team changes.
+ *
+ * A task belongs to one bot, or to nobody, and moves between four states:
+ *
+ *   todo ⇄ doing ⇄ blocked ──► done (and back, if someone reopens it)
+ *
+ * Bots change tasks with their tools (agent/tools.ts) and the user in the app (routes-tasks.ts), both
+ * through addTask, changeTask and removeTask here, so the two always tell the same people. A bot that
+ * leaves the team (teamLeft, from deleteBot) hands its tasks back: nobody owns them, previous_owner says
+ * whose they were, and one it was doing is to do again.
+ *
+ * The team log is what each agent hears about the team: a teammate joined or left, a task was given to
+ * it, moved, changed or finished. An entry is for one bot (`audience`) or for every bot but the one it
+ * is about (`actor_id`). A bot's agent is told the entries it hasn't heard yet at the start of its next
+ * turn, as a bracketed note at the start of the run's input (teamNews, read by agent/turns.ts), the way
+ * catchup.ts tells it about voice calls, so the instructions and the prompt cache behind them stay the
+ * same. Being given a task also wakes the bot (a 'team' turn, queued by the caller), so it starts now.
+ */
+
+/** Bot-to-bot hops in one chain of messages and tasks before the app stops waking bots for it. */
+export const MAX_HOPS = 6;
+
+/** How long finished tasks stay on the board. */
+const DONE_SHOWN_MS = 14 * 86_400_000;
+/** How long the log keeps an entry; one older than this was told long ago or no longer matters. */
+const LOG_KEPT_MS = 30 * 86_400_000;
+/** Entries told per note; the rest are counted. */
+const MAX_NEWS = 15;
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Who did something: the user in the app, or a bot with one of its tools. */
+export type Actor = { kind: 'user' } | { kind: 'bot'; id: string; name: string };
+
+export const ownerName = (userId: string) => db.prepare<[string], Pick<UserRecord, 'username'>>('SELECT username FROM users WHERE id=?').get(userId)?.username ?? 'The user';
+const actorName = (userId: string, a: Actor) => (a.kind === 'bot' ? a.name : ownerName(userId));
+const actorId = (a: Actor) => (a.kind === 'bot' ? a.id : null);
+const botName = (id: string | null) => (id ? getBotRow(id)?.name ?? null : null);
+
+// ---------- the log ----------
+
+/** Something the team's agents hear at their next turn: for one bot (`audience`), or for all but `actorId`. */
+export function logTeam(userId: string, text: string, o: { actorId?: string | null; audience?: string | null } = {}) {
+  db.prepare('INSERT INTO team_log(user_id,actor_id,audience,text,created_at) VALUES (?,?,?,?,?)').run(userId, o.actorId ?? null, o.audience ?? null, text, now());
+  db.prepare('DELETE FROM team_log WHERE created_at<?').run(now() - LOG_KEPT_MS);
+}
+
+const unheard = db.prepare<[string, number, string, string], TeamLogRecord>(
+  'SELECT * FROM team_log WHERE user_id=? AND id>? AND (audience=? OR (audience IS NULL AND actor_id IS NOT ?)) ORDER BY id',
+);
+
+/** "just now", "4m ago", "2h ago", "3d ago" */
+function ago(t: number): string {
+  const s = Math.round((now() - t) / 1000);
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`;
+}
+
+/**
+ * What the bot's agent hasn't heard about the team, as a note for its next run. `upTo` is the entry it
+ * is caught up to once the run has it: the turn passes it to markTeamSeen then, so news a turn never
+ * delivered waits for the next one. Null for a bot that is gone.
+ */
+export function teamNews(botId: string): { note: string | null; upTo: number } | null {
+  const bot = getBotRow(botId);
+  if (!bot) return null;
+  const entries = unheard.all(bot.user_id, bot.team_seen, botId, botId);
+  if (!entries.length) return { note: null, upTo: bot.team_seen };
+  const lines = entries.slice(-MAX_NEWS).map((e) => `- ${e.text} (${ago(e.created_at)})`);
+  const left = entries.length - lines.length;
+  return {
+    note: `[Team news since your last turn, oldest first:${left > 0 ? `\n(${left} earlier left out)` : ''}\n${lines.join('\n')}]`,
+    upTo: entries[entries.length - 1].id,
+  };
+}
+
+/** The bot's agent has the news up to `upTo` (teamNews). Only forward. */
+export function markTeamSeen(botId: string, upTo: number) {
+  db.prepare('UPDATE bots SET team_seen=? WHERE id=? AND team_seen<?').run(upTo, botId, upTo);
+}
+
+// ---------- joining and leaving ----------
+
+const describe = (b: Pick<BotRecord, 'name' | 'label'>) => (b.label ? `${b.name} (${b.label})` : b.name);
+
+/** A new agent on the team: it starts caught up, and the others hear it joined. */
+export function teamJoined(bot: BotRecord) {
+  if (bot.kind === 'room') return;
+  const newest = db.prepare<[string], { id: number | null }>('SELECT MAX(id) id FROM team_log WHERE user_id=?').get(bot.user_id)?.id ?? 0;
+  db.prepare('UPDATE bots SET team_seen=? WHERE id=?').run(newest, bot.id);
+  logTeam(bot.user_id, `${describe(bot)} joined the team.`, { actorId: bot.id });
+}
+
+/**
+ * An agent is leaving the team (deleteBot calls this before the bot's row goes): its tasks go back to
+ * nobody, saying whose they were, and the others hear it left and which tasks wait for someone.
+ */
+export function teamLeft(bot: BotRecord) {
+  if (bot.kind === 'room') return;
+  const open = db.prepare<[string], TaskRecord>("SELECT * FROM tasks WHERE owner_id=? AND status<>'done' ORDER BY created_at").all(bot.id);
+  db.prepare(`UPDATE tasks SET owner_id=NULL, previous_owner=?, status=CASE status WHEN 'doing' THEN 'todo' ELSE status END, updated_at=? WHERE owner_id=?`).run(bot.name, now(), bot.id);
+  // Nobody is left to hear what was only for it.
+  db.prepare('DELETE FROM team_log WHERE audience=?').run(bot.id);
+  const tasks = open.map((t) => `"${clip(t.title, 80)}" (${t.id})`).join(', ');
+  logTeam(bot.user_id, `${describe(bot)} was removed from the team.${open.length ? ` Their open tasks have nobody now: ${tasks}.` : ''}`, { actorId: bot.id });
+  hub.emit(bot.user_id, { type: 'tasks' });
+}
+
+// ---------- the board ----------
+
+export function toTask(r: TaskRecord): Task {
+  return {
+    id: r.id, title: r.title, notes: r.notes, status: r.status, ownerId: r.owner_id, previousOwner: r.previous_owner,
+    createdBy: r.created_by ? { id: r.created_by, name: r.creator_name ?? '' } : null,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+/** The board: every open task, and the ones finished in the last 14 days. Newest change first within each status. */
+export function listTasks(userId: string): Task[] {
+  return db.prepare<[string, number], TaskRecord>("SELECT * FROM tasks WHERE user_id=? AND (status<>'done' OR updated_at>?) ORDER BY updated_at DESC")
+    .all(userId, now() - DONE_SHOWN_MS).map(toTask);
+}
+
+export const getTask = (userId: string, id: string) =>
+  db.prepare<[string, string], TaskRecord>('SELECT * FROM tasks WHERE id=? AND user_id=?').get(id.trim(), userId);
+
+/** An agent of this user that can own tasks, by id. */
+export const taskOwner = (userId: string, id: string) =>
+  db.prepare<[string, string], BotRecord>("SELECT * FROM bots WHERE id=? AND user_id=? AND kind<>'room'").get(id, userId);
+
+/** A line in a bot's chat about a task that concerns it, so the user sees why it is at work. */
+function chatLine(botId: string, text: string, taskId: string) {
+  if (getBotRow(botId)) conversation(botId).append('event', { type: 'event', event: 'task', text, ref: taskId });
+}
+
+/** What changed hands: the bot the task was given to, which the caller wakes so it starts on it. */
+export interface TaskChange { task: Task; given: string | null }
+
+export function addTask(userId: string, actor: Actor, p: { title: string; notes?: string; ownerId?: string | null; status?: TaskStatus }): TaskChange {
+  const id = newId('task');
+  const t = now();
+  db.prepare('INSERT INTO tasks(id,user_id,title,notes,status,owner_id,created_by,creator_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, p.title.trim(), (p.notes ?? '').trim(), p.status ?? 'todo', p.ownerId ?? null, actorId(actor), actor.kind === 'bot' ? actor.name : null, t, t);
+  const task = toTask(getTask(userId, id)!);
+  // A finished task needs nobody to start on it.
+  const given = task.ownerId && task.ownerId !== actorId(actor) && task.status !== 'done' ? task.ownerId : null;
+  if (given) giveTo(userId, actor, given, task);
+  hub.emit(userId, { type: 'tasks' });
+  return { task, given };
+}
+
+function giveTo(userId: string, actor: Actor, botId: string, task: Task) {
+  const who = actorName(userId, actor);
+  logTeam(userId, `${who} gave you a task: "${clip(task.title, 120)}" (${task.id}).${task.notes ? ` Notes: ${clip(task.notes.replace(/\s+/g, ' '), 600)}` : ''}`, { audience: botId });
+  chatLine(botId, `${who} gave ${botName(botId)} a task: ${clip(task.title, 120)}`, task.id);
+}
+
+const STATUS_WORDS: Record<TaskStatus, string> = { todo: 'to do', doing: 'doing', blocked: 'blocked', done: 'done' };
+
+/**
+ * Change a task. `note` is added to the end of its notes, on a line of its own with who wrote it;
+ * `notes` replaces them (the app's editor). The owner hears what someone else changed, a new owner is
+ * given the task, the old one hears it moved, and the bot that created it hears it got done.
+ */
+export function changeTask(userId: string, actor: Actor, id: string, p: { title?: string; notes?: string; note?: string; status?: TaskStatus; ownerId?: string | null }): TaskChange | null {
+  const cur = getTask(userId, id);
+  if (!cur) return null;
+  const who = actorName(userId, actor);
+  const me = actorId(actor);
+  const title = p.title?.trim() || cur.title;
+  let notes = p.notes !== undefined ? p.notes.trim() : cur.notes;
+  if (p.note?.trim()) notes = `${notes ? `${notes}\n` : ''}${who}: ${p.note.trim()}`;
+  const status = p.status ?? cur.status;
+  const owner = p.ownerId !== undefined ? p.ownerId : cur.owner_id;
+  const moved = owner !== cur.owner_id;
+  db.prepare('UPDATE tasks SET title=?, notes=?, status=?, owner_id=?, previous_owner=?, updated_at=? WHERE id=?')
+    .run(title, notes, status, owner, moved ? null : cur.previous_owner, now(), cur.id);
+  const task = toTask(getTask(userId, cur.id)!);
+  const name = `"${clip(title, 120)}" (${cur.id})`;
+
+  let given: string | null = null;
+  if (moved) {
+    if (owner && owner !== me && status !== 'done') {
+      given = owner;
+      giveTo(userId, actor, owner, task);
+    }
+    if (cur.owner_id && cur.owner_id !== me) {
+      logTeam(userId, `${who} moved your task ${name} to ${botName(owner) ?? 'nobody'}.`, { audience: cur.owner_id });
+    }
+  } else if (owner && owner !== me) {
+    const what: string[] = [];
+    if (status !== cur.status) what.push(`marked it ${STATUS_WORDS[status]}`);
+    if (title !== cur.title) what.push('renamed it');
+    if (p.note?.trim()) what.push(`noted: ${clip(p.note.trim().replace(/\s+/g, ' '), 400)}`);
+    else if (notes !== cur.notes) what.push('changed its notes');
+    if (what.length) logTeam(userId, `${who} changed your task ${name}: ${what.join('; ')}.`, { audience: owner });
+  }
+  // The bot that asked for it hears it got done, unless it did it itself or is already told above.
+  if (status === 'done' && cur.status !== 'done' && cur.created_by && cur.created_by !== me && cur.created_by !== owner && getBotRow(cur.created_by)) {
+    logTeam(userId, `${owner === me ? who : botName(owner) ?? who} finished ${name}, a task you created.`, { audience: cur.created_by });
+  }
+  hub.emit(userId, { type: 'tasks' });
+  return { task, given };
+}
+
+/** Take a task off the board. Its owner hears, unless it took it off itself. */
+export function removeTask(userId: string, actor: Actor, id: string): boolean {
+  const cur = getTask(userId, id);
+  if (!cur) return false;
+  db.prepare('DELETE FROM tasks WHERE id=?').run(cur.id);
+  if (cur.owner_id && cur.owner_id !== actorId(actor) && cur.status !== 'done') {
+    logTeam(userId, `${actorName(userId, actor)} took your task "${clip(cur.title, 120)}" off the board.`, { audience: cur.owner_id });
+  }
+  hub.emit(userId, { type: 'tasks' });
+  return true;
+}
+
+/** A task as a line for an agent: "[doing] Login API (task_x) · owner: Kai · from Ava · notes: …". `user` is the user's name. */
+export function taskLine(t: Task, user: string, o: { owner?: boolean } = {}): string {
+  const parts = [`[${STATUS_WORDS[t.status]}] ${t.title} (${t.id})`];
+  if (o.owner) parts.push(t.ownerId ? `owner: ${botName(t.ownerId) ?? 'unknown'}` : `owner: nobody${t.previousOwner ? ` (was ${t.previousOwner})` : ''}`);
+  parts.push(`from ${t.createdBy ? t.createdBy.name : user}`);
+  if (t.notes) parts.push(`notes: ${clip(t.notes.replace(/\s+/g, ' '), 300)}`);
+  return parts.join(' · ');
+}

@@ -156,7 +156,7 @@
   },
   {
     "name": "send_to_bot",
-    "description": "Send a message to another Bot on the user's team (by name) to delegate work or ask a question. Their reply will arrive later as a new message to you.",
+    "description": "Send a message to another agent on the user's team (by name). It becomes a turn in their chat, and their reply, if any, arrives later as a new message to you. For a question you need answered now use ask_bot; to give them work use add_task.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -170,6 +170,130 @@
       "required": [
         "bot_name",
         "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ask_bot",
+    "description": "Ask another agent on the team (by name) a question and get their answer now, in this turn. They answer from what they know: their chat with the user, their tasks, files and memory. Use it to check on a teammate's work or ask what they know instead of guessing. Takes a while when they have to look something up. To give them work, use add_task instead.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "bot_name": {
+          "type": "string"
+        },
+        "question": {
+          "type": "string",
+          "description": "The question, with the context they need to answer it"
+        }
+      },
+      "required": [
+        "bot_name",
+        "question"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "check_on_bot",
+    "description": "See where a teammate (another agent on the team, by name) stands: their role, About and instructions, skills, routines, their tasks on the board, what they're doing right now, their own notes, their latest messages with the user and where their Library is. Read-only; they aren't told.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "bot_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bot_name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_tasks",
+    "description": "The team's task board: open tasks with their status, owner and notes, and the ones finished in the last two weeks. Filter by owner: an agent's name, \"me\" or \"nobody\".",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "include_done": {
+          "description": "Also list finished tasks",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": []
+    }
+  },
+  {
+    "name": "add_task",
+    "description": "Put a task on the team's board. owner is the agent who should do it (by name), \"me\" (the default) or \"nobody\". A teammate you give a task to is told at once and starts on it, and you hear when they finish it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What to do, in a few words"
+        },
+        "notes": {
+          "description": "What they need to know to do it: context, links, what done looks like",
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "status": {
+          "description": "Default todo",
+          "type": "string",
+          "enum": [
+            "todo",
+            "doing",
+            "blocked",
+            "done"
+          ]
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_task",
+    "description": "Change a task on the team's board: its status (todo, doing, blocked, done), its title, its owner (an agent's name, \"me\" or \"nobody\"), or add a note (say why when you mark it blocked). Keep your own tasks current as you work. Its owner is told what you changed, and a new owner starts on it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "todo",
+            "doing",
+            "blocked",
+            "done"
+          ]
+        },
+        "note": {
+          "description": "Added to the end of its notes, with your name",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
       ],
       "additionalProperties": false
     }

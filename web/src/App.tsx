@@ -8,6 +8,8 @@ import { Sidebar } from './components/Sidebar';
 import { CreateBotModal } from './components/modals/CreateBotModal';
 import { CreateGroupModal } from './components/modals/CreateGroupModal';
 import { SearchModal } from './components/modals/SearchModal';
+import { TaskBoard } from './components/tasks/TaskBoard';
+import { TaskEditor } from './components/tasks/TaskEditor';
 import { ConfigLayer } from './components/config/ConfigLayer';
 import { useConfigUI } from './configStore';
 import { Presence } from './components/Presence';
@@ -22,6 +24,7 @@ function Shell() {
   const drawerOpen = useStore((s) => s.drawerOpen);
   const hasBot = useStore((s) => !!s.selectedBotId);
   const needsSetup = useStore((s) => s.needsSetup);
+  const taskEditorOpen = useConfigUI((s) => !!s.taskEditor);
   const appRef = useRef<HTMLDivElement>(null);
 
   // The setup wizard covers the app until it is done: nothing under it takes focus, clicks or a screen reader's attention.
@@ -32,6 +35,7 @@ function Shell() {
     st.loadBots().catch(console.error);
     st.loadComputer().catch(console.error);
     st.loadUpdate().catch(console.error);
+    st.loadTasks().catch(console.error);
     return startEvents();
   }, []);
 
@@ -70,6 +74,9 @@ function Shell() {
       <Presence show={modal === 'create'}><CreateBotModal /></Presence>
       <Presence show={modal === 'group'}><CreateGroupModal /></Presence>
       <Presence show={modal === 'search'}><SearchModal /></Presence>
+      <Presence show={modal === 'tasks'}><TaskBoard /></Presence>
+      {/* Opened from the board, the editor mounts after it, so its dialog goes on top. */}
+      <Presence show={taskEditorOpen}><TaskEditor /></Presence>
       <Presence show={viewerOpen} ms={180}><ComputerViewer /></Presence>
       <ConfigLayer />
       <Notices />

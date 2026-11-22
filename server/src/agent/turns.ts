@@ -5,10 +5,11 @@ import { screenForWork } from '../computer.js';
 import type { Engine } from '../engine.js';
 import type { RowBody } from '../types.js';
 import { instructionsFor } from './prompt.js';
-import { callNews, markTold } from './catchup.js';
+import { markTold, sideNews } from './catchup.js';
 import * as live from './live.js';
 import { closeCutShort, TurnTranscript, type ToolClaim } from './transcript.js';
 import { HermesRun, settleLeftoverRuns } from './runs.js';
+import { markTeamSeen, teamNews } from './team.js';
 
 /**
  * Turns: each one hands a message to the bot's Hermes gateway and streams the answer into the chat.
@@ -34,7 +35,10 @@ import { HermesRun, settleLeftoverRuns } from './runs.js';
  * TurnTranscript (transcript.ts). Stop asks Hermes to stop the run, which a dropped connection alone
  * would not. When Hermes asks before an action, the prompt becomes a card in the chat (approvals.ts)
  * and the run waits for the user's answer. The input starts with what the chat missed on voice calls
- * (catchup.ts).
+ * and in teammates' questions (catchup.ts), and with the team's news (team.ts).
+ *
+ * A 'team' turn is a wake-up: the bot was given a task (team.ts), and the turn is its news. Only one
+ * waits in the queue at a time, and one whose news an earlier turn already told is skipped.
  */
 
 /** What a turn answers. Kept in `turns` as JSON and read back after a restart. */
@@ -43,6 +47,7 @@ const TriggerSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('routine'), routineId: z.string(), name: z.string(), prompt: z.string() }),
   z.object({ type: z.literal('bot'), fromBotId: z.string(), fromName: z.string(), text: z.string(), depth: z.number() }),
   z.object({ type: z.literal('system'), text: z.string() }),
+  z.object({ type: z.literal('team'), depth: z.number() }),
 ]);
 export type Trigger = z.infer<typeof TriggerSchema>;
 
@@ -55,7 +60,7 @@ const forgetTurn = db.prepare<[number]>('DELETE FROM turns WHERE id=?');
 interface Running {
   job: Job;
   abort: AbortController;
-  /** How many bot-to-bot hops led here (send_to_bot stops a ping-pong at 3). */
+  /** How many bot-to-bot hops led here (the app's tools stop waking bots at team.ts MAX_HOPS). */
   depth: number;
   /** Set once the request is under way. */
   transcript: TurnTranscript | null;
@@ -83,6 +88,15 @@ export function enqueue(botId: string, trigger: Trigger): boolean {
   r.queued.push({ id, trigger, generation: bot.generation });
   pump(botId, r);
   return true;
+}
+
+/**
+ * Wake the bot for its team news (it was given a task): a 'team' turn, unless one is already waiting in
+ * its queue, which will tell this news too. `depth`: the bot-to-bot hops that led here.
+ */
+export function wake(botId: string, depth: number) {
+  if (runners.get(botId)?.queued.some((j) => j.trigger.type === 'team')) return;
+  enqueue(botId, { type: 'team', depth });
 }
 
 /** "Stop": end the running turn. Queued turns still run. */
@@ -113,7 +127,8 @@ function pump(botId: string, r: Runner) {
     for (const resolve of r.idle.splice(0)) resolve();
     return;
   }
-  const running: Running = { job, abort: new AbortController(), depth: job.trigger.type === 'bot' ? job.trigger.depth : 0, transcript: null };
+  const t = job.trigger;
+  const running: Running = { job, abort: new AbortController(), depth: t.type === 'bot' || t.type === 'team' ? t.depth : 0, transcript: null };
   r.current = running;
   runTurn(botId, running)
     .catch((e) => console.error('[agent] turn failed', botId, e))
@@ -183,7 +198,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * not this turn's: none runs, or the agent used the tool elsewhere (on a voice call, in Hermes' CLI).
  * Only a claimed call may change the turn (its row's outcome, ending it); see mcp.ts.
  */
-export async function claimToolRow(botId: string, name: string): Promise<ToolClaim | null> {
+export async function claimToolRow(botId: string, name: string): Promise<(ToolClaim & { signal: AbortSignal }) | null> {
   // The turn running when the call came in; a turn that starts after it ends had nothing to do with it.
   const turn = runners.get(botId)?.current;
   if (!turn) return null;
@@ -191,7 +206,8 @@ export async function claimToolRow(botId: string, name: string): Promise<ToolCla
   for (;;) {
     if (runners.get(botId)?.current !== turn) return null;
     const claim = turn.transcript?.claim(name);
-    if (claim) return claim;
+    // The turn's Stop stops what the tool started for it too (a question to a teammate).
+    if (claim) return { ...claim, signal: turn.abort.signal };
     if (Date.now() > deadline) return null;
     await sleep(40);
   }
@@ -212,6 +228,7 @@ function triggerText(t: Trigger): string {
     case 'routine': return `[Routine "${t.name}" is running now. Do this:]\n${t.prompt}`;
     case 'bot': return `[Message from ${t.fromName}, another Bot on the team. Reply to them with send_to_bot if they asked you something.]\n${t.text}`;
     case 'system': return `[System notice] ${t.text}`;
+    case 'team': return '[The team news above is why you are running now. Act on what needs you: start on a task you were given (mark it doing with update_task, and done when it is finished), or follow up with a teammate. If nothing needs you, use stay_silent.]';
   }
 }
 
@@ -261,6 +278,9 @@ async function runTurn(botId: string, running: Running) {
   const convo = conversation(botId, running.job.generation);
   // Queued in a conversation the user has since cleared.
   if (!convo.isCurrent()) return;
+  // A wake-up whose news an earlier turn already told.
+  const team = teamNews(botId);
+  if (running.job.trigger.type === 'team' && !team?.note) return;
   const transcript = new TurnTranscript(botId, convo);
   const { signal } = running.abort;
   live.turnStarted(botId);
@@ -279,8 +299,9 @@ async function runTurn(botId: string, running: Running) {
       input = `[Note: the user took control of your screen for a while and has just handed it back. Look at the screen before you rely on what was there.]\n\n${input}`;
       db.prepare('UPDATE bots SET handback_at=NULL WHERE id=?').run(botId);
     }
-    // Voice calls run in conversations of their own: what this one hasn't heard of them goes first.
-    const news = callNews(botId, convo.generation);
+    // Voice calls and teammates' questions run in conversations of their own: what this one hasn't heard of them goes first.
+    const news = sideNews(botId, convo.generation);
+    if (team?.note) input = `${team.note}\n\n${input}`;
     if (news?.note) input = `${news.note}\n\n${input}`;
     input = `${await recapFor(engine, convo)}${input}`;
     if (signal.aborted) throw new Error('interrupted');
@@ -294,6 +315,7 @@ async function runTurn(botId: string, running: Running) {
     sessions.set(botId, convo.generation);
     // Hermes has the run and its input: the news in it is told.
     if (news) markTold(botId, convo.generation, news.upTo);
+    if (team) markTeamSeen(botId, team.upTo);
     if (signal.aborted) throw new Error('interrupted');
 
     running.transcript = transcript;

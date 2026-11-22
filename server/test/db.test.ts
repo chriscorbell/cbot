@@ -18,9 +18,9 @@ function database(sql = ''): { d: Database.Database; file: string } {
 }
 
 test('a fresh database gets the whole schema and records its version', () => {
-  assert.equal(db.pragma('user_version', { simple: true }), 3);
-  assert.deepEqual(tables(db), ['approvals', 'auth_sessions', 'bots', 'deleted_bots', 'proactivity', 'routines', 'rows', 'runs', 'screens', 'settings', 'skills', 'turns', 'users']);
-  for (const col of ['kind', 'members', 'voice', 'engine', 'engine_port', 'handback_at', 'sidebar_hidden', 'told_seq']) {
+  assert.equal(db.pragma('user_version', { simple: true }), 4);
+  assert.deepEqual(tables(db), ['approvals', 'auth_sessions', 'bots', 'deleted_bots', 'proactivity', 'routines', 'rows', 'runs', 'screens', 'settings', 'skills', 'tasks', 'team_log', 'turns', 'users']);
+  for (const col of ['kind', 'members', 'voice', 'engine', 'engine_port', 'handback_at', 'sidebar_hidden', 'told_seq', 'team_seen']) {
     assert.ok(columns(db, 'bots').includes(col), `bots.${col}`);
   }
   assert.deepEqual(columns(db, 'users'), ['id', 'username', 'password_hash', 'avatar_url', 'created_at', 'approval_mode', 'approval_deny', 'setup_at']);
@@ -32,7 +32,7 @@ test('migrating a database that is up to date changes nothing', () => {
   const { d, file } = database();
   migrate(d, file);
   migrate(d, file);
-  assert.equal(d.pragma('user_version', { simple: true }), 3);
+  assert.equal(d.pragma('user_version', { simple: true }), 4);
   // References cascade once the migrations are done.
   assert.equal(d.pragma('foreign_keys', { simple: true }), 1);
   d.close();
@@ -42,7 +42,7 @@ test('a database from another version is refused with a way to start over, and l
   // The development versions before the schema was folded into one migration recorded nine.
   const { d, file } = database("CREATE TABLE bots (id TEXT PRIMARY KEY, hidden INTEGER); INSERT INTO bots VALUES ('bot_1', 0); PRAGMA user_version = 9;");
   assert.throws(() => migrate(d, file), (e: Error) => {
-    assert.match(e.message, /was made by another version of Dispatch \(schema 9; this version knows 3\)/);
+    assert.match(e.message, /was made by another version of Dispatch \(schema 9; this version knows 4\)/);
     assert.match(e.message, /docker compose -p dispatch-dev down -v/);
     return true;
   });
@@ -52,7 +52,22 @@ test('a database from another version is refused with a way to start over, and l
 
   // So is one with tables but no version at all, from before versions were recorded.
   const old = database("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); INSERT INTO users VALUES ('usr_1', 'a@localhost');");
-  assert.throws(() => migrate(old.d, old.file), /schema 0; this version knows 3/);
+  assert.throws(() => migrate(old.d, old.file), /schema 0; this version knows 4/);
   assert.deepEqual(tables(old.d), ['users']);
   old.d.close();
+});
+
+test('a database from before the task board gets it, and its bots have heard no team news yet', () => {
+  const { d, file } = database();
+  // The schema as the last release before the task board left it: three migrations, one bot.
+  const full = d.pragma('user_version', { simple: true });
+  assert.equal(full, 0);
+  migrate(d, file);
+  d.exec('DROP TABLE tasks; DROP TABLE team_log; ALTER TABLE bots DROP COLUMN team_seen; PRAGMA user_version = 3;');
+  d.exec("INSERT INTO users(id,created_at) VALUES ('usr_1', 0); INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES ('bot_1','usr_1','Ada',0,0);");
+  migrate(d, file);
+  assert.equal(d.pragma('user_version', { simple: true }), 4);
+  assert.deepEqual(d.prepare('SELECT id, team_seen FROM bots').all(), [{ id: 'bot_1', team_seen: 0 }]);
+  assert.ok(tables(d).includes('tasks') && tables(d).includes('team_log'));
+  d.close();
 });

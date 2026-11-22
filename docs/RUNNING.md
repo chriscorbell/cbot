@@ -145,7 +145,7 @@ sudo /srv/dispatch/current/scripts/backup.sh /mnt/usb/dispatch.tar.gz
 
 The file holds:
 
-- the database: the account, bots, chats, routines, settings and provider keys,
+- the database: the account, bots, chats, routines, the task board, settings and provider keys,
 - the secret the bots' tokens are signed with, and the certificate,
 - each bot's Hermes home (memory, sessions, keys and sign-ins) without the Python packages it downloaded, its Library, and its Chrome profile without Chrome's caches.
 

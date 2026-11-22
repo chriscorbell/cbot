@@ -7,7 +7,11 @@ import { appendRow, emitBot, getRoutine, listRoutines, describeCron, markUnread,
 import { applySchedule, scheduleRoutine, unscheduleRoutine } from '../routines.js';
 import { setCheckins } from '../proactive.js';
 import { createRoom, postToRoom } from './rooms.js';
-import type { ActivityKind } from '../types.js';
+import { askBot } from './asks.js';
+import { activitySnapshot, ago, recentMessages } from './catchup.js';
+import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, type Actor } from './team.js';
+import { listMemories } from '../engine-memory.js';
+import { TASK_STATUSES, type ActivityKind } from '../types.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
 import { BOTS_DIR, libraryDir } from '../machine.js';
@@ -22,7 +26,14 @@ export interface ToolCtx {
   /** The voice call the tool was used on: set by mcp.ts when no chat turn claimed the call and the bot is on one. */
   callId?: string;
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
+  /** Queue a turn for a bot that was given a task (turns.ts wake). */
+  wake: (botId: string, depth: number) => void;
+  /** Bot-to-bot hops behind the turn that called the tool (team.ts MAX_HOPS). */
   depth: number;
+  /** How deep in a chain of ask_bot questions the call is: 0 from a chat turn, 1 while answering a question asked from one. */
+  asking: number;
+  /** Ends when the call no longer matters: its turn was stopped, or Hermes gave up on the call. */
+  signal?: AbortSignal;
 }
 
 export interface ToolResult {
@@ -64,6 +75,49 @@ export async function runTool(t: ToolDef, rawArgs: unknown, ctx: ToolCtx): Promi
 
 function botByName(userId: string, name: string) {
   return db.prepare<[string, string], BotRecord>('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim());
+}
+
+/** Deepest chain of questions ask_bot allows: a bot answering a question may ask one more teammate, and no further. */
+const MAX_ASK_DEPTH = 2;
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+const agentNames = (userId: string) => db.prepare<[string], Pick<BotRecord, 'name'>>("SELECT name FROM bots WHERE user_id=? AND kind<>'room' ORDER BY created_at").all(userId).map((b) => b.name).join(', ');
+
+/** Another agent on the team by name, or why the name doesn't do. */
+function teammate(ctx: ToolCtx, name: string): { bot: BotRecord } | { output: string } {
+  const bot = botByName(ctx.userId, name);
+  if (!bot) return { output: `No agent named "${name}". The team: ${agentNames(ctx.userId)}.` };
+  if (bot.id === ctx.botId) return { output: 'That is you.' };
+  if (bot.kind === 'room') return { output: `"${bot.name}" is a group chat, not an agent.` };
+  return { bot };
+}
+
+/**
+ * A task's owner given by name: an agent on the team, "me" (the calling bot), or "nobody". Undefined
+ * leaves the owner as it is. Returns the bot id (null for nobody), or why the name doesn't do.
+ */
+function ownerByName(ctx: ToolCtx, name: string | undefined): { id: string | null | undefined } | { output: string } {
+  if (name === undefined) return { id: undefined };
+  const n = name.trim().toLowerCase();
+  if (!n || n === 'nobody' || n === 'none' || n === 'unassigned') return { id: null };
+  if (n === 'me' || n === 'myself') return { id: ctx.botId };
+  const bot = botByName(ctx.userId, name);
+  if (!bot || bot.kind === 'room') return { output: `No agent named "${name}". The team: ${agentNames(ctx.userId)}.` };
+  return { id: bot.id };
+}
+
+const nameOf = (botId: string) => db.prepare<[string], Pick<BotRecord, 'name'>>('SELECT name FROM bots WHERE id=?').get(botId)?.name;
+
+const actorOf = (ctx: ToolCtx): Actor => ({ kind: 'bot', id: ctx.botId, name: nameOf(ctx.botId) ?? 'A teammate' });
+
+/** Wake the bot a task was given to, unless the chain of hops behind this turn is long enough already. */
+function wakeGiven(ctx: ToolCtx, botId: string | null): string {
+  if (!botId) return '';
+  const name = nameOf(botId) ?? 'They';
+  if (ctx.depth >= MAX_HOPS) return ` ${name} will see it at their next turn (too many hops between bots to wake them now).`;
+  ctx.wake(botId, ctx.depth + 1);
+  return ` ${name} was told and starts on it.`;
 }
 
 
@@ -173,7 +227,7 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'send_to_bot',
-    description: "Send a message to another Bot on the user's team (by name) to delegate work or ask a question. Their reply will arrive later as a new message to you.",
+    description: "Send a message to another agent on the user's team (by name). It becomes a turn in their chat, and their reply, if any, arrives later as a new message to you. For a question you need answered now use ask_bot; to give them work use add_task.",
     params: z.object({ bot_name: z.string(), message: z.string() }),
     activity: 'messaging_named',
     label: 'Messaging a Bot',
@@ -182,9 +236,115 @@ export const TOOLS: ToolDef[] = [
       if (!target) return { output: `No bot named "${a.bot_name}". Team: ${db.prepare<[string], Pick<BotRecord, 'name'>>('SELECT name FROM bots WHERE user_id=?').all(ctx.userId).map((b) => b.name).join(', ')}` };
       if (target.id === ctx.botId) return { output: 'That is you.' };
       if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
-      if (ctx.depth >= 3) return { output: 'Too many hops between bots; answer the user directly instead.' };
+      if (ctx.depth >= MAX_HOPS) return { output: 'Too many hops between bots; answer the user directly instead.' };
       ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
       return { output: `Sent to ${target.name}. Their reply will come back to you as a message.`, summary: `Messaged ${target.name}` };
+    },
+  }),
+  tool({
+    name: 'ask_bot',
+    description: "Ask another agent on the team (by name) a question and get their answer now, in this turn. They answer from what they know: their chat with the user, their tasks, files and memory. Use it to check on a teammate's work or ask what they know instead of guessing. Takes a while when they have to look something up. To give them work, use add_task instead.",
+    params: z.object({ bot_name: z.string(), question: z.string().describe('The question, with the context they need to answer it') }),
+    activity: 'messaging_named',
+    label: 'Asking a teammate',
+    impl: async (a, ctx) => {
+      const t = teammate(ctx, a.bot_name);
+      if ('output' in t) return t;
+      const question = a.question.trim();
+      if (!question) return { output: 'Ask something: the question is empty.' };
+      if (ctx.asking >= MAX_ASK_DEPTH) return { output: `You are already answering a teammate's question that came through another one; answer with what you know instead of asking ${t.bot.name}.` };
+      const from = db.prepare<[string], BotRecord>('SELECT * FROM bots WHERE id=?').get(ctx.botId);
+      if (!from) return { output: 'You are no longer on the team.' };
+      const r = await askBot({ from, to: t.bot, question, depth: ctx.asking + 1, convo: ctx.convo, signal: ctx.signal });
+      return r.ok
+        ? { output: `${t.bot.name} answered:\n${r.answer}`, summary: `${t.bot.name} answered` }
+        : { output: `${t.bot.name} didn't answer: ${r.answer}.`, summary: `No answer from ${t.bot.name}` };
+    },
+  }),
+  tool({
+    name: 'check_on_bot',
+    description: "See where a teammate (another agent on the team, by name) stands: their role, About and instructions, skills, routines, their tasks on the board, what they're doing right now, their own notes, their latest messages with the user and where their Library is. Read-only; they aren't told.",
+    params: z.object({ bot_name: z.string() }),
+    activity: 'working',
+    label: 'Checking on a teammate',
+    impl: async (a, ctx) => {
+      const t = teammate(ctx, a.bot_name);
+      if ('output' in t) return t;
+      const b = t.bot;
+      const user = ownerName(ctx.userId);
+      const out: string[] = [`# ${b.name}${b.label ? `, ${b.label}` : ''}${b.is_primary ? ` (${user}'s main point of contact)` : ''}`];
+      if (b.description.trim()) out.push(`About: ${b.description.trim()}`);
+      if (b.instructions.trim()) out.push(`## Instructions from ${user}\n${clip(b.instructions.trim(), 2000)}`);
+      const skills = db.prepare<[string], { name: string }>('SELECT name FROM skills WHERE bot_id=? ORDER BY created_at').all(b.id).map((s) => s.name);
+      if (skills.length) out.push(`## Skills\n${skills.join(', ')}`);
+      const routines = listRoutines(b.id).map((r) => `- ${r.name}: ${r.enabled ? r.description : 'paused'}; ${clip(r.prompt.replace(/\s+/g, ' '), 160)}`);
+      if (routines.length) out.push(`## Routines\n${routines.join('\n')}`);
+      const tasks = listTasks(ctx.userId).filter((x) => x.ownerId === b.id).map((x) => `- ${taskLine(x, user)}`);
+      out.push(`## Tasks\n${tasks.length ? tasks.join('\n') : '(none)'}`);
+      out.push(`## Right now\n${activitySnapshot(b.id)}`);
+      const notes = listMemories(b.id).filter((m) => m.source === 'notes').map((m) => `- ${clip(m.text.replace(/\s+/g, ' '), 300)}`).join('\n');
+      if (notes) out.push(`## Their notes\n${clip(notes, 1500)}`);
+      const recent = recentMessages(b.id, 10).map((m) => `- [${ago(m.at)}] ${m.who === 'User' ? user : m.who}: ${clip(m.text.replace(/\s+/g, ' '), 300)}`);
+      out.push(`## Latest messages in their chat with ${user}, oldest first\n${recent.length ? recent.join('\n') : '(none)'}`);
+      out.push(`## Library\n~/${BOTS_DIR}/files/${b.id}/ (you can read it; change only your own)`);
+      return { output: out.join('\n\n'), summary: `Checked on ${b.name}` };
+    },
+  }),
+  tool({
+    name: 'list_tasks',
+    description: "The team's task board: open tasks with their status, owner and notes, and the ones finished in the last two weeks. Filter by owner: an agent's name, \"me\" or \"nobody\".",
+    params: z.object({ owner: z.string().optional(), include_done: z.boolean().optional().describe('Also list finished tasks') }),
+    activity: 'working',
+    label: 'Checking the task board',
+    impl: async (a, ctx) => {
+      const o = ownerByName(ctx, a.owner);
+      if ('output' in o) return o;
+      const user = ownerName(ctx.userId);
+      const tasks = listTasks(ctx.userId).filter((t) => (o.id === undefined || t.ownerId === o.id) && (a.include_done || t.status !== 'done'));
+      if (!tasks.length) return { output: 'No tasks.' };
+      const order = (s: string) => TASK_STATUSES.indexOf(s as (typeof TASK_STATUSES)[number]);
+      return { output: tasks.sort((x, y) => order(x.status) - order(y.status)).map((t) => `- ${taskLine(t, user, { owner: true })}`).join('\n') };
+    },
+  }),
+  tool({
+    name: 'add_task',
+    description: "Put a task on the team's board. owner is the agent who should do it (by name), \"me\" (the default) or \"nobody\". A teammate you give a task to is told at once and starts on it, and you hear when they finish it.",
+    params: z.object({
+      title: z.string().describe('What to do, in a few words'),
+      notes: z.string().optional().describe('What they need to know to do it: context, links, what done looks like'),
+      owner: z.string().optional(),
+      status: z.enum(TASK_STATUSES).optional().describe('Default todo'),
+    }),
+    activity: 'working',
+    label: 'Adding a task',
+    impl: async (a, ctx) => {
+      const title = a.title.trim();
+      if (!title) return { output: 'A task needs a title.' };
+      const o = ownerByName(ctx, a.owner ?? 'me');
+      if ('output' in o) return o;
+      const r = addTask(ctx.userId, actorOf(ctx), { title: clip(title, 200), notes: a.notes, ownerId: o.id === undefined ? ctx.botId : o.id, status: a.status });
+      return { output: `Added ${r.task.id}.${wakeGiven(ctx, r.given)}`, summary: `Added "${clip(title, 60)}"` };
+    },
+  }),
+  tool({
+    name: 'update_task',
+    description: "Change a task on the team's board: its status (todo, doing, blocked, done), its title, its owner (an agent's name, \"me\" or \"nobody\"), or add a note (say why when you mark it blocked). Keep your own tasks current as you work. Its owner is told what you changed, and a new owner starts on it.",
+    params: z.object({
+      task_id: z.string(),
+      status: z.enum(TASK_STATUSES).optional(),
+      note: z.string().optional().describe('Added to the end of its notes, with your name'),
+      title: z.string().optional(),
+      owner: z.string().optional(),
+    }),
+    activity: 'working',
+    label: 'Updating a task',
+    impl: async (a, ctx) => {
+      if (!getTask(ctx.userId, a.task_id)) return { output: `No task ${a.task_id}. list_tasks shows the board.` };
+      const o = ownerByName(ctx, a.owner);
+      if ('output' in o) return o;
+      const r = changeTask(ctx.userId, actorOf(ctx), a.task_id, { status: a.status, note: a.note, title: a.title ? clip(a.title.trim(), 200) : undefined, ownerId: o.id });
+      if (!r) return { output: `No task ${a.task_id}.` };
+      return { output: `Updated: ${taskLine(r.task, ownerName(ctx.userId), { owner: true })}.${wakeGiven(ctx, r.given)}`, summary: `Updated "${clip(r.task.title, 60)}"` };
     },
   }),
   tool({

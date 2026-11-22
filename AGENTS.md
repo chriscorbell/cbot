@@ -31,6 +31,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/agent/tools.ts` | The app's MCP tools (zod parameters, implementation, activity label) |
 | `server/src/agent/catchup.ts` | What a voice call and the text chat are told of each other before each run |
 | `server/src/agent/rooms.ts`, `routines.ts`, `proactive.ts` | Group chats, routines, check-ins |
+| `server/src/agent/team.ts`, `asks.ts`, `server/src/routes-tasks.ts` | The team: its task board, the news each agent hears when the team changes, and one bot asking another a question |
 | `server/src/agent/approvals.ts` | Hermes' approval prompts as chat cards, and the answers sent back to the run |
 | `server/src/bots.ts` | Creating and deleting a bot (deletion takes everything down in a fixed order, recorded in `deleted_bots` so a restart finishes it), and the first-run setup that makes the first one |
 | `scripts/backup.sh`, `scripts/restore.sh`, `server/src/backup-db.ts` | Backing up both places Dispatch keeps data in, while it runs, and putting a backup back |
@@ -74,6 +75,8 @@ Each lifecycle has one owner module. Its states are written down there; other co
 | A voice reply | `voice-relay.ts` | `planAnswer` decides barge-in; a Reply's flags are listed in the header |
 | A voice call (browser) | `web/src/voice/call.ts` | idle, connecting, live, error |
 | A question card | `routes.ts` (answer route) | pending, then answered once |
+| A task on the team's board | `agent/team.ts` | todo, doing, blocked, done (and back); owned by one bot or nobody. Deleting its owner hands it back (`teamLeft`) |
+| A bot's question to another (`ask_bot`) | `agent/asks.ts` | asking, then answered or failed once. In memory beside its run; deleting either bot ends it |
 | An update of Dispatch | `updates.ts` | off (not an installer's machine), idle, updating, failed. One per machine, in memory; a finished update restarts the process on the new release, which starts idle. A new release that doesn't answer is rolled back by `scripts/release.sh`, and the old one starts failed from `/etc/dispatch/last-update` |
 | A Hermes approval prompt | `agent/approvals.ts` | pending, then allowed, always, denied or expired once. Pending ones live in memory beside their run |
 | First-run setup | `bots.ts` (`setupPending`, `finishSetup`) | no account, then pending (`users.setup_at` null) while `web/src/components/SetupWizard.tsx` makes the first bot, then done once. The first bot is primary and greets when setup finishes |
@@ -111,7 +114,7 @@ Each lifecycle has one owner module. Its states are written down there; other co
 
 ## How to change things
 
-**Add an HTTP route.** Put it in the router for its area (`routes.ts`, `routes-config.ts`, `routes-rooms.ts`, `routes-proactive.ts`, `voice.ts`). Check ownership with `ownBot(userId, id)` and return 404 for anything else. Read the body with `body(c, schema)`. Add the response type to `contract.ts` and return `satisfies` it. Add the call to `web/src/lib/api.ts` or `configApi.ts` with that type. Add a test to `server/test/routes.test.ts`.
+**Add an HTTP route.** Put it in the router for its area (`routes.ts`, `routes-config.ts`, `routes-rooms.ts`, `routes-proactive.ts`, `routes-tasks.ts`, `voice.ts`). Check ownership with `ownBot(userId, id)` and return 404 for anything else. Read the body with `body(c, schema)`. Add the response type to `contract.ts` and return `satisfies` it. Add the call to `web/src/lib/api.ts` or `configApi.ts` with that type. Add a test to `server/test/routes.test.ts`.
 
 **Add a server event.** Add it to `ServerEvent` in `types.ts`, emit it with `hub.emit`, and the web build fails until `applyServerEvent` in `web/src/lib/events.ts` handles it.
 

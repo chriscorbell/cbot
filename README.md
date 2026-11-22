@@ -12,7 +12,8 @@ https://github.com/user-attachments/assets/54f0e200-13e1-416a-9181-69a80f4627e5
 
 - A desktop for each bot (with Chrome, a terminal and file manager) that you can watch or take control of
 - Scheduled routines and check-ins
-- Group chats, and bots that message each other
+- A team that works together: each bot knows its teammates' roles, can ask one a question and get the answer straight away, and shares a task board you can see and change
+- Group chats
 - Memory you can review and prune
 - Search across bots, messages, library files and folders
 - A library of the files that your bots create and the files you attach

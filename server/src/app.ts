@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { api } from './routes.js';
 import { checkinsApi } from './routes-proactive.js';
 import { roomsApi } from './routes-rooms.js';
+import { tasksApi } from './routes-tasks.js';
 import { configApi, httpsApi } from './routes-config.js';
 import { mcpApi } from './mcp.js';
 import { authApi } from './routes-auth.js';
@@ -92,6 +93,7 @@ export function createApp() {
   app.route('/mcp', mcpApi);
   app.route('/api/checkins', checkinsApi);
   app.route('/api/rooms', roomsApi);
+  app.route('/api/tasks', tasksApi);
   app.route('/api', api);
   app.route('/api', configApi);
   return app;

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDownToLine, BellDot, ClipboardCopy, Copy, Eye, EyeOff, LogOut, MessagesSquare, PanelLeft, Plus, Repeat2, Search, Settings, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, BellDot, ClipboardCopy, Copy, Eye, EyeOff, LogOut, MessagesSquare, PanelLeft, Plus, Repeat2, Search, Settings, SquareKanban, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { configApi } from '../lib/configApi';
 import { ConfirmDialog } from './modals/ConfirmDialog';
@@ -278,7 +278,7 @@ export function Sidebar() {
   }, [narrow, drawerOpen]);
   useEffect(() => { asideRef.current?.toggleAttribute('inert', narrow && !drawerOpen); }, [narrow, drawerOpen]);
   const closeSidebar = () => set(narrow ? { drawerOpen: false } : { sidebarExpanded: false });
-  const openModal = (m: 'search' | 'create') => { set({ drawerOpen: false }); useStore.getState().setModal(m); };
+  const openModal = (m: 'search' | 'create' | 'tasks') => { set({ drawerOpen: false }); useStore.getState().setModal(m); };
   const railBot = (b: Bot) => (
     <RailBot
       key={b.id}
@@ -308,6 +308,9 @@ export function Sidebar() {
         <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('search')} aria-label="Search" title={`Search (${MOD}K)`} tabIndex={expanded ? 0 : -1}>
           <Search size={16} strokeWidth={1.75} aria-hidden />
         </button>
+        <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('tasks')} aria-label="Tasks" title="Tasks" tabIndex={expanded ? 0 : -1}>
+          <SquareKanban size={16} strokeWidth={1.75} aria-hidden />
+        </button>
         <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('create')} aria-label="New bot" title="New bot" tabIndex={expanded ? 0 : -1}>
           <Plus size={17} strokeWidth={1.75} aria-hidden />
         </button>
@@ -328,9 +331,14 @@ export function Sidebar() {
           <UpdatePill tips={!expanded} />
         </Presence>
         {!expanded && (
-          <button type="button" className="rail-btn" onClick={() => openModal('create')} aria-label="New bot" {...tipProps('New bot')}>
-            <span className="rail-btn__icon"><Plus size={18} strokeWidth={1.6} aria-hidden /></span>
-          </button>
+          <>
+            <button type="button" className="rail-btn" onClick={() => openModal('tasks')} aria-label="Tasks" {...tipProps('Tasks')}>
+              <span className="rail-btn__icon"><SquareKanban size={18} strokeWidth={1.6} aria-hidden /></span>
+            </button>
+            <button type="button" className="rail-btn" onClick={() => openModal('create')} aria-label="New bot" {...tipProps('New bot')}>
+              <span className="rail-btn__icon"><Plus size={18} strokeWidth={1.6} aria-hidden /></span>
+            </button>
+          </>
         )}
         <AccountButton name={name} avatarUrl={user?.avatarUrl} tips={!expanded} />
       </div>

@@ -11,6 +11,7 @@ import { displayName, useSelectedBot, useStore } from '../store';
 import { configApi } from '../lib/configApi';
 import { AvatarPicker } from './AvatarPicker';
 import { LibraryTab } from './config/LibraryTab';
+import { BotTasks } from './tasks/BotTasks';
 import { Icon } from './Icon';
 import { MembersCard } from './MembersCard';
 import { Presence, useExiting } from './Presence';
@@ -233,7 +234,8 @@ export function DetailsPanel() {
             </div>
           ) : tab === 'activity' ? (
             <div className="details__sections" key={`a:${bot.id}`}>
-              {/* A group chat runs no routines; its members have their own. */}
+              {/* A group chat has no tasks or routines of its own; its members have theirs. */}
+              {!isRoom && <BotTasks bot={bot} />}
               {showSuggested && !isRoom && (
                 <section>
                   <div className="section-label section-label--row">

@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import type { Bot, ComputerState, LiveState, Routine, Row, UpdateState, User } from '@shared/types';
+import type { Bot, ComputerState, LiveState, Routine, Row, Task, UpdateState, User } from '@shared/types';
 import { api, type RowPatch } from './lib/api';
 import { configApi } from './lib/configApi';
 import { onSignedOut } from './lib/http';
 import { forgetSetupCode, reloadWithSetupCode } from './lib/setupCode';
 
-export type ModalKind = 'create' | 'search' | 'group' | null;
+export type ModalKind = 'create' | 'search' | 'group' | 'tasks' | null;
 
 interface Transcript { generation: number; bySeq: Record<number, Row>; loaded: boolean }
 
@@ -24,6 +24,8 @@ interface State {
   keptUnread: string | null;
   transcripts: Record<string, Transcript>;
   routines: Record<string, Routine[]>;
+  /** The team's task board; null until it has loaded. */
+  tasks: Task[] | null;
   computer: ComputerState | null;
   /** Updating Dispatch (server/src/updates.ts); null when it can't update itself. */
   update: UpdateState | null;
@@ -65,6 +67,12 @@ interface State {
   /** After a reconnect: transcripts may have missed rows, so each one but the open one (refetched at once) is refetched when next opened. */
   markTranscriptsStale(): void;
   loadRoutines(id: string): Promise<void>;
+  /** Fetch the task board again (on start, a `tasks` event, a reconnect). An answer older than the newest request is dropped. */
+  loadTasks(): Promise<void>;
+  /** A task as the server answered a change to it, shown at once; the `tasks` event that follows refetches the board. */
+  applyTask(task: Task): void;
+  /** A task the user deleted. */
+  removeTask(id: string): void;
   loadComputer(): Promise<void>;
   loadUpdate(): Promise<void>;
   applyUpdate(update: UpdateState | null): void;
@@ -87,6 +95,8 @@ interface State {
 const RESET_WAIT_MS = 120_000;
 /** Set once a reset is erasing the server (resetDispatch). */
 let resetting = false;
+/** Counts task board requests, so an answer that comes back after a newer one doesn't put back an older board. */
+let tasksRequest = 0;
 /**
  * An update was underway when last heard of. Kept apart from `update`, which the new server's idle
  * state replaces on reconnect, maybe before its `hello` arrives.
@@ -112,6 +122,7 @@ export const useStore = create<State>((set, get) => ({
   keptUnread: null,
   transcripts: {},
   routines: {},
+  tasks: null,
   computer: null,
   update: null,
   serverVersion: null,
@@ -226,6 +237,20 @@ export const useStore = create<State>((set, get) => ({
   async loadRoutines(id) {
     const { routines } = await api.routines(id);
     set((s) => ({ routines: { ...s.routines, [id]: routines } }));
+  },
+
+  async loadTasks() {
+    const n = ++tasksRequest;
+    const { tasks } = await api.tasks();
+    if (n === tasksRequest) set({ tasks });
+  },
+
+  applyTask(task) {
+    set((s) => (s.tasks ? { tasks: s.tasks.some((t) => t.id === task.id) ? s.tasks.map((t) => (t.id === task.id ? task : t)) : [...s.tasks, task] } : {}));
+  },
+
+  removeTask(id) {
+    set((s) => (s.tasks ? { tasks: s.tasks.filter((t) => t.id !== id) } : {}));
   },
 
   async loadComputer() {

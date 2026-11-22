@@ -5,6 +5,7 @@ const enqueued: { botId: string; trigger: unknown }[] = [];
 vi.mock('../src/agent/turns.js', async (orig) => ({
   ...(await orig<typeof import('../src/agent/turns.js')>()),
   enqueue: (botId: string, trigger: unknown) => { enqueued.push({ botId, trigger }); },
+  wake: (botId: string, depth: number) => { enqueued.push({ botId, trigger: { type: 'team', depth } }); },
 }));
 
 // Forgetting a memory holds Hermes' lock through util-linux flock, a child process tests can't start.
@@ -343,4 +344,35 @@ test('a bot signs in with a code only to ChatGPT, Grok or Copilot, and only its 
   // Sign-ins and the Copilot sign-in in Settings need the session like the rest.
   expect((await app.request('/api/signins/signin_nope')).status).toBe(401);
   expect((await app.request('/api/providers/copilot/login', { method: 'POST' })).status).toBe(401);
+});
+
+test('the user gives a bot a task on the board, and it is woken to start on it', async () => {
+  const eng = seedBot(user.id, { name: 'Tia' });
+  const patch = (id: string, body: unknown) => app.request(`/api/tasks/${id}`, { ...json(body), method: 'PATCH' });
+  enqueued.length = 0;
+  const made = await app.request('/api/tasks', json({ title: '  Write the docs  ', ownerId: eng.id }));
+  expect(made.status).toBe(200);
+  const { task } = await made.json() as { task: { id: string; title: string; ownerId: string; status: string; createdBy: null } };
+  expect(task).toMatchObject({ title: 'Write the docs', ownerId: eng.id, status: 'todo', createdBy: null });
+  expect(enqueued).toEqual([{ botId: eng.id, trigger: { type: 'team', depth: 0 } }]);
+
+  // Marking it done wakes nobody; handing a finished task to someone else doesn't either.
+  enqueued.length = 0;
+  expect((await patch(task.id, { status: 'done' })).status).toBe(200);
+  expect((await patch(task.id, { ownerId: null })).status).toBe(200);
+  expect(enqueued).toEqual([]);
+  const board = await (await app.request('/api/tasks', { headers: auth() })).json() as { tasks: { id: string; ownerId: string | null; status: string }[] };
+  expect(board.tasks.find((t) => t.id === task.id)).toMatchObject({ ownerId: null, status: 'done' });
+
+  const del = await app.request(`/api/tasks/${task.id}`, { method: 'DELETE', headers: auth() });
+  expect(await del.json()).toEqual({ ok: true });
+  expect((await patch(task.id, { status: 'todo' })).status).toBe(404);
+});
+
+test("a task needs a title, and can't go to a group or another user's bot", async () => {
+  const room = seedBot(user.id, { name: 'Crew', kind: 'room' });
+  expect((await app.request('/api/tasks', json({ title: ' ' }))).status).toBe(400);
+  expect((await app.request('/api/tasks', json({ title: 'X', ownerId: room.id }))).status).toBe(400);
+  expect((await app.request('/api/tasks', json({ title: 'X', ownerId: 'bot_nobody' }))).status).toBe(400);
+  expect((await app.request('/api/tasks', json({ title: 'X', status: 'someday' }))).status).toBe(400);
 });
