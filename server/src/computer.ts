@@ -133,6 +133,8 @@ export function cdpUrlFor(screenId: string): string {
  * answers. Without this a bot's first turn finds no browser and goes off to start one of its own.
  */
 export async function screenForWork(userId: string, botId: string): Promise<void> {
+  // A Chrome being started again on a new version (restartChrome) is waited for, not worked in.
+  await chromeRestarts.get(botId)?.catch(() => {});
   const s = await readyScreen(userId, botId);
   const alive = await fetch(`${cdpUrlFor(s.screenId)}/json/version`, { signal: AbortSignal.timeout(1500) }).then((r) => r.ok, () => false);
   if (!alive) await readyScreen(userId, botId, { redress: true });
@@ -144,11 +146,23 @@ export function leasedScreens(): { userId: string; botId: string; screenId: stri
     .all().map((s) => ({ userId: s.user_id, botId: s.bot_id, screenId: s.screen_id }));
 }
 
-/** Start the bot's Chrome again, on its home screen, so it runs the version installed now. Logins stay; open tabs go. */
-export async function restartChrome(userId: string, botId: string): Promise<void> {
+/** Chrome restarts under way, by bot; screenForWork waits for them. */
+const chromeRestarts = new Map<string, Promise<void>>();
+
+/**
+ * Start the bot's Chrome again, on its home screen, so it runs the version installed now. Logins stay;
+ * open tabs go. Only while `quiet()` holds, asked last with no await between it and the restart being
+ * in chromeRestarts: work that starts after that waits for the restart instead of losing its browser
+ * halfway. False when it didn't restart.
+ */
+export async function restartChrome(userId: string, botId: string, quiet: () => boolean): Promise<boolean> {
   const s = await screenFor(userId, botId);
   const bot = deskBot(botId);
-  if (bot) await dressScreen(bot, s.screenId, { restartChrome: true });
+  if (!bot || !quiet() || chromeRestarts.has(botId)) return false;
+  const restart = dressScreen(bot, s.screenId, { restartChrome: true }).finally(() => chromeRestarts.delete(botId));
+  chromeRestarts.set(botId, restart);
+  await restart;
+  return true;
 }
 
 /** Close everything on the bot's screen and bring its browser back to the home screen. Logins stay. */

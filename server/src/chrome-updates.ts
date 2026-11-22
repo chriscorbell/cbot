@@ -63,8 +63,11 @@ export async function checkChromes(): Promise<void> {
   for (const s of leasedScreens()) {
     const running = await runningVersion(s.screenId);
     if (!running || running === installed || busy(s.botId)) continue;
-    console.log(`[chrome] ${s.botId} runs Chrome ${running} and ${installed} is installed; starting it again`);
-    await restartChrome(s.userId, s.botId).catch((e) => console.warn(`[chrome] ${s.botId}: Chrome didn't start again: ${errorText(e)}`));
+    const quiet = () => !busy(s.botId);
+    await restartChrome(s.userId, s.botId, quiet).then(
+      (restarted) => { if (restarted) console.log(`[chrome] ${s.botId} ran Chrome ${running} and ${installed} is installed; started it again`); },
+      (e: unknown) => console.warn(`[chrome] ${s.botId}: Chrome didn't start again: ${errorText(e)}`),
+    );
   }
 }
 
