@@ -10,7 +10,7 @@ export type Theme = 'system' | 'light' | 'dark';
  */
 export type Jump = { kind: 'row'; botId: string; generation: number; seq: number } | { kind: 'file'; botId: string; path: string };
 export type BotSettingsTab = 'general' | 'engine' | 'skills' | 'memories' | 'routines';
-export type AppSection = 'general' | 'providers' | 'computer' | 'permissions';
+export type AppSection = 'general' | 'workspace' | 'providers' | 'computer' | 'permissions';
 /** What the task editor opened on: a task on the board, or a new one (for a bot, or nobody yet). */
 export type TaskEditorTarget = { kind: 'edit'; taskId: string } | { kind: 'new'; ownerId: string | null };
 

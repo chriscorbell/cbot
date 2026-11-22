@@ -10,7 +10,7 @@ import { cdpUrlFor, screenFor } from './computer.js';
 import { db, type BotRecord, type UserRecord } from './db.js';
 import { env } from './env.js';
 import type { ApprovalMode, EngineInfo, EngineProvider } from './types.js';
-import { TOOLS } from './agent/tools.js';
+import { toolsFor } from './agent/tools.js';
 import { displayFor, ENGINE_PORT_BASE, HERMES_ROOT, libraryDir } from './machine.js';
 import { requireBot } from './store.js';
 import { envOf, getSetting, secretEnv } from './settings.js';
@@ -165,6 +165,7 @@ export function mcpToken(botId: string): string {
   return crypto.createHmac('sha256', env.appSecret).update(`mcp:${botId}`).digest('hex');
 }
 
+/** The oldest primary bot of any workspace: provider settings are shared, so any primary's home will do. */
 function primaryBotId(): string | null {
   return db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE is_primary=1 AND kind <> 'room' ORDER BY created_at LIMIT 1").get()?.id ?? null;
 }
@@ -504,7 +505,7 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
   applyManagedConfig(managed, { bot: b, cwd, display, cdp });
   // Hermes reads the default model again when config.yaml changes (syncModel), so choosing another one restarts nothing.
   delete managed.model;
-  return { home, key, display, settings: settingsHash(managed, vars), version };
+  return { home, key, display, settings: settingsHash(botId, managed, vars), version };
 }
 
 /** Where a home records the settings hash its gateway started with. */
@@ -513,13 +514,14 @@ const SETTINGS_FILE = 'dispatch-settings';
 /**
  * A hash of what a gateway reads when it starts and this app decides: the config keys this app owns
  * (but the default model), the .env it writes, the Hermes install (scripts/provision.sh records its pin) and the names of the
- * app's MCP tools, which Hermes lists when it connects. A gateway that outlived this server keeps
- * running only while the hash it started with still matches.
+ * app's MCP tools the bot is offered (toolsFor: its workspace may have turned the task board off), which
+ * Hermes lists when it connects. A gateway that outlived this server keeps running only while the hash it
+ * started with still matches.
  */
-function settingsHash(managed: unknown, vars: Record<string, string>): string {
+function settingsHash(botId: string, managed: unknown, vars: Record<string, string>): string {
   let pin = '';
   try { pin = fs.readFileSync(path.join(HERMES_ROOT, '.dispatch-pin'), 'utf8').trim(); } catch { /* not installed by provision.sh */ }
-  const tools = TOOLS.map((t) => t.name);
+  const tools = toolsFor(botId).map((t) => t.name);
   return crypto.createHash('sha256').update(JSON.stringify({ managed, vars, pin, tools })).digest('hex').slice(0, 20);
 }
 
@@ -778,6 +780,19 @@ export function refreshEngines(removed: { env: string; value: string }[]): strin
   optionsCache.clear();
   endpointCache.clear();
   return ids;
+}
+
+/**
+ * The app's tools these bots are offered changed (a workspace turned its task board on or off, or a bot
+ * moved to a workspace that differs). Hermes lists them only when it connects, so each gateway restarts
+ * once no run holds it, as for new provider settings.
+ */
+export function refreshTools(botIds: string[]) {
+  for (const id of botIds) {
+    if (!hasEngine(id)) continue;
+    wanted.set(id, (wanted.get(id) ?? 0) + 1);
+    engineFor(id).catch((e: unknown) => console.warn(`[engine] ${id}: restart for a new list of tools failed: ${errorText(e)}`));
+  }
 }
 
 /** The bot's Hermes home, without starting anything (memory files, sign-ins). */

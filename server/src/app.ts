@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { api } from './routes.js';
-import { checkinsApi } from './routes-proactive.js';
+import { workspacesApi } from './routes-workspaces.js';
 import { roomsApi } from './routes-rooms.js';
 import { tasksApi } from './routes-tasks.js';
 import { configApi, httpsApi } from './routes-config.js';
@@ -91,7 +91,7 @@ export function createApp() {
   app.route('/api/https', httpsApi);
   // The app's tools for the agent engines (MCP).
   app.route('/mcp', mcpApi);
-  app.route('/api/checkins', checkinsApi);
+  app.route('/api/workspaces', workspacesApi);
   app.route('/api/rooms', roomsApi);
   app.route('/api/tasks', tasksApi);
   app.route('/api', api);

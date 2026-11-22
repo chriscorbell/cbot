@@ -12,9 +12,11 @@ import { StatusIcon } from './TaskBits';
  */
 export function BotTasks({ bot }: { bot: Bot }) {
   const tasks = useStore((s) => s.tasks);
+  // A workspace that turned its board off shows no tasks.
+  const board = useStore((s) => s.workspaces?.find((w) => w.id === bot.workspaceId)?.taskBoard ?? true);
   const plate = useMemo(() => plateOf(tasks ?? [], bot.id), [tasks, bot.id]);
   const openEditor = useConfigUI((s) => s.openTaskEditor);
-  if (!tasks) return null;
+  if (!tasks || !board) return null;
   return (
     <section>
       <div className="section-label section-label--row">

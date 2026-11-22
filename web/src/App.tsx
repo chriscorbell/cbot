@@ -7,6 +7,7 @@ import { DetailsPanel } from './components/DetailsPanel';
 import { Sidebar } from './components/Sidebar';
 import { CreateBotModal } from './components/modals/CreateBotModal';
 import { CreateGroupModal } from './components/modals/CreateGroupModal';
+import { CreateWorkspaceModal } from './components/modals/CreateWorkspaceModal';
 import { SearchModal } from './components/modals/SearchModal';
 import { TaskBoard } from './components/tasks/TaskBoard';
 import { TaskEditor } from './components/tasks/TaskEditor';
@@ -36,6 +37,7 @@ function Shell() {
     st.loadComputer().catch(console.error);
     st.loadUpdate().catch(console.error);
     st.loadTasks().catch(console.error);
+    st.loadWorkspaces().catch(console.error);
     return startEvents();
   }, []);
 
@@ -73,6 +75,7 @@ function Shell() {
       <Presence show={detailsOpen && hasBot} ms={200}><DetailsPanel /></Presence>
       <Presence show={modal === 'create'}><CreateBotModal /></Presence>
       <Presence show={modal === 'group'}><CreateGroupModal /></Presence>
+      <Presence show={modal === 'workspace'}><CreateWorkspaceModal /></Presence>
       <Presence show={modal === 'search'}><SearchModal /></Presence>
       <Presence show={modal === 'tasks'}><TaskBoard /></Presence>
       {/* Opened from the board, the editor mounts after it, so its dialog goes on top. */}

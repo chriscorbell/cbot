@@ -17,6 +17,8 @@ export interface User { id: string; username: string; avatarUrl: string | null }
 
 export interface Bot {
   id: string;
+  /** The workspace whose team it is on. */
+  workspaceId: string;
   name: string;
   label: string;
   description: string;
@@ -39,6 +41,19 @@ export interface Bot {
   unread: number;
   lastPreview: string | null;
   lastActivityAt: number;
+  createdAt: number;
+}
+
+/** When a workspace's primary bot checks in with the user on its own (server/src/proactive.ts). */
+export interface CheckinSettings { enabled: boolean; times: string[]; timezone: string }
+
+/** A separate team of bots with its own primary bot, task board and check-ins (server/src/workspaces.ts). */
+export interface Workspace {
+  id: string;
+  name: string;
+  /** Whether it uses the task board. */
+  taskBoard: boolean;
+  checkins: CheckinSettings;
   createdAt: number;
 }
 
@@ -223,6 +238,7 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 /** A task on the team's shared board (server/src/agent/team.ts owns it). */
 export interface Task {
   id: string;
+  workspaceId: string;
   title: string;
   notes: string;
   status: TaskStatus;
@@ -334,5 +350,7 @@ export type ServerEvent =
   | { type: 'memories'; botId: string }
   /** The team's task board changed. */
   | { type: 'tasks' }
+  /** A workspace was made, changed or deleted. */
+  | { type: 'workspaces' }
   | { type: 'update'; update: UpdateState }
   | { type: 'ping' };

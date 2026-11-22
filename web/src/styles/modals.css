@@ -35,6 +35,15 @@
 }
 .create-modal__name::placeholder { color: var(--color-text-tertiary); }
 .create-modal__name:focus-visible { box-shadow: none; }
+/* new workspace: its name, then its first bot (CreateWorkspaceModal) */
+.ws-modal__step { display: flex; flex-direction: column; min-height: 0; animation: fade var(--dur-med) var(--ease-out); }
+.ws-modal__step.is-forward .create-modal__body { animation: ws-step-in var(--dur-slow) var(--ease-out); }
+@keyframes ws-step-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.ws-modal__body { padding-top: 18px; }
+.ws-modal__mark { width: 60px; height: 60px; border-radius: 18px; font-size: 19px; animation: preview-swap 360ms var(--ease-spring); }
+.ws-modal__sub { max-width: 290px; margin: 0 0 14px; text-align: center; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-tertiary); }
+.ws-modal__role { width: 250px; margin: -8px 0 16px; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .ws-modal__step, .ws-modal__step.is-forward .create-modal__body, .ws-modal__mark { animation: none; } }
 .shape-grid { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .shape-grid__row { display: flex; justify-content: center; gap: 4px; }
 .shape-cell { --ring-gap: var(--color-bg-elevated); display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 12px; transition: background-color var(--dur-fast); }
@@ -184,3 +193,8 @@
   .file-preview__media, .file-preview__frame, .file-preview__audio { transition: none; }
   .file-preview__scroll, .file-preview__none { animation: none; }
 }
+
+/* A confirm dialog that asks for a name to be typed first (deleting a workspace). */
+.confirm-modal__type { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--color-text-secondary); animation: rise var(--dur-med) var(--ease-out); }
+.confirm-modal__type strong { color: var(--color-text-primary); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .confirm-modal__type { animation: none; } }

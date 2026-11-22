@@ -24,7 +24,8 @@ export function MembersCard({ room }: { room: Bot }) {
   };
 
   const ids = members?.map((m) => m.id) ?? [];
-  const candidates = bots.filter((b) => b.kind !== 'room' && !ids.includes(b.id));
+  // A group's members all come from its workspace.
+  const candidates = bots.filter((b) => b.kind !== 'room' && b.workspaceId === room.workspaceId && !ids.includes(b.id));
 
   return (
     <div className="panel-card members">

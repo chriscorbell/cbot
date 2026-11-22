@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import type { Bot } from '@shared/types';
 import type { SearchFileHit, SearchMessageHit, SearchResponse } from '@shared/contract';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
-import { displayName, useStore } from '../../store';
+import { currentWorkspaceId, displayName, useStore } from '../../store';
 import { notifyFailure } from '../../lib/uiEvents';
 import { useConfigUI } from '../../configStore';
 import { Icon } from '../Icon';
@@ -42,9 +42,12 @@ function Highlight({ text, q }: { text: string; q: string }) {
 
 const ago = (t: number) => { const r = relativeShort(t); return r === 'now' ? 'just now' : r; };
 
-/** ⌘K: bots by name, and from two letters on, messages in every open chat and files in every Library. */
+/** ⌘K: the shown workspace's bots by name, and from two letters on, messages in their open chats and files in their Libraries. */
 export function SearchModal() {
-  const bots = useStore((s) => s.bots);
+  const allBots = useStore((s) => s.bots);
+  const workspaceId = useStore(currentWorkspaceId);
+  // Results from other workspaces' bots are left out with them.
+  const bots = useMemo(() => allBots.filter((b) => b.workspaceId === workspaceId), [allBots, workspaceId]);
   const live = useStore((s) => s.live);
   const setModal = useStore((s) => s.setModal);
   const [q, setQ] = useState('');

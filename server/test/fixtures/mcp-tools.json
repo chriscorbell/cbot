@@ -74,7 +74,7 @@
   },
   {
     "name": "set_checkins",
-    "description": "Turn proactive check-ins on or off and set when they happen (only the primary Bot does check-ins). times are local 24h 'HH:MM' strings; timezone is IANA (e.g. America/Los_Angeles). Leave timezone out to keep the current one, which starts as UTC.",
+    "description": "Turn proactive check-ins on or off and set when they happen (only the primary Bot of each workspace does check-ins). times are local 24h 'HH:MM' strings; timezone is IANA (e.g. America/Los_Angeles). Leave timezone out to keep the current one, which starts as UTC.",
     "inputSchema": {
       "type": "object",
       "properties": {

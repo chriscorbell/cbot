@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { env } from './env.js';
+import { newId } from './lib/ids.js';
 
 /**
  * The database and its whole schema. Every table and column the app uses is declared here and
@@ -43,6 +44,8 @@ export interface UserRecord {
 export interface BotRecord {
   id: string;
   user_id: string;
+  /** The workspace whose team it is on (workspaces.ts). Every bot and group chat has one. */
+  workspace_id: string;
   name: string;
   label: string;
   description: string;
@@ -103,8 +106,9 @@ export interface RoutineRecord {
 
 export interface SkillRecord { id: string; bot_id: string; name: string; body: string; description: string; created_at: number; updated_at: number | null }
 
+/** Check-ins for a workspace's primary bot (proactive.ts), one row per workspace that has set them. */
 export interface ProactivityRecord {
-  user_id: string; enabled: number; times: string; timezone: string;
+  workspace_id: string; enabled: number; times: string; timezone: string;
   /** "<local date> <slot>" of the last check-in that fired, so a slot fires once a day. */
   last_fired: string | null;
   updated_at: number;
@@ -128,9 +132,22 @@ export interface RunRecord { id: string; bot_id: string; surface: 'chat' | 'voic
  */
 export interface DeletedBotRecord { id: string; kind: string; engine_port: number | null; deleted_at: number }
 
+/**
+ * A workspace (workspaces.ts): one team of bots with its own primary bot, task board and check-ins.
+ * Bots see and reach only the bots of their own workspace. Every account has at least one.
+ */
+export interface WorkspaceRecord {
+  id: string; user_id: string; name: string;
+  /** 1 while the workspace uses the task board: its bots get the task tools and the app shows the board. */
+  task_board: number;
+  /** Its place in the switcher, lowest first. */
+  position: number;
+  created_at: number; updated_at: number;
+}
+
 /** A task on the team's board (agent/team.ts). `status` is a TaskStatus. */
 export interface TaskRecord {
-  id: string; user_id: string; title: string; notes: string;
+  id: string; user_id: string; workspace_id: string; title: string; notes: string;
   status: 'todo' | 'doing' | 'blocked' | 'done';
   /** The bot whose task it is; null while nobody has it. */
   owner_id: string | null;
@@ -146,7 +163,7 @@ export interface TaskRecord {
  * left, a task changed hands or got done. `audience` is the one bot it is for, or null for every bot but
  * `actor_id`, the bot it is about.
  */
-export interface TeamLogRecord { id: number; user_id: string; actor_id: string | null; audience: string | null; text: string; created_at: number }
+export interface TeamLogRecord { id: number; user_id: string; workspace_id: string; actor_id: string | null; audience: string | null; text: string; created_at: number }
 
 /**
  * The schema, one migration per change. The first is the whole schema as it stood before the first
@@ -343,6 +360,49 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
       ALTER TABLE bots ADD COLUMN team_seen INTEGER NOT NULL DEFAULT 0;
     `);
   },
+  // 5. Workspaces (workspaces.ts): separate teams of bots, each with its own primary bot, task board and
+  // check-ins. Every account gets one called Personal, which takes everything it had. Check-ins move from
+  // one per account to one per workspace: the table is rebuilt with the same rows, keyed by workspace.
+  (d) => {
+    d.exec(`
+      CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        task_board INTEGER NOT NULL DEFAULT 1,
+        position INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX workspaces_user ON workspaces(user_id, position);
+    `);
+    const users = d.prepare<[], { id: string; created_at: number }>('SELECT id, created_at FROM users').all();
+    const add = d.prepare('INSERT INTO workspaces(id,user_id,name,created_at,updated_at) VALUES (?,?,?,?,?)');
+    for (const u of users) add.run(newId('ws'), u.id, 'Personal', u.created_at, u.created_at);
+    d.exec(`
+      -- A workspace with bots can't be deleted from under them: workspaces.ts deletes its bots first.
+      ALTER TABLE bots ADD COLUMN workspace_id TEXT REFERENCES workspaces(id);
+      UPDATE bots SET workspace_id = (SELECT id FROM workspaces w WHERE w.user_id = bots.user_id);
+      CREATE INDEX bots_workspace ON bots(workspace_id);
+      ALTER TABLE tasks ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE;
+      UPDATE tasks SET workspace_id = (SELECT id FROM workspaces w WHERE w.user_id = tasks.user_id);
+      ALTER TABLE team_log ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE;
+      UPDATE team_log SET workspace_id = (SELECT id FROM workspaces w WHERE w.user_id = team_log.user_id);
+      CREATE INDEX team_log_workspace ON team_log(workspace_id, id);
+      CREATE TABLE proactivity_by_workspace (
+        workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        times TEXT NOT NULL DEFAULT '["09:00","16:30"]',
+        timezone TEXT NOT NULL DEFAULT 'UTC',
+        last_fired TEXT,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO proactivity_by_workspace(workspace_id,enabled,times,timezone,last_fired,updated_at)
+        SELECT w.id, p.enabled, p.times, p.timezone, p.last_fired, p.updated_at FROM proactivity p JOIN workspaces w ON w.user_id = p.user_id;
+      DROP TABLE proactivity;
+      ALTER TABLE proactivity_by_workspace RENAME TO proactivity;
+    `);
+  },
 ];
 
 /**
@@ -351,7 +411,7 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
  * most likely a development version from before the schema was folded into one migration. This
  * version can't open it, so it says how to start over instead of guessing.
  */
-export function migrate(d: Database.Database, file: string): void {
+export function migrate(d: Database.Database, file: string, upTo = MIGRATIONS.length): void {
   const ran = d.pragma('user_version', { simple: true }) as number;
   const tables = (d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table'").get() as { n: number }).n;
   if (ran > MIGRATIONS.length || (ran === 0 && tables > 0)) {
@@ -360,13 +420,13 @@ export function migrate(d: Database.Database, file: string): void {
       'Start over with an empty database: install Dispatch again on a fresh machine, or for the dev container run `docker compose -p dispatch-dev down -v`.',
     );
   }
-  if (ran === MIGRATIONS.length) return;
+  if (ran >= upTo) return;
   // A migration may rebuild a table. With foreign keys on, dropping the old one would delete every row
   // that refers to it (ON DELETE CASCADE), so they are off while migrations run; the setting can only
   // change outside a transaction. Each migration checks the references before it commits.
   d.pragma('foreign_keys = OFF');
   try {
-    for (let v = ran; v < MIGRATIONS.length; v++) {
+    for (let v = ran; v < upTo; v++) {
       d.transaction(() => {
         MIGRATIONS[v](d);
         const broken = d.pragma('foreign_key_check') as unknown[];

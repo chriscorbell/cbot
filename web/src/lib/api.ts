@@ -1,7 +1,8 @@
-import type { ApprovalChoice, Attachment, Bot, TaskStatus } from '@shared/types';
+import type { ApprovalChoice, Attachment, Bot, CheckinSettings, TaskStatus } from '@shared/types';
 import type {
   BotResponse, BotsResponse, ComputerResponse, MeResponse, Ok, RoomCreated, RoomMembersResponse, RoomMembersSet, SearchResponse,
   RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, TaskResponse, TasksResponse, UploadResponse,
+  WorkspaceCreated, WorkspaceResponse, WorkspacesResponse,
 } from '@shared/contract';
 import { request as req, upload } from './http';
 
@@ -16,6 +17,11 @@ export interface TaskInput { title: string; notes?: string; ownerId?: string | n
 /** The fields of a task that change; the ones left out stay as they are. */
 export type TaskPatch = Partial<TaskInput>;
 
+/** What a workspace's settings change; the ones left out stay as they are. */
+export interface WorkspacePatch { name?: string; taskBoard?: boolean; checkins?: Partial<CheckinSettings> }
+/** A new bot's name and look, as the create-bot form sends them. */
+export type NewBot = Pick<Bot, 'name' | 'avatarShape' | 'avatarColor'> & Partial<Pick<Bot, 'label' | 'description' | 'instructions'>>;
+
 export const api = {
   me: () => req<MeResponse>('GET', '/auth/me'),
   setup: (username: string, password: string, code: string) => req<MeResponse>('POST', '/auth/setup', { username, password, code }),
@@ -25,8 +31,10 @@ export const api = {
 
   bots: () => req<BotsResponse>('GET', '/bots'),
   search: (q: string) => req<SearchResponse>('GET', `/search?q=${encodeURIComponent(q)}`),
-  /** A new bot. The setup wizard's first one also brings its job; it greets once setup finishes. */
-  createBot: (b: Pick<Bot, 'name' | 'avatarShape' | 'avatarColor'> & Partial<Pick<Bot, 'label' | 'description' | 'instructions'>>) => req<BotResponse>('POST', '/bots', b),
+  /** A new bot, in the workspace named (the first one otherwise). The setup wizard's first one also brings its job; it greets once setup finishes. */
+  createBot: (b: NewBot & { workspaceId?: string }) => req<BotResponse>('POST', '/bots', b),
+  /** Move a bot to another workspace: it leaves its team, its tasks and its group chats there. */
+  moveBot: (id: string, workspaceId: string) => req<BotResponse>('POST', `/bots/${id}/move`, { workspaceId }),
   finishSetup: (greet: boolean) => req<Ok>('POST', '/setup/finish', { greet }),
   markRead: (id: string) => req<Ok>('POST', `/bots/${id}/read`),
   markUnread: (id: string) => req<Ok>('POST', `/bots/${id}/unread`),
@@ -56,11 +64,20 @@ export const api = {
 
   roomMembers: (id: string) => req<RoomMembersResponse>('GET', `/rooms/${id}/members`),
   setRoomMembers: (id: string, botIds: string[]) => req<RoomMembersSet>('PUT', `/rooms/${id}/members`, { botIds }),
-  createRoom: (name: string, botIds: string[]) => req<RoomCreated>('POST', '/rooms', { name, botIds }),
+  createRoom: (name: string, botIds: string[], workspaceId: string) => req<RoomCreated>('POST', '/rooms', { name, botIds, workspaceId }),
 
-  /** The team's task board: every open task and the ones finished lately. */
+  /** Every workspace's task board: every open task and the ones finished lately, each with its workspace. */
   tasks: () => req<TasksResponse>('GET', '/tasks'),
-  addTask: (t: TaskInput) => req<TaskResponse>('POST', '/tasks', t),
+  addTask: (t: TaskInput & { workspaceId: string }) => req<TaskResponse>('POST', '/tasks', t),
   updateTask: (id: string, p: TaskPatch) => req<TaskResponse>('PATCH', `/tasks/${id}`, p),
   deleteTask: (id: string) => req<Ok>('DELETE', `/tasks/${id}`),
+
+  workspaces: () => req<WorkspacesResponse>('GET', '/workspaces'),
+  /** A new workspace with its first bot, which becomes its primary bot and says hello. */
+  createWorkspace: (name: string, bot: NewBot) => req<WorkspaceCreated>('POST', '/workspaces', { name, bot }),
+  updateWorkspace: (id: string, p: WorkspacePatch) => req<WorkspaceResponse>('PATCH', `/workspaces/${id}`, p),
+  /** Deletes the workspace with every bot and group chat in it. */
+  deleteWorkspace: (id: string) => req<Ok>('DELETE', `/workspaces/${id}`),
+  /** The workspace's primary bot checks in now. */
+  checkInNow: (id: string) => req<Ok>('POST', `/workspaces/${id}/checkin`),
 };

@@ -1,11 +1,14 @@
 import { db, now, type BotRecord, type TaskRecord, type TeamLogRecord, type UserRecord } from '../db.js';
+import { requireWorkspace } from '../workspaces.js';
 import { newId } from '../lib/ids.js';
 import { hub } from '../lib/hub.js';
 import { conversation, getBotRow } from '../store.js';
 import type { Task, TaskStatus } from '../types.js';
 
 /**
- * The team: its shared task board, and what each agent is told when the team changes.
+ * The team: its shared task board, and what each agent is told when the team changes. A team is a
+ * workspace's agents (workspaces.ts): each workspace has its own board and its own news, and a task's
+ * owner is always a bot of the task's workspace.
  *
  * A task belongs to one bot, or to nobody, and moves between four states:
  *
@@ -14,7 +17,7 @@ import type { Task, TaskStatus } from '../types.js';
  * Bots change tasks with their tools (agent/tools.ts) and the user in the app (routes-tasks.ts), both
  * through addTask, changeTask and removeTask here, so the two always tell the same people. A bot that
  * leaves the team (teamLeft, from deleteBot) hands its tasks back: nobody owns them, previous_owner says
- * whose they were, and one it was doing is to do again.
+ * whose they were, and one it was doing is to do again. One moved to another workspace does the same.
  *
  * The team log is what each agent hears about the team: a teammate joined or left, a task was given to
  * it, moved, changed or finished. An entry is for one bot (`audience`) or for every bot but the one it
@@ -41,19 +44,20 @@ export type Actor = { kind: 'user' } | { kind: 'bot'; id: string; name: string }
 
 export const ownerName = (userId: string) => db.prepare<[string], Pick<UserRecord, 'username'>>('SELECT username FROM users WHERE id=?').get(userId)?.username ?? 'The user';
 const actorName = (userId: string, a: Actor) => (a.kind === 'bot' ? a.name : ownerName(userId));
+const userOf = (workspaceId: string) => requireWorkspace(workspaceId).user_id;
 const actorId = (a: Actor) => (a.kind === 'bot' ? a.id : null);
 const botName = (id: string | null) => (id ? getBotRow(id)?.name ?? null : null);
 
 // ---------- the log ----------
 
-/** Something the team's agents hear at their next turn: for one bot (`audience`), or for all but `actorId`. */
-export function logTeam(userId: string, text: string, o: { actorId?: string | null; audience?: string | null } = {}) {
-  db.prepare('INSERT INTO team_log(user_id,actor_id,audience,text,created_at) VALUES (?,?,?,?,?)').run(userId, o.actorId ?? null, o.audience ?? null, text, now());
+/** Something a workspace's agents hear at their next turn: for one bot (`audience`), or for all but `actorId`. */
+export function logTeam(workspaceId: string, text: string, o: { actorId?: string | null; audience?: string | null } = {}) {
+  db.prepare('INSERT INTO team_log(user_id,workspace_id,actor_id,audience,text,created_at) VALUES (?,?,?,?,?,?)').run(userOf(workspaceId), workspaceId, o.actorId ?? null, o.audience ?? null, text, now());
   db.prepare('DELETE FROM team_log WHERE created_at<?').run(now() - LOG_KEPT_MS);
 }
 
 const unheard = db.prepare<[string, number, string, string], TeamLogRecord>(
-  'SELECT * FROM team_log WHERE user_id=? AND id>? AND (audience=? OR (audience IS NULL AND actor_id IS NOT ?)) ORDER BY id',
+  'SELECT * FROM team_log WHERE workspace_id=? AND id>? AND (audience=? OR (audience IS NULL AND actor_id IS NOT ?)) ORDER BY id',
 );
 
 /** "just now", "4m ago", "2h ago", "3d ago" */
@@ -70,7 +74,7 @@ function ago(t: number): string {
 export function teamNews(botId: string): { note: string | null; upTo: number } | null {
   const bot = getBotRow(botId);
   if (!bot) return null;
-  const entries = unheard.all(bot.user_id, bot.team_seen, botId, botId);
+  const entries = unheard.all(bot.workspace_id, bot.team_seen, botId, botId);
   if (!entries.length) return { note: null, upTo: bot.team_seen };
   const lines = entries.slice(-MAX_NEWS).map((e) => `- ${e.text} (${ago(e.created_at)})`);
   const left = entries.length - lines.length;
@@ -89,26 +93,27 @@ export function markTeamSeen(botId: string, upTo: number) {
 
 const describe = (b: Pick<BotRecord, 'name' | 'label'>) => (b.label ? `${b.name} (${b.label})` : b.name);
 
-/** A new agent on the team: it starts caught up, and the others hear it joined. */
+/** A new agent on the team, or one moved here from another workspace: it starts caught up, and the others hear it joined. */
 export function teamJoined(bot: BotRecord) {
   if (bot.kind === 'room') return;
-  const newest = db.prepare<[string], { id: number | null }>('SELECT MAX(id) id FROM team_log WHERE user_id=?').get(bot.user_id)?.id ?? 0;
+  const newest = db.prepare<[], { id: number | null }>('SELECT MAX(id) id FROM team_log').get()?.id ?? 0;
   db.prepare('UPDATE bots SET team_seen=? WHERE id=?').run(newest, bot.id);
-  logTeam(bot.user_id, `${describe(bot)} joined the team.`, { actorId: bot.id });
+  logTeam(bot.workspace_id, `${describe(bot)} joined the team.`, { actorId: bot.id });
 }
 
 /**
- * An agent is leaving the team (deleteBot calls this before the bot's row goes): its tasks go back to
- * nobody, saying whose they were, and the others hear it left and which tasks wait for someone.
+ * An agent is leaving the team: deleteBot calls this before the bot's row goes, and moveBot before it
+ * moves the bot to another workspace (`moved`). Its tasks go back to nobody, saying whose they were, and
+ * the others hear it left and which tasks wait for someone.
  */
-export function teamLeft(bot: BotRecord) {
+export function teamLeft(bot: BotRecord, o: { moved?: boolean } = {}) {
   if (bot.kind === 'room') return;
   const open = db.prepare<[string], TaskRecord>("SELECT * FROM tasks WHERE owner_id=? AND status<>'done' ORDER BY created_at").all(bot.id);
   db.prepare(`UPDATE tasks SET owner_id=NULL, previous_owner=?, status=CASE status WHEN 'doing' THEN 'todo' ELSE status END, updated_at=? WHERE owner_id=?`).run(bot.name, now(), bot.id);
   // Nobody is left to hear what was only for it.
   db.prepare('DELETE FROM team_log WHERE audience=?').run(bot.id);
   const tasks = open.map((t) => `"${clip(t.title, 80)}" (${t.id})`).join(', ');
-  logTeam(bot.user_id, `${describe(bot)} was removed from the team.${open.length ? ` Their open tasks have nobody now: ${tasks}.` : ''}`, { actorId: bot.id });
+  logTeam(bot.workspace_id, `${describe(bot)} ${o.moved ? 'moved to another workspace' : 'was removed from the team'}.${open.length ? ` Their open tasks have nobody now: ${tasks}.` : ''}`, { actorId: bot.id });
   hub.emit(bot.user_id, { type: 'tasks' });
 }
 
@@ -116,24 +121,34 @@ export function teamLeft(bot: BotRecord) {
 
 export function toTask(r: TaskRecord): Task {
   return {
-    id: r.id, title: r.title, notes: r.notes, status: r.status, ownerId: r.owner_id, previousOwner: r.previous_owner,
+    id: r.id, workspaceId: r.workspace_id, title: r.title, notes: r.notes, status: r.status, ownerId: r.owner_id, previousOwner: r.previous_owner,
     createdBy: r.created_by ? { id: r.created_by, name: r.creator_name ?? '' } : null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 
-/** The board: every open task, and the ones finished in the last 14 days. Newest change first within each status. */
-export function listTasks(userId: string): Task[] {
+/** A workspace's board: every open task, and the ones finished in the last 14 days. Newest change first. */
+export function listTasks(workspaceId: string): Task[] {
+  return db.prepare<[string, number], TaskRecord>("SELECT * FROM tasks WHERE workspace_id=? AND (status<>'done' OR updated_at>?) ORDER BY updated_at DESC")
+    .all(workspaceId, now() - DONE_SHOWN_MS).map(toTask);
+}
+
+/** Every board of the user's, for the app, which shows the one of the workspace it is in. */
+export function userTasks(userId: string): Task[] {
   return db.prepare<[string, number], TaskRecord>("SELECT * FROM tasks WHERE user_id=? AND (status<>'done' OR updated_at>?) ORDER BY updated_at DESC")
     .all(userId, now() - DONE_SHOWN_MS).map(toTask);
 }
 
-export const getTask = (userId: string, id: string) =>
+export const getTask = (workspaceId: string, id: string) =>
+  db.prepare<[string, string], TaskRecord>('SELECT * FROM tasks WHERE id=? AND workspace_id=?').get(id.trim(), workspaceId);
+
+/** A task of the user's, in whichever workspace, for the app's routes. */
+export const userTask = (userId: string, id: string) =>
   db.prepare<[string, string], TaskRecord>('SELECT * FROM tasks WHERE id=? AND user_id=?').get(id.trim(), userId);
 
-/** An agent of this user that can own tasks, by id. */
-export const taskOwner = (userId: string, id: string) =>
-  db.prepare<[string, string], BotRecord>("SELECT * FROM bots WHERE id=? AND user_id=? AND kind<>'room'").get(id, userId);
+/** An agent of this workspace that can own its tasks, by id. */
+export const taskOwner = (workspaceId: string, id: string) =>
+  db.prepare<[string, string], BotRecord>("SELECT * FROM bots WHERE id=? AND workspace_id=? AND kind<>'room'").get(id, workspaceId);
 
 /** A line in a bot's chat about a task that concerns it, so the user sees why it is at work. */
 function chatLine(botId: string, text: string, taskId: string) {
@@ -143,22 +158,23 @@ function chatLine(botId: string, text: string, taskId: string) {
 /** What changed hands: the bot the task was given to, which the caller wakes so it starts on it. */
 export interface TaskChange { task: Task; given: string | null }
 
-export function addTask(userId: string, actor: Actor, p: { title: string; notes?: string; ownerId?: string | null; status?: TaskStatus }): TaskChange {
+export function addTask(workspaceId: string, actor: Actor, p: { title: string; notes?: string; ownerId?: string | null; status?: TaskStatus }): TaskChange {
   const id = newId('task');
   const t = now();
-  db.prepare('INSERT INTO tasks(id,user_id,title,notes,status,owner_id,created_by,creator_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(id, userId, p.title.trim(), (p.notes ?? '').trim(), p.status ?? 'todo', p.ownerId ?? null, actorId(actor), actor.kind === 'bot' ? actor.name : null, t, t);
-  const task = toTask(getTask(userId, id)!);
+  const userId = userOf(workspaceId);
+  db.prepare('INSERT INTO tasks(id,user_id,workspace_id,title,notes,status,owner_id,created_by,creator_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id, userId, workspaceId, p.title.trim(), (p.notes ?? '').trim(), p.status ?? 'todo', p.ownerId ?? null, actorId(actor), actor.kind === 'bot' ? actor.name : null, t, t);
+  const task = toTask(getTask(workspaceId, id)!);
   // A finished task needs nobody to start on it.
   const given = task.ownerId && task.ownerId !== actorId(actor) && task.status !== 'done' ? task.ownerId : null;
-  if (given) giveTo(userId, actor, given, task);
+  if (given) giveTo(workspaceId, actor, given, task);
   hub.emit(userId, { type: 'tasks' });
   return { task, given };
 }
 
-function giveTo(userId: string, actor: Actor, botId: string, task: Task) {
-  const who = actorName(userId, actor);
-  logTeam(userId, `${who} gave you a task: "${clip(task.title, 120)}" (${task.id}).${task.notes ? ` Notes: ${clip(task.notes.replace(/\s+/g, ' '), 600)}` : ''}`, { audience: botId });
+function giveTo(workspaceId: string, actor: Actor, botId: string, task: Task) {
+  const who = actorName(userOf(workspaceId), actor);
+  logTeam(workspaceId, `${who} gave you a task: "${clip(task.title, 120)}" (${task.id}).${task.notes ? ` Notes: ${clip(task.notes.replace(/\s+/g, ' '), 600)}` : ''}`, { audience: botId });
   chatLine(botId, `${who} gave ${botName(botId)} a task: ${clip(task.title, 120)}`, task.id);
 }
 
@@ -169,9 +185,10 @@ const STATUS_WORDS: Record<TaskStatus, string> = { todo: 'to do', doing: 'doing'
  * `notes` replaces them (the app's editor). The owner hears what someone else changed, a new owner is
  * given the task, the old one hears it moved, and the bot that created it hears it got done.
  */
-export function changeTask(userId: string, actor: Actor, id: string, p: { title?: string; notes?: string; note?: string; status?: TaskStatus; ownerId?: string | null }): TaskChange | null {
-  const cur = getTask(userId, id);
+export function changeTask(workspaceId: string, actor: Actor, id: string, p: { title?: string; notes?: string; note?: string; status?: TaskStatus; ownerId?: string | null }): TaskChange | null {
+  const cur = getTask(workspaceId, id);
   if (!cur) return null;
+  const userId = cur.user_id;
   const who = actorName(userId, actor);
   const me = actorId(actor);
   const title = p.title?.trim() || cur.title;
@@ -182,17 +199,17 @@ export function changeTask(userId: string, actor: Actor, id: string, p: { title?
   const moved = owner !== cur.owner_id;
   db.prepare('UPDATE tasks SET title=?, notes=?, status=?, owner_id=?, previous_owner=?, updated_at=? WHERE id=?')
     .run(title, notes, status, owner, moved ? null : cur.previous_owner, now(), cur.id);
-  const task = toTask(getTask(userId, cur.id)!);
+  const task = toTask(getTask(workspaceId, cur.id)!);
   const name = `"${clip(title, 120)}" (${cur.id})`;
 
   let given: string | null = null;
   if (moved) {
     if (owner && owner !== me && status !== 'done') {
       given = owner;
-      giveTo(userId, actor, owner, task);
+      giveTo(workspaceId, actor, owner, task);
     }
     if (cur.owner_id && cur.owner_id !== me) {
-      logTeam(userId, `${who} moved your task ${name} to ${botName(owner) ?? 'nobody'}.`, { audience: cur.owner_id });
+      logTeam(workspaceId, `${who} moved your task ${name} to ${botName(owner) ?? 'nobody'}.`, { audience: cur.owner_id });
     }
   } else if (owner && owner !== me) {
     const what: string[] = [];
@@ -200,23 +217,24 @@ export function changeTask(userId: string, actor: Actor, id: string, p: { title?
     if (title !== cur.title) what.push('renamed it');
     if (p.note?.trim()) what.push(`noted: ${clip(p.note.trim().replace(/\s+/g, ' '), 400)}`);
     else if (notes !== cur.notes) what.push('changed its notes');
-    if (what.length) logTeam(userId, `${who} changed your task ${name}: ${what.join('; ')}.`, { audience: owner });
+    if (what.length) logTeam(workspaceId, `${who} changed your task ${name}: ${what.join('; ')}.`, { audience: owner });
   }
   // The bot that asked for it hears it got done, unless it did it itself or is already told above.
   if (status === 'done' && cur.status !== 'done' && cur.created_by && cur.created_by !== me && cur.created_by !== owner && getBotRow(cur.created_by)) {
-    logTeam(userId, `${owner === me ? who : botName(owner) ?? who} finished ${name}, a task you created.`, { audience: cur.created_by });
+    logTeam(workspaceId, `${owner === me ? who : botName(owner) ?? who} finished ${name}, a task you created.`, { audience: cur.created_by });
   }
   hub.emit(userId, { type: 'tasks' });
   return { task, given };
 }
 
 /** Take a task off the board. Its owner hears, unless it took it off itself. */
-export function removeTask(userId: string, actor: Actor, id: string): boolean {
-  const cur = getTask(userId, id);
+export function removeTask(workspaceId: string, actor: Actor, id: string): boolean {
+  const cur = getTask(workspaceId, id);
   if (!cur) return false;
+  const userId = cur.user_id;
   db.prepare('DELETE FROM tasks WHERE id=?').run(cur.id);
   if (cur.owner_id && cur.owner_id !== actorId(actor) && cur.status !== 'done') {
-    logTeam(userId, `${actorName(userId, actor)} took your task "${clip(cur.title, 120)}" off the board.`, { audience: cur.owner_id });
+    logTeam(workspaceId, `${actorName(userId, actor)} took your task "${clip(cur.title, 120)}" off the board.`, { audience: cur.owner_id });
   }
   hub.emit(userId, { type: 'tasks' });
   return true;

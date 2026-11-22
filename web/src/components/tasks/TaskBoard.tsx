@@ -3,16 +3,18 @@ import { Plus } from 'lucide-react';
 import { TASK_STATUSES, type Bot, type Task } from '@shared/types';
 import { STATUS_LABEL, changedAgo, tasksByStatus } from '../../lib/tasks';
 import { useConfigUI } from '../../configStore';
-import { useStore } from '../../store';
+import { currentWorkspaceId, useStore } from '../../store';
 import { Icon } from '../Icon';
 import { Modal } from '../modals/Modal';
 import { OwnerChip, StatusIcon } from './TaskBits';
 
-/** The team's task board: every task in a column by status, opened from the sidebar or a bot's details. */
+/** The shown workspace's task board: each of its tasks in a column by status, opened from the sidebar or a bot's details. */
 export function TaskBoard() {
   const setModal = useStore((s) => s.setModal);
-  const tasks = useStore((s) => s.tasks);
+  const all = useStore((s) => s.tasks);
   const bots = useStore((s) => s.bots);
+  const workspaceId = useStore(currentWorkspaceId);
+  const tasks = useMemo(() => all?.filter((t) => t.workspaceId === workspaceId) ?? null, [all, workspaceId]);
   const close = useCallback(() => setModal(null), [setModal]);
   const columns = useMemo(() => tasksByStatus(tasks ?? []), [tasks]);
   const open = useConfigUI((s) => s.openTaskEditor);

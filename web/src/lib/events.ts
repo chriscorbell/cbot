@@ -22,6 +22,7 @@ export function applyServerEvent(ev: ServerEvent) {
     case 'routines': return s.routinesChanged(ev.botId);
     case 'memories': return useConfigUI.getState().bump(`memories:${ev.botId}`);
     case 'tasks': return void s.loadTasks().catch(console.error);
+    case 'workspaces': return void s.loadWorkspaces().catch(console.error);
     case 'update': return s.applyUpdate(ev.update);
     default: {
       const unhandled: never = ev;
@@ -47,7 +48,7 @@ export function startEvents(): () => void {
   const resync = () => {
     const st = useStore.getState();
     st.markTranscriptsStale();
-    const loads: Promise<unknown>[] = [st.loadBots(), st.loadComputer(), st.loadUpdate(), st.loadTasks()];
+    const loads: Promise<unknown>[] = [st.loadBots(), st.loadWorkspaces(), st.loadComputer(), st.loadUpdate(), st.loadTasks()];
     if (st.selectedBotId) loads.push(st.loadRows(st.selectedBotId), st.loadRoutines(st.selectedBotId));
     void Promise.allSettled(loads).then((results) => {
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');

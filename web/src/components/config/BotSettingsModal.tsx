@@ -16,6 +16,8 @@ import { EngineSettings } from '../EngineSettings';
 import { VoiceSettings } from '../VoiceSettings';
 import { Glyph } from './glyphs';
 import { ConfirmButton, Field, Segmented, Switch, nextRunLabel } from './ui';
+import { Select } from '../Select';
+import { api } from '../../lib/api';
 
 const EFFORTS: { value: Bot['effort']; label: string }[] = [
   { value: 'low', label: 'Low' },
@@ -173,6 +175,22 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
   const put = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const flash = (text: string, tone: 'ok' | 'error' = 'ok') => { setNote({ text, tone }); setTimeout(() => setNote(null), 2400); };
   const room = bot.kind === 'room';
+  const workspaces = useStore((s) => s.workspaces);
+  const [moving, setMoving] = useState(false);
+  /** Moves the bot to another workspace; the app shows it there, since it is the bot open. */
+  const move = async (workspaceId: string) => {
+    if (workspaceId === bot.workspaceId) return;
+    setMoving(true);
+    try {
+      const { bot: next } = await api.moveBot(bot.id, workspaceId);
+      useStore.getState().applyBot(next);
+      flash(`Moved ${bot.name} to ${workspaces?.find((w) => w.id === workspaceId)?.name ?? 'the workspace'}`);
+    } catch (e) {
+      flash((e as Error).message, 'error');
+    } finally {
+      setMoving(false);
+    }
+  };
 
   const save = async () => {
     if (!dirty || !nameOk) return;
@@ -255,6 +273,15 @@ function GeneralTab({ bot, onClose }: { bot: Bot; onClose: () => void }) {
               />
             </Presence>
           </div>
+          {!room && workspaces && workspaces.length > 1 && (
+            <div className="cfg-row">
+              <div className="cfg-row__text">
+                <div className="cfg-row__title">Workspace</div>
+                <div className="cfg-row__sub">{bot.isPrimary ? 'Make another bot primary first to move this one.' : 'Moving it takes it off this team: its tasks here go back to nobody and it leaves its group chats. Its chat, files and memory go with it.'}</div>
+              </div>
+              <Select label="Workspace" value={bot.workspaceId} options={workspaces.map((w) => ({ value: w.id, label: w.name }))} onChange={(id) => void move(id)} disabled={bot.isPrimary || moving} />
+            </div>
+          )}
           {!bot.isPrimary && (
             <div className="cfg-row">
               <div className="cfg-row__text">

@@ -48,12 +48,13 @@ server ── voice-relay.ts ──► speech container (Phonon, Parakeet, Nemot
 | Displays | `displays.ts` | Starts and stops each bot's X display (Xvnc, a D-Bus session bus, xfwm4) and takes screenshots with ImageMagick |
 | Screens | `computer.ts`, `desk.ts`, `box.ts`, `machine.ts`, `server/box/*` | Screen leases, dressing a screen as the bot's computer, the bot's Chrome, the home screen. `server/box/machine.json` has the paths, ports and display numbers, read by both `machine.ts` and the box scripts |
 | Viewer | `vnc.ts` | WebSocket relay between noVNC in the browser and the display's VNC server. Watching drops the browser's input at the relay; Take control and Stop switch the open connection (`POST /api/bots/:id/screen/mode`, naming the connection the browser opened) rather than reconnecting |
-| Scheduling | `routines.ts`, `proactive.ts` | Cron routines and check-ins for the primary bot. Each run is a turn; a routine run adds nothing to the chat beyond what the bot writes. A routine whose last run is still going or waiting skips a run, so one can't stack turns ahead of the user's messages. `DISPATCH_NO_SCHEDULER=1` turns both off |
+| Scheduling | `routines.ts`, `proactive.ts` | Cron routines and check-ins for each workspace's primary bot. Each run is a turn; a routine run adds nothing to the chat beyond what the bot writes. A routine whose last run is still going or waiting skips a run, so one can't stack turns ahead of the user's messages. `DISPATCH_NO_SCHEDULER=1` turns both off |
+| Workspaces | `workspaces.ts`, `routes-workspaces.ts`, `bots.ts` | Separate teams of bots under the one account, each with its own primary bot, task board and check-ins. See [Workspaces](#workspaces-keep-teams-apart) |
 | The team | `agent/team.ts`, `agent/asks.ts`, `routes-tasks.ts` | The task board, what each agent hears when the team changes, and one bot asking another a question. See [Bots work together](#bots-work-together-through-the-app) |
 | Group chats | `agent/rooms.ts` | A room is a bot row with a member list; posts go to its members' queues. It has no turns, skills, memory or routines of its own, so its settings show only General. Its About and Instructions go into each member's app instructions under the group's name |
 | Voice | `voice.ts`, `voice-relay.ts`, `speech.ts`, `web/src/voice/*` | Voice calls through a relay on the speech service and the bot's own agent, voice previews, composer dictation, call records with summaries |
 | Speech service | `speech/` (its own container) | Text-to-speech (Phonon 31M), dictation and call transcripts (Parakeet Unified, Nemotron streaming, Silero VAD) over HTTP and a WebSocket at `SPEECH_URL`. `speech/README.md` has the API |
-| UI | `web/src` | React and zustand: a sign-in screen, a rail of bot icons that opens into a full sidebar (names, previews, hidden bots), chat with a live "thinking" line, details panel (activity, tasks, computer, Library, an in-place look editor), the task board, a preview for Library files and chat attachments (next row), cards (approvals, questions, weather), voice call bar with captions, settings, viewer |
+| UI | `web/src` | React and zustand: a sign-in screen, a rail of bot icons that opens into a full sidebar (a workspace switcher, names, previews, hidden bots), chat with a live "thinking" line, details panel (activity, tasks, computer, Library, an in-place look editor), the task board, a preview for Library files and chat attachments (next row), cards (approvals, questions, weather), voice call bar with captions, settings, viewer |
 | File preview | `FilePreview.tsx` | Pictures, PDFs, audio and video sent in place by `files/raw?inline=1` for the types in `INLINE_TYPES`, and text and Markdown read here, the first 512 KB of a long file through a byte range. HTML shows as source and SVG as a picture from a data: URL, so neither runs script at the app's address, even opened in a tab of its own |
 | On a phone | `lib/longPress.ts`, `lib/viewport.ts`, `public/manifest.webmanifest` | The sidebar as a drawer, dialogs as sheets, a hold for what a mouse does with hover and right-click (`lib/longPress.ts`), and the app kept as tall as what the keyboard leaves visible (`lib/viewport.ts`); `public/manifest.webmanifest` and the icons make it a home-screen app |
 
@@ -318,7 +319,19 @@ The bots are a team, each with a role, and work together like colleagues at a sm
   - A group has no voice calls.
   - The group's About and Instructions reach its members through their app instructions (`agent/prompt.ts`), not through each group message, so they don't pile up in every member's history; its label is only shown in the app.
 - For work inside one task, Hermes' own delegation (the `delegation` toolset) is used.
-- The primary bot gets check-ins at the times set with `set_checkins` and sends one short message or calls `stay_silent`. A check-in is skipped when the user sent a message in the last 20 minutes.
+- Each workspace's primary bot gets check-ins at the times set in the workspace's settings or with `set_checkins`, and sends one short message or calls `stay_silent`. It is told the workspace's pending approvals, the routines that ran, its teammates and what on the board is blocked or has nobody. A check-in is skipped when the user sent one of the workspace's bots a message in the last 20 minutes; Settings' "Check In" runs one at once. A primary bot's first greeting mentions check-ins once, since nothing else in a chat says it can write first.
+
+## Workspaces keep teams apart
+
+A workspace (`workspaces.ts`) is a separate team of bots under the one account, like the workspaces of a chat app: work and personal, say.
+
+- Each has its own bots and group chats, one primary bot, a task board and check-ins. Provider settings, approvals and the computer are shared.
+- A bot knows of and reaches only its own workspace's bots. The roster in its instructions, `send_to_bot`, `ask_bot`, `check_on_bot`, the task tools, `create_group` and `post_to_group` all look in `bots.workspace_id`, and a group chat's members come from its workspace. The instructions name the workspace once the user has more than one.
+- This keeps the teams apart in the app, not on the disk: every bot runs as the one account, so a bot with a shell could still read another workspace's files.
+- Every account starts with one, Personal (`ensureOwner`, or migration 5 for an account from before). `POST /api/workspaces` makes another together with its first bot, which becomes its primary bot and greets the user, so no workspace is without one. The last workspace can't be deleted; deleting another deletes each of its bots as `deleteBot` does, then its board, news and check-ins.
+- A workspace can turn its board off. Its bots are then offered no task tools: `tools/list` (`toolsFor`) leaves them out, the settings hash covers the names a bot is offered, and each of the workspace's gateways restarts on the new list once no run holds it (`refreshTools`). Their instructions stop mentioning the board, the app hides it, and its tasks wait for it to come back on.
+- Moving a bot to another workspace (`moveBot`) takes it off its team as deleting it would (its tasks go back to nobody, the others hear it left), takes it out of its group chats, and has it join the new team caught up. Questions to or from it end. A primary bot can't move until another bot is made primary.
+- The web app shows one workspace at a time: the selected bot's. The sidebar, Search, the board and new bots and groups are that workspace's, and switching opens the bot last open there, or its primary bot.
 
 ## A voice call is the bot's own agent behind a speech relay
 
@@ -422,7 +435,7 @@ On the dev machine, with the primary bot on `deepseek-flash`, the answer's first
 
 | Production | Dev container | Holds |
 |---|---|---|
-| `/var/lib/dispatch` (`DATA_DIR`), root's alone | volume `data` at `/data` | `dispatch.db` (SQLite in WAL mode, schema in `db.ts`: the user and sessions, bots, rows, approvals, routines, skills, screen leases, check-ins and settings), `secret` (signs the MCP tokens), `auth-fingerprint`, and `setup-code` while no account exists |
+| `/var/lib/dispatch` (`DATA_DIR`), root's alone | volume `data` at `/data` | `dispatch.db` (SQLite in WAL mode, schema in `db.ts`: the user and sessions, workspaces, bots, rows, approvals, routines, skills, tasks, screen leases, check-ins and settings), `secret` (signs the MCP tokens), `auth-fingerprint`, and `setup-code` while no account exists |
 | `~/dispatch` in the bots' account's home | volume `home` at `/home/bots` | `engines/<botId>` (each bot's Hermes home), `profiles/<botId>` (Chrome profiles), `files/<botId>` (the Library, also the bot's working folder) |
 
 Hermes (`/opt/hermes`) and the packages come from `provision.sh`, the box scripts run from the release and keep their state in `/opt/dispatch`, the units' logs go to the journal (`journalctl -u 'dispatch-*'`), and what the bots open on their screens logs to `/var/log/dispatch`. On the host all of it stays, along with whatever the bots install; in the dev container only the volumes survive a rebuild.
@@ -489,7 +502,7 @@ A fresh install has no bot: after the account, `needsSetup` (the owner's `setup_
 2. connects a model through Settings > Providers or a sign-in with a code (`signin.ts`);
 3. ends with `POST /api/setup/finish`, which has the bot greet the user if it has a model.
 
-The first bot a user makes is the primary one, and a bot made during setup holds its greeting until then (`bots.ts`). Accounts from before the wizard are past it.
+The first bot a user makes is the primary one of their first workspace, Personal, and a bot made during setup holds its greeting until then (`bots.ts`). Accounts from before the wizard are past it.
 
 ### Sessions
 

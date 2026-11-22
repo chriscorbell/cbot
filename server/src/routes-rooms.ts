@@ -5,10 +5,11 @@ import { db, now, type BotRecord } from './db.js';
 import { hub } from './lib/hub.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
 import { appendRow } from './store.js';
-import { createRoom, roomMembers } from './agent/rooms.js';
+import { createRoom, roomMembers, workspaceMembers } from './agent/rooms.js';
+import { defaultWorkspace, ownWorkspace } from './workspaces.js';
 import type { RoomCreated, RoomMembersResponse, RoomMembersSet } from './contract.js';
 
-/** /api/rooms: group chat membership. A room is a bot row with kind='room'. */
+/** /api/rooms: group chat membership. A room is a bot row with kind='room'; its members are agents of its workspace. */
 export const roomsApi = new Hono<AuthVars>();
 roomsApi.use('*', requireUser);
 
@@ -25,13 +26,15 @@ roomsApi.get('/:id/members', (c) => {
   return c.json({ members } satisfies RoomMembersResponse);
 });
 
-/** Create a group from the UI: { name, botIds[] }. */
+/** Create a group from the UI: { name, botIds[], workspaceId }. */
 roomsApi.post('/', async (c) => {
   const user = c.get('user');
-  const { name, botIds } = await body(c, z.object({ name: z.string().default(''), botIds: z.array(z.string()).default([]) }));
-  const valid = [...new Set(botIds)].filter((id) => db.prepare("SELECT 1 FROM bots WHERE id=? AND user_id=? AND kind<>'room'").get(id, user.id));
-  if (!name.trim() || valid.length < 2) return c.json({ error: 'A group needs a name and at least 2 Bots.' }, 400);
-  const id = createRoom(user.id, name.trim(), valid);
+  const p = await body(c, z.object({ name: z.string().default(''), botIds: z.array(z.string()).default([]), workspaceId: z.string().optional() }));
+  const ws = p.workspaceId ? ownWorkspace(user.id, p.workspaceId) : defaultWorkspace(user.id);
+  if (!ws) return c.json({ error: 'not found' }, 404);
+  const valid = workspaceMembers(ws.id, p.botIds);
+  if (!p.name.trim() || valid.length < 2) return c.json({ error: 'A group needs a name and at least 2 Bots.' }, 400);
+  const id = createRoom(user.id, ws.id, p.name.trim(), valid);
   return c.json({ id } satisfies RoomCreated);
 });
 
@@ -41,7 +44,7 @@ roomsApi.put('/:id/members', async (c) => {
   if (!room) return c.json({ error: 'not found' }, 404);
   const { botIds } = await body(c, z.object({ botIds: z.array(z.string()).default([]) }));
   const before = new Set(roomMembers(room.id).map((m) => m.id));
-  const next = [...new Set(botIds.filter((id) => db.prepare("SELECT 1 FROM bots WHERE id=? AND user_id=? AND kind<>'room'").get(id, user.id)))];
+  const next = workspaceMembers(room.workspace_id, botIds);
   db.prepare('UPDATE bots SET members=?, updated_at=? WHERE id=?').run(JSON.stringify(next), now(), room.id);
   const name = (id: string) => db.prepare<[string], Pick<BotRecord, 'name'>>('SELECT name FROM bots WHERE id=?').get(id)?.name ?? id;
   const added = next.filter((id) => !before.has(id)).map(name);
