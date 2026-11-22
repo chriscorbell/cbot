@@ -26,6 +26,8 @@ interface ConfigUI {
   sendWithMod: boolean;
   /** The microphone for calls and dictation; '' is the system default. */
   micId: string;
+  /** The Speaker button's last choice, for an iPhone's or iPad's next call (voice/call.ts reads it). */
+  callSpeaker: boolean;
   jump: Jump | null;
   jumpTo(j: Jump): void;
   /** Done with this jump; a newer one stays. */
@@ -39,7 +41,7 @@ interface ConfigUI {
   openTaskEditor(t: TaskEditorTarget): void;
   closeTaskEditor(): void;
   setTheme(t: Theme): void;
-  setPref(p: Partial<Pick<ConfigUI, 'spellcheck' | 'sendWithMod' | 'micId'>>): void;
+  setPref(p: Partial<Pick<ConfigUI, 'spellcheck' | 'sendWithMod' | 'micId' | 'callSpeaker'>>): void;
   bump(key: string): void;
 }
 
@@ -49,8 +51,8 @@ const readTheme = (): Theme => {
 };
 
 const LS_PREFS = 'dispatch.prefs';
-const readPrefs = (): Pick<ConfigUI, 'spellcheck' | 'sendWithMod' | 'micId'> => {
-  const d = { spellcheck: true, sendWithMod: false, micId: '' };
+const readPrefs = (): Pick<ConfigUI, 'spellcheck' | 'sendWithMod' | 'micId' | 'callSpeaker'> => {
+  const d = { spellcheck: true, sendWithMod: false, micId: '', callSpeaker: false };
   try { return { ...d, ...JSON.parse(localStorage.getItem(LS_PREFS) ?? '{}') }; } catch { return d; }
 };
 
@@ -88,8 +90,8 @@ export const useConfigUI = create<ConfigUI>((set, get) => ({
   },
   setPref: (p) => {
     set(p);
-    const { spellcheck, sendWithMod, micId } = get();
-    try { localStorage.setItem(LS_PREFS, JSON.stringify({ spellcheck, sendWithMod, micId })); } catch { /* ignore */ }
+    const { spellcheck, sendWithMod, micId, callSpeaker } = get();
+    try { localStorage.setItem(LS_PREFS, JSON.stringify({ spellcheck, sendWithMod, micId, callSpeaker })); } catch { /* ignore */ }
   },
   bump: (key) => set({ versions: { ...get().versions, [key]: (get().versions[key] ?? 0) + 1 } }),
 }));

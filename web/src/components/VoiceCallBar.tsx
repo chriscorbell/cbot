@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { MessageSquareText, Settings } from 'lucide-react';
+import { MessageSquareText, Settings, Volume2 } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
 import { useStore } from '../store';
-import { callLevels, endCall, toggleMute, useVoice } from '../voice/call';
+import { callLevels, endCall, hasSpeakerChoice, setSpeaker, toggleMute, useVoice } from '../voice/call';
+import { useConfigUI } from '../configStore';
 import { Presence } from './Presence';
 import { CallSettings } from './VoiceSettings';
 
@@ -29,7 +30,7 @@ const BARS = 14;
 
 /**
  * The call, floating under the header: the bot, a live level meter, call settings, the transcript,
- * mute and hang up. Shown while a call is connecting, live, or just failed.
+ * the loudspeaker (iPhone and iPad), mute and hang up. Shown while a call is connecting, live, or just failed.
  */
 export function VoiceCallBar() {
   const v = useVoice();
@@ -40,7 +41,14 @@ export function VoiceCallBar() {
   const meterRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const active = v.status === 'connecting' || v.status === 'live';
+  const speakerChoice = hasSpeakerChoice();
   const closeSettings = useCallback(() => setSettings(false), []);
+  // Remembered for this device's next call: someone who talks to a bot hands-free wants the loudspeaker every time.
+  const toggleSpeaker = () => {
+    const on = !useVoice.getState().speaker;
+    useConfigUI.getState().setPref({ callSpeaker: on });
+    setSpeaker(on);
+  };
 
   // Drive the avatar and the meter from the audio levels without re-rendering React every frame.
   useEffect(() => {
@@ -110,6 +118,11 @@ export function VoiceCallBar() {
             <button type="button" className={`vcall__btn${log ? ' is-on' : ''}`} onClick={() => setLog(!log)} aria-pressed={log} aria-label={log ? 'Hide transcript' : 'Show transcript'} title={log ? 'Hide transcript' : 'Show transcript'}>
               <MessageSquareText size={16} strokeWidth={1.75} aria-hidden />
             </button>
+            {speakerChoice && (
+              <button type="button" className={`vcall__btn${v.speaker ? ' is-on' : ''}`} onClick={toggleSpeaker} disabled={v.status !== 'live'} aria-pressed={v.speaker} aria-label="Speaker" title={v.speaker ? 'Speaker on' : 'Speaker'}>
+                <Volume2 size={16} strokeWidth={1.75} aria-hidden />
+              </button>
+            )}
             <button type="button" className={`vcall__btn${v.muted ? ' is-muted' : ''}`} onClick={toggleMute} aria-pressed={v.muted} aria-label={v.muted ? 'Unmute' : 'Mute'} title={v.muted ? 'Unmute' : 'Mute'}>
               <MicGlyph off={v.muted} />
             </button>

@@ -464,7 +464,7 @@ export class CallOutput {
 
   /** Moves the sound onto the page's WebRTC connection. Resolves either way; `route` says which it plays through. */
   async start(): Promise<void> {
-    if (typeof RTCPeerConnection === 'undefined' || typeof this.ctx.createMediaStreamDestination !== 'function') return;
+    if (this.route === 'webrtc' || typeof RTCPeerConnection === 'undefined' || typeof this.ctx.createMediaStreamDestination !== 'function') return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const track = await Promise.race([
@@ -483,7 +483,9 @@ export class CallOutput {
       this.route = 'webrtc';
       const recv = this.pcs[1];
       recv.oniceconnectionstatechange = () => {
-        if (recv.iceConnectionState === 'failed' || recv.iceConnectionState === 'closed') this.playDirect();
+        if (this.route !== 'webrtc' || (recv.iceConnectionState !== 'failed' && recv.iceConnectionState !== 'closed')) return;
+        console.warn('[voice] the page’s WebRTC connection dropped; playing straight from the AudioContext');
+        this.playDirect();
       };
     } catch (e) {
       console.warn('[voice] playing straight from the AudioContext; the page’s WebRTC connection failed:', e);
@@ -523,10 +525,9 @@ export class CallOutput {
     return ev.track;
   }
 
-  /** The connection broke mid-call: play straight from the context again. */
-  private playDirect() {
+  /** Plays straight from the context again: the connection broke, or the call's own canceller took over (the Speaker button). */
+  playDirect() {
     if (this.closed || this.route === 'direct') return;
-    console.warn('[voice] the page’s WebRTC connection dropped; playing straight from the AudioContext');
     this.route = 'direct';
     this.bus.disconnect();
     this.bus.connect(this.ctx.destination);

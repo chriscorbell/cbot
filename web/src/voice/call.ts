@@ -39,11 +39,16 @@ interface VoiceState {
   captions: Caption[];
   error: string | null;
   startedAt: number | null;
+  /**
+   * An iPhone's or iPad's call on the loudspeaker (the call bar's Speaker button). Otherwise it plays
+   * from the earpiece there; other devices have no choice and play as they always do.
+   */
+  speaker: boolean;
 }
 
 export const useVoice = create<VoiceState>(() => ({
   status: 'idle', botId: null, callId: null, muted: false, speaking: false, listening: false, thinking: false,
-  activity: null, captions: [], error: null, startedAt: null,
+  activity: null, captions: [], error: null, startedAt: null, speaker: false,
 }));
 // Dev builds expose the call state so a call's UI can be checked without a microphone.
 if (import.meta.env.DEV) (globalThis as { __dispatchVoice?: unknown }).__dispatchVoice = useVoice;
@@ -63,6 +68,18 @@ export function startCall(botId: string) {
 }
 
 export function endCall() { current?.end(); }
+/** The Speaker button: moves the live call between the loudspeaker and the earpiece (iPhone and iPad). */
+export function setSpeaker(on: boolean) {
+  const call = current;
+  if (!call) return;
+  call.setSpeaker(on).catch((e: unknown) => call.end(micErrorMessage(e)));
+}
+/** Whether this device offers the Speaker button: an iPhone or iPad, where the choice is the microphone's echo cancelling. */
+export const hasSpeakerChoice = isAppleMobile;
+/** The Speaker button's last choice on this device (configStore's `callSpeaker`), for the next call. */
+function savedSpeaker(): boolean {
+  try { return !!(JSON.parse(localStorage.getItem('dispatch.prefs') ?? '{}') as { callSpeaker?: unknown }).callSpeaker; } catch { return false; }
+}
 export function toggleMute() { current?.setMuted(!useVoice.getState().muted); }
 /** Moves the live call to the microphone now chosen in the settings (`micId`). Throws if it won't open. */
 export async function switchMic() { await current?.switchMic(); }
@@ -82,12 +99,11 @@ class VoiceCall {
   player!: PcmPlayer;
   /**
    * The call's speaker. With the call's own echo canceller (aec.ts) it plays straight from the
-   * context; with the browser's, through WebRTC, which is what the browser's knows to remove, and
-   * what an iPhone keeps at full volume (see the constructor).
+   * context; with the browser's, through WebRTC, which is what the browser's knows to remove.
    */
   private output!: CallOutput;
   private loop!: ThinkingLoop;
-  /** AEC3, loading from the moment the call button is pressed; null if it can't run here or isn't wanted. */
+  /** AEC3, loading from the moment the call button is pressed; null if it can't run here. */
   private aec: Promise<Awaited<ReturnType<typeof loadAec3>> | null>;
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private mic: MicCapture | null = null;
@@ -105,16 +121,21 @@ class VoiceCall {
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private onUnload = () => { if (this.sess && !this.ended) voiceApi.endBeacon(this.botId, this.sess.callId, this.transcript(), this.echoStats()); };
 
+  /**
+   * On the loudspeaker (iPhone and iPad). There iOS picks where a call plays by the microphone's echo
+   * cancelling: with the call's own (AEC3, the browser's off) it plays from the earpiece, clean but
+   * too quiet to hear held away; with the browser's, Apple's voice processing, from the loudspeaker
+   * through WebRTC, which iOS 26.2 to 27 makes crackle (WebKit bug 326286). So the user chooses, as
+   * with a phone call. Elsewhere it is always false.
+   */
+  private speaker: boolean;
+
   constructor(readonly botId: string) {
     // Created synchronously inside the click so autoplay policy lets it run.
     this.ctx = createAudioContext();
     this.speakers(this.ctx);
-    // An iPhone or iPad turns down what an AudioContext plays while the microphone is open (WebKit bug
-    // 236219), so a call played straight from the context, as AEC3 needs, is barely audible there. A
-    // call's WebRTC track keeps full volume, and Apple's voice processing, the browser's canceller
-    // there, knows to remove it: so there the call uses the browser's canceller and plays through
-    // WebRTC, as call apps in the browser do.
-    this.aec = isAppleMobile() ? Promise.resolve(null) : loadAec3().catch((e: unknown) => {
+    this.speaker = isAppleMobile() && savedSpeaker();
+    this.aec = loadAec3().catch((e: unknown) => {
       console.warn('[voice] AEC3 can’t run here; the browser cancels echo instead:', e);
       return null;
     });
@@ -179,11 +200,41 @@ class VoiceCall {
     old?.stop();
   }
 
+  /**
+   * The Speaker button, mid-call: a microphone with the other echo cancelling, and the call's sound on
+   * the route that goes with it. iOS sets the route when the microphone opens and keeps it for a live
+   * track, so the old microphone stops before the new one opens, and the call hears nothing for the
+   * half second or so that takes. Shares the microphone switch's count: the latest change wins.
+   */
+  async setSpeaker(on: boolean) {
+    if (this.ended || !this.mic || on === this.speaker) return;
+    const n = ++this.micSwitch;
+    this.speaker = on;
+    setV({ speaker: on });
+    const aec = on ? null : await this.aec;
+    if (this.ended || n !== this.micSwitch) return;
+    const old = this.mic;
+    this.mic = null;
+    old?.stop();
+    let next = this.capture(await openMic({ raw: !!aec }), aec);
+    if (this.ended || n !== this.micSwitch) { next.stop(); return; }
+    try { await next.start(); } catch (e) { next.stop(); throw e; }
+    if (aec && !next.cancels) {
+      next.stop();
+      next = this.capture(await openMic(), null);
+      try { await next.start(); } catch (e) { next.stop(); throw e; }
+    }
+    if (this.ended || n !== this.micSwitch) { next.stop(); return; }
+    this.mic = next;
+    next.muted = useVoice.getState().muted;
+    if (next.cancels) this.output.playDirect(); else await this.output.start();
+  }
+
   async start() {
-    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, activity: null, captions: [], error: null, startedAt: null });
+    setV({ status: 'connecting', botId: this.botId, callId: null, muted: false, speaking: false, listening: false, thinking: false, activity: null, captions: [], error: null, startedAt: null, speaker: this.speaker });
     window.addEventListener('pagehide', this.onUnload);
     keepScreenOn();
-    const aec = await this.aec;
+    const aec = this.speaker ? null : await this.aec;
     let stream: MediaStream;
     try {
       stream = await openMic({ raw: !!aec });
