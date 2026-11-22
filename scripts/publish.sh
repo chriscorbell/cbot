@@ -17,9 +17,9 @@
 #   5. Signs SHA256SUMS with the same key, as dispatch-release, checks the files the way this commit's
 #      installer will, attaches the signature, and publishes the release.
 #
-# Installs and updates take the newest vX.Y.Z tag, and only when its tag and its SHA256SUMS were
-# signed with a key in release_signers. A new key goes in release_signers in a release that a key
-# already listed signs. The tag's message lists the commits since the last release, and the GitHub
+# Installs and updates take the newest vX.Y.Z tag whose release is published, and only when its tag
+# and its SHA256SUMS were signed with a key in release_signers. A new key goes in release_signers in
+# a release that a key already listed signs. The tag's message lists the commits since the last release, and the GitHub
 # release shows the same list.
 set -euo pipefail
 
