@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type RefObject } from 'react';
 import type { Bot } from '@shared/types';
 import { Check, Play, Square } from 'lucide-react';
 import { useStore } from '../store';
@@ -132,24 +132,12 @@ function MicRow() {
 }
 
 /**
- * Speed and voice for a bot: a speed slider over a grid of voice cards, each with a play button.
- * During a call (`mic`), the microphone comes first. Closes on a click outside it (except on
- * `keepOpenFor`, the control that toggles it) or on Escape.
+ * A popover that closes on a click outside it (except on `keepOpenFor`, the control that toggles it,
+ * and a Select's menu) or on Escape. While it animates away it no longer owns either.
  */
-export function VoicePicker({ bot, onClose, keepOpenFor, mic, className = '' }: { bot: Bot; onClose: () => void; keepOpenFor?: string; mic?: boolean; className?: string }) {
-  const opts = useVoiceOptions();
+function useDismiss(ref: RefObject<HTMLDivElement | null>, onClose: () => void, keepOpenFor?: string) {
   const exiting = useExiting();
-  const [playing, setPlaying] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  // Stops the sample playing now; closing the picker stops it too.
-  const stopPreview = useRef<AbortController | null>(null);
-  useEffect(() => () => stopPreview.current?.abort(), []);
-  const voices = voiceList(opts, bot);
-  const speeds = speedList(opts, bot);
-  const speedIndex = Math.max(0, speeds.indexOf(bot.voiceSpeed));
   useEffect(() => {
-    // While it animates away it no longer owns Escape or clicks.
     if (exiting) return;
     const down = (e: PointerEvent) => {
       const t = e.target as Element;
@@ -160,10 +148,50 @@ export function VoicePicker({ bot, onClose, keepOpenFor, mic, className = '' }: 
     document.addEventListener('pointerdown', down, true);
     document.addEventListener('keydown', key, true);
     return () => { document.removeEventListener('pointerdown', down, true); document.removeEventListener('keydown', key, true); };
-  }, [onClose, keepOpenFor, exiting]);
+  }, [ref, onClose, keepOpenFor, exiting]);
+  return exiting;
+}
+
+/** The speed slider: the speech service's speeds as steps. Saving fails into `onError`. */
+function SpeedRow({ bot, onError }: { bot: Bot; onError: (e: string | null) => void }) {
+  const speeds = speedList(useVoiceOptions(), bot);
+  const speedIndex = Math.max(0, speeds.indexOf(bot.voiceSpeed));
+  const speedAt = speeds.length > 1 ? speedIndex / (speeds.length - 1) : 1;
+  const save = (voiceSpeed: number) => { onError(null); saveVoice(bot.id, { voiceSpeed }).catch((e) => onError((e as Error).message)); };
+  return (
+    <div className="vcall-settings__speed">
+      <span>Speed</span>
+      {/* The input is invisible on top; the fill and its knob are drawn under it so they can glide between steps. */}
+      <span className="speed-slider" style={{ ['--at' as string]: speedAt }}>
+        <span className="speed-slider__fill" aria-hidden />
+        <input
+          type="range" min={0} max={Math.max(0, speeds.length - 1)} step={1} value={speedIndex}
+          onChange={(e) => save(speeds[Number(e.target.value)])}
+          aria-label="Speed" aria-valuetext={speedLabel(bot.voiceSpeed)}
+        />
+      </span>
+      <span className="vcall-settings__value">{speedTag(bot.voiceSpeed)}</span>
+    </div>
+  );
+}
+
+/**
+ * Speed and voice for a bot (Model & voice in its settings): a speed slider over a list of voices,
+ * each with a play button. Closes like any popover (useDismiss).
+ */
+export function VoicePicker({ bot, onClose, keepOpenFor, className = '' }: { bot: Bot; onClose: () => void; keepOpenFor?: string; className?: string }) {
+  const opts = useVoiceOptions();
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const exiting = useDismiss(ref, onClose, keepOpenFor);
+  // Stops the sample playing now; closing the picker stops it too.
+  const stopPreview = useRef<AbortController | null>(null);
+  useEffect(() => () => stopPreview.current?.abort(), []);
+  const voices = voiceList(opts, bot);
   // Open on the chosen voice.
   useEffect(() => { ref.current?.querySelector('.voice-cell.is-selected')?.scrollIntoView({ block: 'nearest' }); }, []);
-  const save = (patch: Parameters<typeof saveVoice>[1]) => { setError(null); saveVoice(bot.id, patch).catch((e) => setError((e as Error).message)); };
+  const pick = (voice: string) => { setError(null); saveVoice(bot.id, { voice }).catch((e) => setError((e as Error).message)); };
   // The playing voice's button stops it; another voice's button switches to that one.
   const preview = async (voice: string) => {
     stopPreview.current?.abort();
@@ -177,23 +205,9 @@ export function VoicePicker({ bot, onClose, keepOpenFor, mic, className = '' }: 
       if (stopPreview.current === ac) { stopPreview.current = null; setPlaying(null); }
     }
   };
-  const speedAt = speeds.length > 1 ? speedIndex / (speeds.length - 1) : 1;
   return (
     <div ref={ref} className={`vcall-settings ${className}${exiting ? ' is-exiting' : ''}`} role="dialog" aria-label="Voice">
-      {mic && <MicRow />}
-      <div className="vcall-settings__speed">
-        <span>Speed</span>
-        {/* The input is invisible on top; the fill and its knob are drawn under it so they can glide between steps. */}
-        <span className="speed-slider" style={{ ['--at' as string]: speedAt }}>
-          <span className="speed-slider__fill" aria-hidden />
-          <input
-            type="range" min={0} max={Math.max(0, speeds.length - 1)} step={1} value={speedIndex}
-            onChange={(e) => save({ voiceSpeed: speeds[Number(e.target.value)] })}
-            aria-label="Speed" aria-valuetext={speedLabel(bot.voiceSpeed)}
-          />
-        </span>
-        <span className="vcall-settings__value">{speedTag(bot.voiceSpeed)}</span>
-      </div>
+      <SpeedRow bot={bot} onError={setError} />
       <div className="vcall-settings__voices" role="radiogroup" aria-label="Voice">
         {voiceGroups(voices).map(({ group, list }) => (
           <Fragment key={group || 'voices'}>
@@ -204,7 +218,7 @@ export function VoicePicker({ bot, onClose, keepOpenFor, mic, className = '' }: 
                 <button type="button" className="voice-cell__play" onClick={() => preview(v.id)} aria-label={playing === v.id ? `Stop ${v.name}` : `Hear ${v.name}`}>
                   {playing === v.id ? <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden /> : <Play className="voice-cell__tri" size={10} strokeWidth={0} fill="currentColor" aria-hidden />}
                 </button>
-                <button type="button" role="radio" aria-checked={bot.voice === v.id} className="voice-cell__pick" onClick={() => save({ voice: v.id })} title={v.description}>
+                <button type="button" role="radio" aria-checked={bot.voice === v.id} className="voice-cell__pick" onClick={() => pick(v.id)} title={v.description}>
                   <span className="voice-cell__text">
                     <span className="voice-cell__name">{v.name}</span>
                     <span className="voice-cell__desc">{tagline(v)}</span>
@@ -216,6 +230,23 @@ export function VoicePicker({ bot, onClose, keepOpenFor, mic, className = '' }: 
           </Fragment>
         ))}
       </div>
+      {error && <div className="voice-error">{error}</div>}
+    </div>
+  );
+}
+
+/**
+ * The call bar's settings: the microphone and the speed. The voice itself is chosen in the bot's
+ * settings (Model & voice), not mid-call.
+ */
+export function CallSettings({ bot, onClose, keepOpenFor }: { bot: Bot; onClose: () => void; keepOpenFor?: string }) {
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const exiting = useDismiss(ref, onClose, keepOpenFor);
+  return (
+    <div ref={ref} className={`vcall-settings${exiting ? ' is-exiting' : ''}`} role="dialog" aria-label="Call settings">
+      <MicRow />
+      <SpeedRow bot={bot} onError={setError} />
       {error && <div className="voice-error">{error}</div>}
     </div>
   );

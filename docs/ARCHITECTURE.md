@@ -441,7 +441,7 @@ An app tool call reports its outcome into a chat turn, or ends it (`ask_user`, `
 
 ### Voices, previews and dictation
 
-A bot stores a voice id and a speed (`speech.ts`): one of Phonon's 37 voices, which the picker groups as American, British and Characters. A voice the speech service doesn't list reads as its default, `harper`, and a speed is clamped to 0.86 to 1.27, on every read and write. New bots get one of six clear, even voices, picked by id.
+A bot stores a voice id and a speed (`speech.ts`): one of Phonon's 37 voices, which the picker in its settings (Model & voice) groups as American, British and Characters. The call bar's settings hold the microphone and the speed, not the voice. A voice the speech service doesn't list reads as its default, `harper`, and a speed is clamped to 0.86 to 1.27, on every read and write. New bots get one of six clear, even voices, picked by id.
 
 Phonon drops dashes, so the speech service turns them into commas and stops first (`speech/app/text.py`). Voice previews stream the speech service's PCM through `POST /api/voice/preview`, and composer dictation sends the recording through `POST /api/voice/stt` to the speech service's Parakeet transcription.
 

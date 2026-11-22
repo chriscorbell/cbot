@@ -93,7 +93,7 @@ Tailscale, which the installer offers, adds an address that browsers trust witho
 
 ## Models
 
-Choose a bot's provider, model and thinking effort in its settings under **Model & voice**. A new bot copies the primary bot's model, but not its ChatGPT or Grok sign-in: each bot signs in to those itself. Keys, tokens and the self-hosted address are set once for every bot in **Settings** > **Providers**. Saving one restarts each bot's agent: an idle one at once, a busy one before its next turn.
+Choose a bot's provider, model, thinking effort and voice in its settings under **Model & voice**. A new bot copies the primary bot's model, but not its ChatGPT or Grok sign-in: each bot signs in to those itself. Keys, tokens and the self-hosted address are set once for every bot in **Settings** > **Providers**. Saving one restarts each bot's agent: an idle one at once, a busy one before its next turn.
 
 | Provider | Access |
 |---|---|

@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { MessageSquareText, Settings } from 'lucide-react';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
 import { useStore } from '../store';
 import { callLevels, endCall, toggleMute, useVoice } from '../voice/call';
 import { Presence } from './Presence';
-import { VoicePicker } from './VoiceSettings';
+import { CallSettings } from './VoiceSettings';
 
 function MicGlyph({ off }: { off?: boolean }) {
   return (
@@ -28,7 +28,7 @@ function HangUpGlyph() {
 const BARS = 14;
 
 /**
- * The call, floating under the header: the bot, a live level meter, voice settings, the transcript,
+ * The call, floating under the header: the bot, a live level meter, call settings, the transcript,
  * mute and hang up. Shown while a call is connecting, live, or just failed.
  */
 export function VoiceCallBar() {
@@ -40,6 +40,7 @@ export function VoiceCallBar() {
   const meterRef = useRef<HTMLSpanElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const active = v.status === 'connecting' || v.status === 'live';
+  const closeSettings = useCallback(() => setSettings(false), []);
 
   // Drive the avatar and the meter from the audio levels without re-rendering React every frame.
   useEffect(() => {
@@ -103,7 +104,7 @@ export function VoiceCallBar() {
         <span className="sr-only" aria-live="polite">{v.speaking ? `${bot.name} is speaking` : v.listening ? 'Listening' : working ? `${bot.name} is thinking` : ''}</span>
         {active && (
           <>
-            <button type="button" className={`vcall__btn vcall__btn--settings${settings ? ' is-on' : ''}`} onClick={() => setSettings(!settings)} aria-expanded={settings} aria-label="Voice settings" title="Voice settings">
+            <button type="button" className={`vcall__btn vcall__btn--settings${settings ? ' is-on' : ''}`} onClick={() => setSettings(!settings)} aria-expanded={settings} aria-label="Call settings" title="Call settings">
               <Settings size={16} strokeWidth={1.75} aria-hidden />
             </button>
             <button type="button" className={`vcall__btn${log ? ' is-on' : ''}`} onClick={() => setLog(!log)} aria-pressed={log} aria-label={log ? 'Hide transcript' : 'Show transcript'} title={log ? 'Hide transcript' : 'Show transcript'}>
@@ -121,7 +122,7 @@ export function VoiceCallBar() {
           <button type="button" className="vcall__btn" onClick={() => useVoice.setState({ status: 'idle', botId: null, error: null })} aria-label="Dismiss">✕</button>
         )}
       </div>
-      <Presence show={settings && active} ms={120}><VoicePicker bot={bot} onClose={() => setSettings(false)} keepOpenFor=".vcall__btn--settings" mic /></Presence>
+      <Presence show={settings && active} ms={120}><CallSettings bot={bot} onClose={closeSettings} keepOpenFor=".vcall__btn--settings" /></Presence>
       {log && active && !settings && (
         <div className="vcall-log" ref={logRef}>
           {lines.length ? lines.map((c) => (
