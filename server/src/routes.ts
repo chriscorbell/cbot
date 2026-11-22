@@ -5,7 +5,7 @@ import { streamSSE } from 'hono/streaming';
 import { db, now, type RoutineRecord, type ScreenRecord } from './db.js';
 import { hub } from './lib/hub.js';
 import { requireUser, sessionUser, type AuthVars } from './lib/auth.js';
-import { appendRow, clearConversation, currentRow, emitBot, getBot, getBotRow, getRow, ownBot, listBots, getRoutine, listRoutines, listRows, updateRow } from './store.js';
+import { appendRow, clearConversation, currentRow, emitBot, getBot, getBotRow, getRow, ownBot, requireBot, listBots, getRoutine, listRoutines, listRows, updateRow } from './store.js';
 import { clear, enqueue, interrupt } from './agent/turns.js';
 import { answerApproval, ApprovalGone } from './agent/approvals.js';
 import { allLive } from './agent/live.js';
@@ -16,7 +16,8 @@ import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncAp
 import { saveProviderSettings } from './providers.js';
 import { cleanSecret, cleanUrl, getSetting, SECRET_IDS, secretState, type SettingKey } from './settings.js';
 import { deleteMemory, memoryBot } from './engine-memory.js';
-import { createBot, deleteBot, finishSetup, primaryBot, setupPending, UserError, welcome } from './bots.js';
+import { createBot, deleteBot, finishSetup, moveBot, primaryBot, setupPending, UserError, welcome } from './bots.js';
+import { defaultWorkspace, ownWorkspace } from './workspaces.js';
 import { applySchedule, runRoutine, unscheduleRoutine } from './routines.js';
 import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
 import { filesNote } from './library.js';
@@ -89,20 +90,24 @@ api.get('/search', async (c) => {
 
 api.get('/bots', (c) => c.json({ bots: listBots(c.get('user').id), live: allLive(c.get('user').id) } satisfies BotsResponse));
 
-// What the create-bot form and the setup wizard send. Unknown shapes and colours fall back to a pick in createBot.
+// What the create-bot form and the setup wizard send. Unknown shapes and colours fall back to a pick in
+// createBot. Without a workspace the bot goes in the user's first one.
 const NewBot = z.object({
   name: z.string(), avatarShape: z.string().optional(), avatarColor: z.string().optional(),
   label: z.string().optional(), description: z.string().optional(), instructions: z.string().optional(),
+  workspaceId: z.string().optional(),
 });
 
 api.post('/bots', async (c) => {
-  const p = await body(c, NewBot);
+  const { workspaceId, ...p } = await body(c, NewBot);
   const user = c.get('user');
+  const ws = workspaceId ? ownWorkspace(user.id, workspaceId) : defaultWorkspace(user.id);
+  if (!ws) return c.json({ error: 'not found' }, 404);
   try {
-    const bot = createBot(user.id, p);
+    const bot = createBot(user.id, p, ws.id);
     // A new bot says hello and asks what it should help with, as its first turn. The setup wizard's
     // bot waits for the end of setup, when it has a model to answer with.
-    if (bot.kind !== 'room' && !setupPending(user.id)) welcome(bot, user.username);
+    if (bot.kind !== 'room' && !setupPending(user.id)) welcome(requireBot(bot.id), user.username);
     return c.json({ bot } satisfies BotResponse);
   } catch (e) {
     if (e instanceof UserError) return c.json({ error: e.message }, 409);
@@ -114,7 +119,7 @@ api.post('/bots', async (c) => {
 api.post('/setup/finish', async (c) => {
   const { greet } = await body(c, z.object({ greet: z.boolean() }));
   const user = c.get('user');
-  if (!primaryBot(user.id)) return c.json({ error: 'Make your first bot before finishing setup.' }, 409);
+  if (!primaryBot(defaultWorkspace(user.id).id)) return c.json({ error: 'Make your first bot before finishing setup.' }, 409);
   finishSetup(user, greet);
   return c.json({ ok: true } satisfies Ok);
 });
@@ -182,9 +187,28 @@ api.post('/bots/:id/primary', (c) => {
   const user = c.get('user');
   const b = ownBot(user.id, c.req.param('id'));
   if (!b) return c.json({ error: 'not found' }, 404);
-  db.prepare('UPDATE bots SET is_primary = (id = ?) WHERE user_id=?').run(b.id, user.id);
+  if (b.kind === 'room') return c.json({ error: 'A group chat can’t be the primary bot.' }, 400);
+  // One primary bot per workspace.
+  db.prepare('UPDATE bots SET is_primary = (id = ?) WHERE workspace_id=?').run(b.id, b.workspace_id);
   hub.emit(user.id, { type: 'roster' });
   return c.json({ ok: true } satisfies Ok);
+});
+
+/** Move a bot to another of the user's workspaces (bots.ts moveBot). */
+api.post('/bots/:id/move', async (c) => {
+  const user = c.get('user');
+  const b = ownBot(user.id, c.req.param('id'));
+  if (!b) return c.json({ error: 'not found' }, 404);
+  const { workspaceId } = await body(c, z.object({ workspaceId: z.string() }));
+  const to = ownWorkspace(user.id, workspaceId);
+  if (!to) return c.json({ error: 'not found' }, 404);
+  try {
+    moveBot(b, to);
+  } catch (e) {
+    if (e instanceof UserError) return c.json({ error: e.message }, 409);
+    throw e;
+  }
+  return c.json({ bot: getBot(b.id)! } satisfies BotResponse);
 });
 
 api.post('/bots/:id/unread', (c) => {

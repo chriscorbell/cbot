@@ -3,7 +3,7 @@
 // same type, so changing a response here breaks the build on both sides until both agree.
 // Request bodies are the zod schemas next to their routes (lib/validate.ts).
 import type {
-  ApprovalMode, Attachment, Bot, ComputerState, EngineInfo, LibraryFile, LiveState, Memory, Routine, Row, Skill, Task, UpdateState, User, VoiceOption,
+  ApprovalMode, Attachment, Bot, ComputerState, EngineInfo, LibraryFile, LiveState, Memory, Routine, Row, Skill, Task, UpdateState, User, VoiceOption, Workspace,
 } from './types.js';
 
 export interface Ok { ok: true }
@@ -56,6 +56,10 @@ export interface ProvidersResponse {
 
 /** GET /api/tasks: every open task, and the ones finished in the last 14 days. */
 export interface TasksResponse { tasks: Task[] }
+export interface WorkspacesResponse { workspaces: Workspace[] }
+export interface WorkspaceResponse { workspace: Workspace }
+/** A new workspace and its primary bot, made together. */
+export interface WorkspaceCreated { workspace: Workspace; bot: Bot }
 export interface TaskResponse { task: Task }
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
@@ -92,8 +96,6 @@ export interface ComputerDetails {
   computer: ComputerState;
   screens: { botId: string; screenId: string; lastUsedAt: number }[];
 }
-
-export interface CheckinSettings { enabled: boolean; times: string[]; timezone: string }
 
 export interface VoiceOptions { voices: VoiceOption[]; defaultVoice?: string; speeds: number[] }
 export interface VoiceSession {

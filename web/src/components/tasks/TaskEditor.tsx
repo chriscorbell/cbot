@@ -4,7 +4,7 @@ import { api, type TaskPatch } from '../../lib/api';
 import { guarded } from '../../lib/guarded';
 import { STATUS_LABEL, changedAgo, creatorText } from '../../lib/tasks';
 import { useConfigUI, type TaskEditorTarget } from '../../configStore';
-import { useStore } from '../../store';
+import { currentWorkspaceId, useStore } from '../../store';
 import { Icon } from '../Icon';
 import { Presence, useLastValue } from '../Presence';
 import { Select, type SelectOption } from '../Select';
@@ -23,8 +23,12 @@ export function TaskEditor() {
 
 function TaskForm({ target }: { target: TaskEditorTarget }) {
   const close = useConfigUI((s) => s.closeTaskEditor);
-  const bots = useStore((s) => s.bots).filter((b) => b.kind !== 'room');
+  const allBots = useStore((s) => s.bots);
   const task = useStore((s) => (target.kind === 'edit' ? s.tasks?.find((t) => t.id === target.taskId) : undefined));
+  // The task's workspace: a new one goes on the board of its owner's, or of the workspace shown.
+  const shown = useStore(currentWorkspaceId);
+  const workspaceId = task?.workspaceId ?? (target.kind === 'new' && target.ownerId ? allBots.find((b) => b.id === target.ownerId)?.workspaceId : undefined) ?? shown;
+  const bots = allBots.filter((b) => b.kind !== 'room' && b.workspaceId === workspaceId);
   const loaded = useStore((s) => s.tasks !== null);
   // What the form started from. A save sends only what the user changed, so a bot's change to another
   // field meanwhile (it marked the task done) stays.
@@ -54,7 +58,7 @@ function TaskForm({ target }: { target: TaskEditorTarget }) {
     setBusy(true); setError(null);
     const ownerId = draft.ownerId || null;
     const request = () => {
-      if (target.kind === 'new') return api.addTask({ title: draft.title.trim(), notes: draft.notes.trim(), ownerId, status: draft.status });
+      if (target.kind === 'new') return api.addTask({ title: draft.title.trim(), notes: draft.notes.trim(), ownerId, status: draft.status, workspaceId: workspaceId ?? '' });
       const patch: TaskPatch = {};
       if (draft.title.trim() !== start.title) patch.title = draft.title.trim();
       if (draft.notes.trim() !== start.notes.trim()) patch.notes = draft.notes.trim();

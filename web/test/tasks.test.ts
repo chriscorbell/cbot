@@ -3,7 +3,7 @@ import type { Task } from '@shared/types';
 import { changedAgo, creatorText, plateOf, tasksByStatus } from '../src/lib/tasks';
 
 const task = (id: string, p: Partial<Task> = {}): Task => ({
-  id, title: id, notes: '', status: 'todo', ownerId: null, previousOwner: null, createdBy: null, createdAt: 0, updatedAt: 0, ...p,
+  id, workspaceId: 'ws_1', title: id, notes: '', status: 'todo', ownerId: null, previousOwner: null, createdBy: null, createdAt: 0, updatedAt: 0, ...p,
 });
 
 test('the board has a column for every status, in order, each newest change first', () => {

@@ -6,6 +6,7 @@ import { instructionsFor } from './prompt.js';
 import { HermesRun } from './runs.js';
 import { activitySnapshot, ago, chatCursor, chatNews, recentMessages, type ChatCursor } from './catchup.js';
 import { listTasks, taskLine } from './team.js';
+import { boardOn } from '../workspaces.js';
 
 /**
  * ask_bot: one bot asks a teammate a question and gets the answer in the same turn.
@@ -55,22 +56,24 @@ export function dropAsks(botId: string) {
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** What the side conversation adds to the asked bot's instructions. The same for every question from this teammate. */
-function askInstructions(from: BotRecord, owner: string): string {
+function askInstructions(from: BotRecord, owner: string, board: boolean): string {
   return `# A teammate is asking you something
 ${from.name}${from.label ? `, ${from.label},` : ''} is another agent on ${owner}'s team. They asked you a question with ask_bot, and each message here is one of their questions. Your reply goes straight back to them as the answer.
 
 - Answer from what you know: your chat with ${owner}, your tasks, your files and your memory. Look something up if you need to, but keep it quick: they are waiting for you.
 - Be brief and specific, as you would answer a colleague in chat.
 - This is a side conversation. Your chat with ${owner} carries on without it and doesn't show it, and nothing here reaches ${owner}. Don't use post_to_chat, ask_user or stay_silent here.
-- If they want you to do real work, don't start it here. Say whether you can take it on, and ask them to give it to you on the task board with add_task, which puts it in your chat to work on.
+- If they want you to do real work, don't start it here. Say whether you can take it on, and ask them to ${board ? 'give it to you on the task board with add_task, which puts it in your chat to work on' : 'send it to you with send_to_bot, which puts it in your chat to work on'}.
 - Lines in [brackets] are notes from the app about your chat with ${owner}, not words from ${from.name}.`;
 }
 
 /** What the side conversation hears before a question: what the asked bot is doing and has on its plate, and what is new in its chat. */
 function context(to: BotRecord, session: string, owner: string): string {
   const parts = [`[What you are doing in your chat with ${owner} now:\n${activitySnapshot(to.id)}]`];
-  const tasks = listTasks(to.user_id).filter((t) => t.ownerId === to.id && t.status !== 'done');
-  parts.push(`[Your open tasks on the team's board:\n${tasks.length ? tasks.map((t) => `- ${taskLine(t, owner)}`).join('\n') : '(none)'}]`);
+  if (boardOn(to.workspace_id)) {
+    const tasks = listTasks(to.workspace_id).filter((t) => t.ownerId === to.id && t.status !== 'done');
+    parts.push(`[Your open tasks on the team's board:\n${tasks.length ? tasks.map((t) => `- ${taskLine(t, owner)}`).join('\n') : '(none)'}]`);
+  }
   let cursor = cursors.get(session);
   if (!cursor) {
     cursor = chatCursor(to.id);
@@ -107,7 +110,7 @@ export async function askBot(o: { from: BotRecord; to: BotRecord; question: stri
   let result: AskResult;
   try {
     const session = askSession(to.id, from.id, to.generation);
-    const instructions = `${await instructionsFor(to.user_id, to.id)}\n${askInstructions(from, owner)}`;
+    const instructions = `${await instructionsFor(to.user_id, to.id)}\n${askInstructions(from, owner, boardOn(to.workspace_id))}`;
     await run.gateway();
     const input = `${context(to, session, owner)}\n\n${o.question}`;
     const started = await run.start({ model: to.model, provider: to.provider, input, instructions, session, effort: to.effort ?? 'medium' }, signal);

@@ -1,18 +1,18 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { Bot, LiveState, Task } from '@shared/types';
+import type { Bot, LiveState, Task, Workspace } from '@shared/types';
 
 vi.mock('../src/lib/api', async (orig) => ({
   ...(await orig<typeof import('../src/lib/api')>()),
-  api: { patchRow: vi.fn(), rows: vi.fn(), markRead: vi.fn(async () => ({ ok: true })), markUnread: vi.fn(async () => ({ ok: true })), routines: vi.fn(async () => ({ routines: [] })), bots: vi.fn(async () => ({ bots: [], live: [] })), tasks: vi.fn(async () => ({ tasks: [] })) },
+  api: { patchRow: vi.fn(), rows: vi.fn(), markRead: vi.fn(async () => ({ ok: true })), markUnread: vi.fn(async () => ({ ok: true })), routines: vi.fn(async () => ({ routines: [] })), bots: vi.fn(async () => ({ bots: [], live: [] })), tasks: vi.fn(async () => ({ tasks: [] })), workspaces: vi.fn(async () => ({ workspaces: [] })) },
 }));
 
 const { applyServerEvent } = await import('../src/lib/events');
-const { useStore } = await import('../src/store');
+const { currentWorkspaceId, useStore } = await import('../src/store');
 const { useConfigUI } = await import('../src/configStore');
 const { api } = await import('../src/lib/api');
 
 const bot = (id: string, p: Partial<Bot> = {}): Bot => ({
-  id, name: id, label: '', description: '', instructions: '', avatarShape: 'blob', avatarColor: 'blue', isPrimary: false,
+  id, workspaceId: 'ws_1', name: id, label: '', description: '', instructions: '', avatarShape: 'blob', avatarColor: 'blue', isPrimary: false,
   kind: 'agent', effort: 'medium', voice: 'v', voiceSpeed: 1, model: null, provider: null, generation: 1, unread: 0,
   lastPreview: null, lastActivityAt: 0, createdAt: 0, ...p,
 });
@@ -35,7 +35,46 @@ test('live, bot and computer events update the store', () => {
 });
 
 const task = (id: string, p: Partial<Task> = {}): Task => ({
-  id, title: id, notes: '', status: 'todo', ownerId: null, previousOwner: null, createdBy: null, createdAt: 0, updatedAt: 0, ...p,
+  id, workspaceId: 'ws_1', title: id, notes: '', status: 'todo', ownerId: null, previousOwner: null, createdBy: null, createdAt: 0, updatedAt: 0, ...p,
+});
+
+const workspace = (id: string, name: string): Workspace => ({ id, name, taskBoard: true, checkins: { enabled: false, times: ['09:00'], timezone: 'UTC' }, createdAt: 0 });
+
+test("the workspace shown is the open bot's, and switching opens the bot last open there, or its primary bot", () => {
+  useStore.setState({
+    workspaces: [workspace('ws_1', 'Personal'), workspace('ws_2', 'Acme')],
+    bots: [bot('ava', { isPrimary: true }), bot('kai'), bot('max', { workspaceId: 'ws_2', isPrimary: true }), bot('zed', { workspaceId: 'ws_2' })],
+  });
+  vi.mocked(api.rows).mockResolvedValue({ generation: 1, rows: [] });
+  useStore.getState().selectBot('kai');
+  expect(currentWorkspaceId(useStore.getState())).toBe('ws_1');
+  useStore.getState().switchWorkspace('ws_2');
+  expect(useStore.getState().selectedBotId).toBe('max');
+  expect(currentWorkspaceId(useStore.getState())).toBe('ws_2');
+  useStore.getState().selectBot('zed');
+  useStore.getState().switchWorkspace('ws_1');
+  expect(useStore.getState().selectedBotId).toBe('kai');
+  useStore.getState().switchWorkspace('ws_2');
+  expect(useStore.getState().selectedBotId).toBe('zed');
+});
+
+test('when the open bot goes, the primary bot of its workspace opens, or of another if the workspace went too', async () => {
+  const ava = bot('ava', { isPrimary: true });
+  const max = bot('max', { workspaceId: 'ws_2', isPrimary: true });
+  useStore.setState({ workspaces: [workspace('ws_1', 'Personal'), workspace('ws_2', 'Acme')], bots: [ava, max, bot('zed', { workspaceId: 'ws_2' })], selectedBotId: 'zed' });
+  vi.mocked(api.bots).mockResolvedValueOnce({ bots: [ava, max], live: [] });
+  await useStore.getState().loadBots();
+  expect(useStore.getState().selectedBotId).toBe('max');
+  vi.mocked(api.bots).mockResolvedValueOnce({ bots: [ava], live: [] });
+  await useStore.getState().loadBots();
+  expect(useStore.getState().selectedBotId).toBe('ava');
+});
+
+test('a workspaces event fetches the workspaces again', async () => {
+  useStore.setState({ workspaces: [] });
+  vi.mocked(api.workspaces).mockResolvedValueOnce({ workspaces: [workspace('ws_1', 'Home')] });
+  applyServerEvent({ type: 'workspaces' });
+  await vi.waitFor(() => expect(useStore.getState().workspaces?.map((w) => w.name)).toEqual(['Home']));
 });
 
 test('a tasks event fetches the board again', async () => {

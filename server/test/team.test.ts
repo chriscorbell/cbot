@@ -22,9 +22,12 @@ const { sideNews } = await import('../src/agent/catchup.js');
 const store = await import('../src/store.js');
 const { db } = await import('../src/db.js');
 const { seedBot, seedOwner } = await import('./helpers.js');
+const { defaultWorkspace } = await import('../src/workspaces.js');
 
 let userId: string;
 beforeAll(() => { userId = seedOwner().id; });
+/** The user's first workspace, where seedBot puts every bot. */
+const ws = () => defaultWorkspace(userId).id;
 afterEach(() => {
   vi.unstubAllGlobals();
   // Each test starts with a team of its own: no bots, an empty board and no news.
@@ -33,7 +36,7 @@ afterEach(() => {
 
 const woken: [string, number][] = [];
 const ctx = (botId: string, o: { depth?: number; asking?: number } = {}) => ({
-  userId, botId, convo: store.conversation(botId), depth: o.depth ?? 0, asking: o.asking ?? 0,
+  userId, botId, workspaceId: store.requireBot(botId).workspace_id, convo: store.conversation(botId), depth: o.depth ?? 0, asking: o.asking ?? 0,
   enqueueBotMessage: () => {}, wake: (id: string, depth: number) => { woken.push([id, depth]); },
 });
 const run = (name: string, args: unknown, c: ReturnType<typeof ctx>) => runTool(toolMap.get(name)!, args, c);
@@ -56,7 +59,7 @@ describe('the task board', () => {
     const [pm, eng] = crew('Pam', 'Eli');
     const r = await run('add_task', { title: 'Build the login API', notes: 'OAuth only', owner: 'eli' }, ctx(pm.id, { depth: 1 }));
     expect(r.output).toMatch(/^Added task_.*Eli was told and starts on it\.$/);
-    const [task] = team.listTasks(userId);
+    const [task] = team.listTasks(ws());
     expect(task).toMatchObject({ title: 'Build the login API', notes: 'OAuth only', status: 'todo', ownerId: eng.id, createdBy: { id: pm.id, name: 'Pam' } });
     expect(woken).toEqual([[eng.id, 2]]);
     expect(news(eng.id)).toMatch(/Pam gave you a task: "Build the login API" \(task_.+\)\. Notes: OAuth only/);
@@ -69,7 +72,7 @@ describe('the task board', () => {
     const [pm, eng] = crew('Pam', 'Eli');
     await run('add_task', { title: 'Write the roadmap' }, ctx(pm.id));
     await run('add_task', { title: 'Pick a logo', owner: 'nobody' }, ctx(pm.id));
-    expect(team.listTasks(userId).map((t) => [t.title, t.ownerId]).sort()).toEqual([['Pick a logo', null], ['Write the roadmap', pm.id]]);
+    expect(team.listTasks(ws()).map((t) => [t.title, t.ownerId]).sort()).toEqual([['Pick a logo', null], ['Write the roadmap', pm.id]]);
     expect(woken).toEqual([]);
     expect(news(eng.id)).toBeNull();
   });
@@ -84,11 +87,11 @@ describe('the task board', () => {
 
   test('the owner hears what a teammate changed, and whoever asked for it hears it got done', async () => {
     const [pm, eng, des] = crew('Pam', 'Eli', 'Dee');
-    const { task } = team.addTask(userId, { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Login page', ownerId: eng.id });
+    const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Login page', ownerId: eng.id });
     team.markTeamSeen(eng.id, team.teamNews(eng.id)!.upTo);
     await run('update_task', { task_id: task.id, note: 'Use the new colours' }, ctx(des.id));
     expect(news(eng.id)).toMatch(/Dee changed your task "Login page" \(task_.+\): noted: Use the new colours\./);
-    expect(team.listTasks(userId)[0].notes).toBe('Dee: Use the new colours');
+    expect(team.listTasks(ws())[0].notes).toBe('Dee: Use the new colours');
     await run('update_task', { task_id: task.id, status: 'done' }, ctx(eng.id));
     expect(news(pm.id)).toMatch(/Eli finished "Login page" \(task_.+\), a task you created\./);
     expect(news(des.id)).toBeNull();
@@ -97,7 +100,7 @@ describe('the task board', () => {
   test('moving a task gives it to the new owner and tells the old one', async () => {
     woken.length = 0;
     const [pm, eng, des] = crew('Pam', 'Eli', 'Dee');
-    const { task } = team.addTask(userId, { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Icons', ownerId: eng.id });
+    const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Icons', ownerId: eng.id });
     team.markTeamSeen(eng.id, team.teamNews(eng.id)!.upTo);
     await run('update_task', { task_id: task.id, owner: 'Dee' }, ctx(pm.id));
     expect(woken).toEqual([[des.id, 1]]);
@@ -107,9 +110,9 @@ describe('the task board', () => {
 
   test('list_tasks shows the board by owner, open tasks first', async () => {
     const [pm, eng] = crew('Pam', 'Eli');
-    team.addTask(userId, { kind: 'user' }, { title: 'Ship it', ownerId: eng.id, status: 'doing' });
-    team.addTask(userId, { kind: 'user' }, { title: 'Old', ownerId: eng.id, status: 'done' });
-    team.addTask(userId, { kind: 'user' }, { title: 'Spare' });
+    team.addTask(ws(), { kind: 'user' }, { title: 'Ship it', ownerId: eng.id, status: 'doing' });
+    team.addTask(ws(), { kind: 'user' }, { title: 'Old', ownerId: eng.id, status: 'done' });
+    team.addTask(ws(), { kind: 'user' }, { title: 'Spare' });
     const mine = await run('list_tasks', { owner: 'Eli' }, ctx(pm.id));
     expect(mine.output).toMatch(/^- \[doing\] Ship it \(task_.+\) · owner: Eli · from tess$/);
     expect((await run('list_tasks', { owner: 'nobody' }, ctx(pm.id))).output).toMatch(/Spare/);
@@ -121,7 +124,7 @@ describe('the task board', () => {
 describe('the team changing', () => {
   test('a new bot starts caught up, and the others hear it joined', () => {
     const [pm] = crew('Pam');
-    team.logTeam(userId, 'Something from before.');
+    team.logTeam(ws(), 'Something from before.');
     team.markTeamSeen(pm.id, team.teamNews(pm.id)!.upTo);
     const nova = seedBot(userId, { name: 'Nova' });
     db.prepare("UPDATE bots SET label='Engineer' WHERE id=?").run(nova.id);
@@ -132,11 +135,11 @@ describe('the team changing', () => {
 
   test("a bot that leaves hands its open tasks back, saying whose they were, and the others hear which", () => {
     const [pm, eng] = crew('Pam', 'Eli');
-    const doing = team.addTask(userId, { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Login API', ownerId: eng.id, status: 'doing' }).task;
-    const done = team.addTask(userId, { kind: 'user' }, { title: 'Spec', ownerId: eng.id, status: 'done' }).task;
+    const doing = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Login API', ownerId: eng.id, status: 'doing' }).task;
+    const done = team.addTask(ws(), { kind: 'user' }, { title: 'Spec', ownerId: eng.id, status: 'done' }).task;
     team.markTeamSeen(pm.id, team.teamNews(pm.id)!.upTo);
     team.teamLeft(eng);
-    const byId = new Map(team.listTasks(userId).map((t) => [t.id, t]));
+    const byId = new Map(team.listTasks(ws()).map((t) => [t.id, t]));
     expect(byId.get(doing.id)).toMatchObject({ ownerId: null, previousOwner: 'Eli', status: 'todo' });
     expect(byId.get(done.id)).toMatchObject({ ownerId: null, previousOwner: 'Eli', status: 'done' });
     expect(news(pm.id)).toMatch(/Eli \(Eli role\) was removed from the team\. Their open tasks have nobody now: "Login API" \(task_.+\)\./);
@@ -145,7 +148,7 @@ describe('the team changing', () => {
 
   test('news is told once, and a note says how much was left out', () => {
     const [pm] = crew('Pam');
-    for (let i = 0; i < 20; i++) team.logTeam(userId, `Entry ${i}.`);
+    for (let i = 0; i < 20; i++) team.logTeam(ws(), `Entry ${i}.`);
     const n = team.teamNews(pm.id)!;
     expect(n.note).toMatch(/\(5 earlier left out\)/);
     expect(n.note).toMatch(/Entry 19\./);
@@ -157,7 +160,7 @@ describe('the team changing', () => {
 describe('a wake-up', () => {
   test('runs with the team news and marks it told', async () => {
     const [pm, eng] = crew('Pam', 'Eli');
-    team.addTask(userId, { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Fix the build', ownerId: eng.id });
+    team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Fix the build', ownerId: eng.id });
     const h = fakeHermes([ev.completed('On it.')]);
     turns.wake(eng.id, 1);
     await turns.whenIdle(eng.id);
@@ -167,7 +170,7 @@ describe('a wake-up', () => {
 
   test('is skipped once an earlier turn has told its news', async () => {
     const [pm, eng] = crew('Pam', 'Eli');
-    team.addTask(userId, { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Fix the build', ownerId: eng.id });
+    team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Fix the build', ownerId: eng.id });
     const h = fakeHermes([ev.completed('Sure.')]);
     turns.enqueue(eng.id, { type: 'user', text: 'hi' });
     turns.wake(eng.id, 1);
@@ -198,7 +201,7 @@ describe('the org chart', () => {
     expect(text).toMatch(/ask_bot asks them and gives you their answer in this turn/);
     expect(text).not.toContain('- Pam,');
     // Nothing in it moves as the team works, so the prompt cache holds.
-    team.addTask(userId, { kind: 'user' }, { title: 'Anything', ownerId: pm.id });
+    team.addTask(ws(), { kind: 'user' }, { title: 'Anything', ownerId: pm.id });
     expect(await instructionsFor(userId, pm.id)).toBe(text);
   });
 
@@ -213,7 +216,7 @@ describe('the org chart', () => {
   test('check_on_bot shows where a teammate stands', async () => {
     const [pm, eng] = crew('Pam', 'Eli');
     db.prepare("UPDATE bots SET instructions='Always write tests.' WHERE id=?").run(eng.id);
-    team.addTask(userId, { kind: 'user' }, { title: 'Login API', ownerId: eng.id, status: 'doing' });
+    team.addTask(ws(), { kind: 'user' }, { title: 'Login API', ownerId: eng.id, status: 'doing' });
     store.appendRow(eng.id, 'message', { type: 'message', role: 'user', text: 'How is login going?' });
     const r = await run('check_on_bot', { bot_name: 'Eli' }, ctx(pm.id));
     expect(r.output).toMatch(/^# Eli, Eli role/);

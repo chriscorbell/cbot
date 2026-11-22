@@ -1,16 +1,18 @@
-import { db, now, type BotRecord, type DeletedBotRecord, type UserRecord } from './db.js';
+import { db, now, type BotRecord, type DeletedBotRecord, type UserRecord, type WorkspaceRecord } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { toUser } from './lib/auth.js';
-import { assignEngine, provisionEngine, removeEngine } from './engine.js';
-import { getBot, listRoutines, requireBot } from './store.js';
+import { assignEngine, provisionEngine, refreshTools, removeEngine } from './engine.js';
+import { getBot, getBotRow, listRoutines, requireBot } from './store.js';
 import { clear as clearTurns, enqueue } from './agent/turns.js';
 import { unscheduleRoutine } from './routines.js';
 import { forgetBotFiles, releaseScreen } from './computer.js';
 import { dropCalls } from './voice.js';
 import { dropAsks } from './agent/asks.js';
 import { teamJoined, teamLeft } from './agent/team.js';
+import { leaveRooms } from './agent/rooms.js';
+import { createWorkspace, defaultWorkspace, requireWorkspace, workspacesOf } from './workspaces.js';
 import { cancelBotSignIns } from './signin.js';
 import { NEW_BOT_VOICES } from './speech.js';
 import { removeBotUnits } from './units.js';
@@ -30,23 +32,26 @@ export class UserError extends Error {}
 
 const agentCount = () => db.prepare<[], { n: number }>("SELECT COUNT(*) n FROM bots WHERE kind<>'room'").get()!.n;
 
-/** The user's primary bot, if they have made a bot yet. */
-export const primaryBot = (userId: string) =>
-  db.prepare<[string], BotRecord>("SELECT * FROM bots WHERE user_id=? AND is_primary=1 AND kind<>'room' ORDER BY created_at LIMIT 1").get(userId);
+/** The workspace's primary bot, if it has a bot yet. */
+export const primaryBot = (workspaceId: string) =>
+  db.prepare<[string], BotRecord>("SELECT * FROM bots WHERE workspace_id=? AND is_primary=1 AND kind<>'room' ORDER BY created_at LIMIT 1").get(workspaceId);
 
-export function createBot(userId: string, b: { name: string; label?: string; description?: string; instructions?: string; avatarShape?: string; avatarColor?: string }) {
+export interface NewBot { name: string; label?: string; description?: string; instructions?: string; avatarShape?: string; avatarColor?: string }
+
+/** A new bot in the workspace (the user's first one when none is named). The first bot of a workspace is its primary bot. */
+export function createBot(userId: string, b: NewBot, workspaceId = defaultWorkspace(userId).id) {
   // Every bot runs a screen, a Chrome and an agent of its own on the one computer.
   if (agentCount() >= env.maxBots) throw new UserError(`The team is full: the computer has room for ${env.maxBots} bots. Remove one to add another.`);
   const id = newId('bot');
   const shape = SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, SHAPES);
   const color = COLORS.includes(b.avatarColor as AvatarColor) ? b.avatarColor : hashPick(id, COLORS.filter((c) => c !== 'black'));
   const voice = hashPick(id, NEW_BOT_VOICES);
-  // The first bot is the primary one: the user's main point of contact, and the bot later ones copy
-  // their model and sign-ins from (engine.ts).
-  const primary = !primaryBot(userId);
+  // The workspace's first bot is its primary one: the user's main point of contact there, and the bot
+  // later ones copy their model and sign-ins from (engine.ts).
+  const primary = !primaryBot(workspaceId);
   db.prepare(
-    'INSERT INTO bots(id,user_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(id, userId, b.name.trim().slice(0, 60) || 'New Bot', (b.label ?? '').trim().slice(0, 60), (b.description ?? '').trim().slice(0, 500), (b.instructions ?? '').trim().slice(0, 8000), shape, color, primary ? 1 : 0, voice, now(), now());
+    'INSERT INTO bots(id,user_id,workspace_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+  ).run(id, userId, workspaceId, b.name.trim().slice(0, 60) || 'New Bot', (b.label ?? '').trim().slice(0, 60), (b.description ?? '').trim().slice(0, 500), (b.instructions ?? '').trim().slice(0, 8000), shape, color, primary ? 1 : 0, voice, now(), now());
   assignEngine(id);
   provisionEngine(id);
   // The rest of the team hears about it at their next turn; its own instructions list them already.
@@ -55,9 +60,69 @@ export function createBot(userId: string, b: { name: string; label?: string; des
   return getBot(id)!;
 }
 
-/** A new bot's first turn: it says hello and asks what it should help with. */
-export function welcome(bot: Pick<BotRecord, 'id' | 'name'>, username: string) {
-  enqueue(bot.id, { type: 'system', text: `You were just created. Greet ${username} by name and introduce yourself as ${bot.name} in one or two short sentences, using what you already know about them if anything. Then call ask_user once with multiple set to true, asking what they would most like your help with, with up to four short options suited to them. Nothing else.` });
+/**
+ * A new bot's first turn: it says hello and asks what it should help with. A primary bot also mentions
+ * check-ins once, since nothing else in a chat tells the user it can write first.
+ */
+export function welcome(bot: Pick<BotRecord, 'id' | 'name' | 'is_primary'>, username: string) {
+  const checkins = bot.is_primary ? ` Add one short sentence saying you can also check in with ${username} at set times each day if they'd like, and that they can ask you or turn it on in the workspace's settings.` : '';
+  enqueue(bot.id, { type: 'system', text: `You were just created. Greet ${username} by name and introduce yourself as ${bot.name} in one or two short sentences, using what you already know about them if anything.${checkins} Then call ask_user once with multiple set to true, asking what they would most like your help with, with up to four short options suited to them. Nothing else.` });
+}
+
+/** A new workspace and its primary bot, together, so no workspace is ever without one. The bot greets the user. */
+export function createWorkspaceWithBot(user: { id: string; username: string }, name: string, b: NewBot) {
+  const made = db.transaction(() => {
+    const ws = createWorkspace(user.id, name);
+    return { ws, bot: createBot(user.id, b, ws.id) };
+  })();
+  hub.emit(user.id, { type: 'workspaces' });
+  welcome(requireBot(made.bot.id), user.username);
+  return made;
+}
+
+/**
+ * Move an agent to another of the user's workspaces. It leaves its old team as a deleted bot would (its
+ * tasks go back to nobody and the others hear it left), leaves the old workspace's group chats, and
+ * joins the new team caught up. Questions to or from it end, since the bots on the other end are no
+ * longer its teammates. Its chat, Library, routines and memory go with it. A primary bot stays until
+ * another bot of its workspace is made primary.
+ */
+export function moveBot(b: BotRecord, to: WorkspaceRecord) {
+  if (b.kind === 'room') throw new UserError('A group chat stays in its workspace.');
+  if (b.is_primary) throw new UserError('Make another bot primary first.');
+  if (to.user_id !== b.user_id) throw new Error('not the same user');
+  if (to.id === b.workspace_id) return;
+  const from = requireWorkspace(b.workspace_id);
+  dropAsks(b.id);
+  db.transaction(() => {
+    teamLeft(b, { moved: true });
+    leaveRooms(b.id);
+    db.prepare('UPDATE bots SET workspace_id=?, updated_at=? WHERE id=?').run(to.id, now(), b.id);
+    teamJoined(requireBot(b.id));
+  })();
+  // The task tools come and go with the board, which the two workspaces may not agree on.
+  if (!!from.task_board !== !!to.task_board) refreshTools([b.id]);
+  hub.emit(b.user_id, { type: 'roster' });
+}
+
+/**
+ * Delete a workspace: each of its bots and group chats goes as deleteBot takes one down, then its board,
+ * news and check-ins with the workspace. The user's last workspace stays.
+ */
+export async function deleteWorkspace(ws: WorkspaceRecord) {
+  if (workspacesOf(ws.user_id).length <= 1) throw new UserError('This is your only workspace.');
+  const bots = db.prepare<[string], BotRecord>("SELECT * FROM bots WHERE workspace_id=? ORDER BY kind='room' DESC, created_at").all(ws.id);
+  // Group chats first, so no member is left in one while it goes; each bot's row goes at once, its
+  // computer is taken down after.
+  const downs: Promise<void>[] = [];
+  for (const b of bots) {
+    const cur = getBotRow(b.id);
+    if (cur) downs.push(deleteBot(cur));
+  }
+  db.prepare('DELETE FROM workspaces WHERE id=?').run(ws.id);
+  hub.emit(ws.user_id, { type: 'workspaces' });
+  hub.emit(ws.user_id, { type: 'tasks' });
+  await Promise.all(downs);
 }
 
 /**
@@ -69,8 +134,9 @@ export function ensureOwner(): User {
   const existing = db.prepare<[], UserRecord>('SELECT * FROM users ORDER BY created_at, rowid LIMIT 1').get();
   if (existing) return toUser(existing);
   const id = newId('usr');
-  // Approvals start on Smart, the column's default.
+  // Approvals start on Smart, the column's default. The account's bots start in a workspace called Personal.
   db.prepare('INSERT INTO users(id,created_at) VALUES (?,?)').run(id, now());
+  defaultWorkspace(id);
   return toUser(db.prepare<[string], UserRecord>('SELECT * FROM users WHERE id=?').get(id)!);
 }
 
@@ -89,7 +155,7 @@ export function setupPending(userId: string): boolean {
  */
 export function finishSetup(user: User, greet: boolean) {
   const first = db.prepare('UPDATE users SET setup_at=? WHERE id=? AND setup_at IS NULL').run(now(), user.id).changes > 0;
-  const bot = primaryBot(user.id);
+  const bot = primaryBot(defaultWorkspace(user.id).id);
   if (first && greet && bot) welcome(bot, user.username);
 }
 

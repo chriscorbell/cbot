@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import { useExiting } from './Presence';
 
-export interface MenuItem { label: string; onSelect: () => void; danger?: boolean; hint?: string; icon?: ReactNode; separatorBefore?: boolean }
+/** `id` keys the item when labels may repeat; `trailing` replaces the hint with something of its own (a check mark). */
+export interface MenuItem { label: string; onSelect: () => void; danger?: boolean; hint?: string; icon?: ReactNode; separatorBefore?: boolean; id?: string; trailing?: ReactNode }
 
 /** Small popover menu anchored by its parent (position: relative). Closes on outside click / Escape. */
 export function Menu({ items, onClose, align = 'left', placement = 'below', children }: { items: MenuItem[]; onClose: () => void; align?: 'left' | 'right' | 'center'; placement?: 'below' | 'above'; children?: ReactNode }) {
@@ -29,11 +30,11 @@ export function Menu({ items, onClose, align = 'left', placement = 'below', chil
     <div ref={ref} className={`menu is-${align} is-${placement}${exiting ? ' is-exiting' : ''}`} role="menu">
       {children}
       {items.map((it) => (
-        <Fragment key={it.label}>
+        <Fragment key={it.id ?? it.label}>
           {it.separatorBefore && <div className="menu__sep" role="separator" />}
           <button type="button" role="menuitem" className={`menu__item${it.danger ? ' is-danger' : ''}`} onClick={() => { trigger.current?.focus({ preventScroll: true }); onClose(); it.onSelect(); }}>
             <span className="menu__item-main">{it.icon}<span>{it.label}</span></span>
-            {it.hint && <span className="menu__hint">{it.hint}</span>}
+            {it.trailing ?? (it.hint && <span className="menu__hint">{it.hint}</span>)}
           </button>
         </Fragment>
       ))}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { ArrowUpRight, Monitor, Plug, Settings, Shield } from 'lucide-react';
+import { ArrowUpRight, Building2, Monitor, Plug, Settings, Shield } from 'lucide-react';
 import { Modal } from '../modals/Modal';
 import { ChangePasswordDialog } from '../modals/ChangePasswordDialog';
 import { ConfirmDialog } from '../modals/ConfirmDialog';
@@ -16,12 +16,14 @@ import { computerStatusText } from '../DetailsPanel';
 import { Icon } from '../Icon';
 import { ConfirmButton, PageHead, Segmented } from './ui';
 import { ProvidersSection } from './ProvidersSection';
+import { WorkspaceSection } from './WorkspaceSection';
 import { Select } from '../Select';
 import { useMics } from '../../voice/mics';
 import { initials } from '../Sidebar';
 
 const SECTIONS: { id: AppSection; label: string; icon: ReactNode }[] = [
   { id: 'general', label: 'General', icon: <Settings size={14} strokeWidth={1.75} aria-hidden /> },
+  { id: 'workspace', label: 'Workspace', icon: <Building2 size={14} strokeWidth={1.75} aria-hidden /> },
   { id: 'providers', label: 'Providers', icon: <Plug size={14} strokeWidth={1.75} aria-hidden /> },
   { id: 'computer', label: 'Computer', icon: <Monitor size={14} strokeWidth={1.75} aria-hidden /> },
   { id: 'permissions', label: 'Permissions', icon: <Shield size={14} strokeWidth={1.75} aria-hidden /> },
@@ -47,6 +49,7 @@ export function AppSettings() {
         <div className="cfg-content">
           <div className="cfg-page" key={section}>
             {section === 'general' && <GeneralSection />}
+            {section === 'workspace' && <WorkspaceSection />}
             {section === 'providers' && <ProvidersSection />}
             {section === 'computer' && <ComputerSection />}
             {section === 'permissions' && <PermissionsSection />}

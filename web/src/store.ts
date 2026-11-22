@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import type { Bot, ComputerState, LiveState, Routine, Row, Task, UpdateState, User } from '@shared/types';
+import type { Bot, ComputerState, LiveState, Routine, Row, Task, UpdateState, User, Workspace } from '@shared/types';
 import { api, type RowPatch } from './lib/api';
 import { configApi } from './lib/configApi';
 import { onSignedOut } from './lib/http';
 import { forgetSetupCode, reloadWithSetupCode } from './lib/setupCode';
 
-export type ModalKind = 'create' | 'search' | 'group' | 'tasks' | null;
+export type ModalKind = 'create' | 'search' | 'group' | 'tasks' | 'workspace' | null;
 
 interface Transcript { generation: number; bySeq: Record<number, Row>; loaded: boolean }
 
@@ -18,6 +18,11 @@ interface State {
   authChecked: boolean;
 
   bots: Bot[];
+  /**
+   * The user's workspaces, in switcher order; null until they have loaded. The one shown is the
+   * selected bot's (currentWorkspaceId): the sidebar, the board and Search show only its bots.
+   */
+  workspaces: Workspace[] | null;
   live: Record<string, LiveState>;
   selectedBotId: string | null;
   /** The open bot the person marked unread: it is not marked read again until a bot is picked. */
@@ -59,7 +64,13 @@ interface State {
   /** The setup wizard's last step. `greet`: the first bot has a model, so it says hello now. */
   finishSetup(greet: boolean): Promise<void>;
   loadBots(): Promise<void>;
-  /** Picking a bot (the rail, Search, a new bot) opens it and marks it read, as an inbox does. */
+  /** Fetch the workspaces again (on start, a `workspaces` event, a reconnect). */
+  loadWorkspaces(): Promise<void>;
+  /** A workspace as the server answered a change to it, shown at once. */
+  applyWorkspace(ws: Workspace): void;
+  /** Show another workspace: the bot last open there, or its primary bot. */
+  switchWorkspace(id: string): void;
+  /** Picking a bot (the rail, Search, a new bot) opens it and marks it read, as an inbox does. It shows the bot's workspace. */
   selectBot(id: string): void;
   /** "Mark as Unread". On the open bot it stays unread until a bot is picked again, even as messages arrive. */
   markUnread(botId: string): void;
@@ -97,6 +108,8 @@ const RESET_WAIT_MS = 120_000;
 let resetting = false;
 /** Counts task board requests, so an answer that comes back after a newer one doesn't put back an older board. */
 let tasksRequest = 0;
+/** The same for the workspaces. */
+let workspacesRequest = 0;
 /**
  * An update was underway when last heard of. Kept apart from `update`, which the new server's idle
  * state replaces on reconnect, maybe before its `hello` arrives.
@@ -104,12 +117,21 @@ let tasksRequest = 0;
 let updateSeen = false;
 
 const LS_SELECTED = 'dispatch.selectedBot';
+/** The bot last open in each workspace, so switching back opens it again: { workspaceId: botId }. */
+const LS_LAST_BOT = 'dispatch.lastBotByWorkspace';
 const LS_DETAILS = 'dispatch.detailsOpen';
 // The rail is always icons now; this hides it altogether (a new key, so the old "collapsed" setting doesn't hide it).
 // A new key: the old one meant the rail was hidden, which no longer exists.
 const LS_SIDEBAR = 'dispatch.sidebarExpanded';
 const lsGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
+/** Kept here too, so it works where the browser keeps no storage. */
+const lastBots: Record<string, string> = (() => { try { return JSON.parse(lsGet(LS_LAST_BOT) ?? '{}') as Record<string, string>; } catch { return {}; } })();
+
+/** The workspace shown: the selected bot's, or the first one before there is a bot. */
+export function currentWorkspaceId(s: Pick<State, 'bots' | 'selectedBotId' | 'workspaces'>): string | null {
+  return s.bots.find((b) => b.id === s.selectedBotId)?.workspaceId ?? s.workspaces?.[0]?.id ?? null;
+}
 
 export const useStore = create<State>((set, get) => ({
   user: null,
@@ -117,6 +139,7 @@ export const useStore = create<State>((set, get) => ({
   needsSetup: false,
   authChecked: false,
   bots: [],
+  workspaces: null,
   live: {},
   selectedBotId: lsGet(LS_SELECTED),
   keptUnread: null,
@@ -197,16 +220,39 @@ export const useStore = create<State>((set, get) => ({
     const liveMap: Record<string, LiveState> = {};
     for (const l of live) liveMap[l.botId] = l;
     const sel = get().selectedBotId;
-    const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel : (bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
+    // A bot that is gone (deleted, or its workspace was) gives way to the primary bot of the workspace it was in, if that is still there.
+    const was = get().bots.find((b) => b.id === sel)?.workspaceId ?? currentWorkspaceId(get());
+    const there = bots.filter((b) => b.workspaceId === was);
+    const selectedBotId = sel && bots.some((b) => b.id === sel) ? sel
+      : (there.find((b) => b.isPrimary) ?? there[0] ?? bots.find((b) => b.isPrimary) ?? bots[0])?.id ?? null;
     set({ bots, live: liveMap });
     if (selectedBotId !== get().selectedBotId || !get().transcripts[selectedBotId ?? '']) {
       if (selectedBotId) get().selectBot(selectedBotId);
     }
   },
 
+  async loadWorkspaces() {
+    const n = ++workspacesRequest;
+    const { workspaces } = await api.workspaces();
+    if (n === workspacesRequest) set({ workspaces });
+  },
+
+  applyWorkspace(ws) {
+    set((s) => (s.workspaces ? { workspaces: s.workspaces.map((w) => (w.id === ws.id ? ws : w)) } : {}));
+  },
+
+  switchWorkspace(id) {
+    const there = get().bots.filter((b) => b.workspaceId === id);
+    const last = lastBots[id];
+    const pick = there.find((b) => b.id === last) ?? there.find((b) => b.isPrimary && b.kind !== 'room') ?? there[0];
+    if (pick) get().selectBot(pick.id);
+  },
+
   selectBot(id) {
     set({ selectedBotId: id, drawerOpen: false, keptUnread: null });
     lsSet(LS_SELECTED, id);
+    const ws = get().bots.find((b) => b.id === id)?.workspaceId;
+    if (ws) { lastBots[ws] = id; lsSet(LS_LAST_BOT, JSON.stringify(lastBots)); }
     const t = get().transcripts[id];
     if (!t?.loaded) get().loadRows(id).catch(console.error);
     get().loadRoutines(id).catch(console.error);

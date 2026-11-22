@@ -17,10 +17,13 @@ import { Cron } from 'croner';
 import { BOTS_DIR, libraryDir } from '../machine.js';
 import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
+import { boardOn } from '../workspaces.js';
 
 export interface ToolCtx {
   userId: string;
   botId: string;
+  /** The calling bot's workspace: the team its tools see and reach. */
+  workspaceId: string;
   /** Where the tool's rows go: the calling chat turn's conversation, or the bot's current one for a call from elsewhere. */
   convo: Conversation;
   /** The voice call the tool was used on: set by mcp.ts when no chat turn claimed the call and the bot is on one. */
@@ -73,8 +76,9 @@ export async function runTool(t: ToolDef, rawArgs: unknown, ctx: ToolCtx): Promi
   return t.impl(r.data, ctx);
 }
 
-function botByName(userId: string, name: string) {
-  return db.prepare<[string, string], BotRecord>('SELECT * FROM bots WHERE user_id=? AND lower(name)=lower(?)').get(userId, name.trim());
+/** A bot or group chat of the workspace, by name. Bots of other workspaces aren't the caller's teammates. */
+function botByName(workspaceId: string, name: string) {
+  return db.prepare<[string, string], BotRecord>('SELECT * FROM bots WHERE workspace_id=? AND lower(name)=lower(?)').get(workspaceId, name.trim());
 }
 
 /** Deepest chain of questions ask_bot allows: a bot answering a question may ask one more teammate, and no further. */
@@ -82,12 +86,12 @@ const MAX_ASK_DEPTH = 2;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-const agentNames = (userId: string) => db.prepare<[string], Pick<BotRecord, 'name'>>("SELECT name FROM bots WHERE user_id=? AND kind<>'room' ORDER BY created_at").all(userId).map((b) => b.name).join(', ');
+const agentNames = (workspaceId: string) => db.prepare<[string], Pick<BotRecord, 'name'>>("SELECT name FROM bots WHERE workspace_id=? AND kind<>'room' ORDER BY created_at").all(workspaceId).map((b) => b.name).join(', ');
 
 /** Another agent on the team by name, or why the name doesn't do. */
 function teammate(ctx: ToolCtx, name: string): { bot: BotRecord } | { output: string } {
-  const bot = botByName(ctx.userId, name);
-  if (!bot) return { output: `No agent named "${name}". The team: ${agentNames(ctx.userId)}.` };
+  const bot = botByName(ctx.workspaceId, name);
+  if (!bot) return { output: `No agent named "${name}". The team: ${agentNames(ctx.workspaceId)}.` };
   if (bot.id === ctx.botId) return { output: 'That is you.' };
   if (bot.kind === 'room') return { output: `"${bot.name}" is a group chat, not an agent.` };
   return { bot };
@@ -102,8 +106,8 @@ function ownerByName(ctx: ToolCtx, name: string | undefined): { id: string | nul
   const n = name.trim().toLowerCase();
   if (!n || n === 'nobody' || n === 'none' || n === 'unassigned') return { id: null };
   if (n === 'me' || n === 'myself') return { id: ctx.botId };
-  const bot = botByName(ctx.userId, name);
-  if (!bot || bot.kind === 'room') return { output: `No agent named "${name}". The team: ${agentNames(ctx.userId)}.` };
+  const bot = botByName(ctx.workspaceId, name);
+  if (!bot || bot.kind === 'room') return { output: `No agent named "${name}". The team: ${agentNames(ctx.workspaceId)}.` };
   return { id: bot.id };
 }
 
@@ -119,6 +123,10 @@ function wakeGiven(ctx: ToolCtx, botId: string | null): string {
   ctx.wake(botId, ctx.depth + 1);
   return ` ${name} was told and starts on it.`;
 }
+
+/** The tools that use the task board: a bot in a workspace that has turned the board off isn't offered them. */
+const BOARD_TOOLS = new Set(['list_tasks', 'add_task', 'update_task']);
+const BOARD_OFF = { output: 'The task board is turned off in this workspace.' };
 
 
 export const TOOLS: ToolDef[] = [
@@ -171,13 +179,13 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'set_checkins',
-    description: `Turn proactive check-ins on or off and set when they happen (only the primary Bot does check-ins). times are local 24h 'HH:MM' strings; timezone is IANA (e.g. America/Los_Angeles). Leave timezone out to keep the current one, which starts as ${env.timeZone}.`,
+    description: `Turn proactive check-ins on or off and set when they happen (only the primary Bot of each workspace does check-ins). times are local 24h 'HH:MM' strings; timezone is IANA (e.g. America/Los_Angeles). Leave timezone out to keep the current one, which starts as ${env.timeZone}.`,
     params: z.object({ enabled: z.boolean(), times: z.array(z.string()).optional(), timezone: z.string().optional() }),
     activity: 'working',
     label: 'Updating check-ins',
     impl: async (a, ctx) => {
       try {
-        const r = setCheckins(ctx.userId, { enabled: !!a.enabled, times: a.times, timezone: a.timezone });
+        const r = setCheckins(ctx.workspaceId, { enabled: !!a.enabled, times: a.times, timezone: a.timezone });
         return { output: JSON.stringify({ ok: true, ...r }), summary: r.enabled ? `Check-ins at ${r.times.join(', ')} ${r.timezone}` : 'Check-ins off' };
       } catch (e) {
         return { output: `Could not update check-ins: ${errorText(e)}` };
@@ -232,8 +240,8 @@ export const TOOLS: ToolDef[] = [
     activity: 'messaging_named',
     label: 'Messaging a Bot',
     impl: async (a, ctx) => {
-      const target = botByName(ctx.userId, a.bot_name);
-      if (!target) return { output: `No bot named "${a.bot_name}". Team: ${db.prepare<[string], Pick<BotRecord, 'name'>>('SELECT name FROM bots WHERE user_id=?').all(ctx.userId).map((b) => b.name).join(', ')}` };
+      const target = botByName(ctx.workspaceId, a.bot_name);
+      if (!target) return { output: `No bot named "${a.bot_name}". Team: ${agentNames(ctx.workspaceId)}` };
       if (target.id === ctx.botId) return { output: 'That is you.' };
       if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
       if (ctx.depth >= MAX_HOPS) return { output: 'Too many hops between bots; answer the user directly instead.' };
@@ -279,8 +287,10 @@ export const TOOLS: ToolDef[] = [
       if (skills.length) out.push(`## Skills\n${skills.join(', ')}`);
       const routines = listRoutines(b.id).map((r) => `- ${r.name}: ${r.enabled ? r.description : 'paused'}; ${clip(r.prompt.replace(/\s+/g, ' '), 160)}`);
       if (routines.length) out.push(`## Routines\n${routines.join('\n')}`);
-      const tasks = listTasks(ctx.userId).filter((x) => x.ownerId === b.id).map((x) => `- ${taskLine(x, user)}`);
-      out.push(`## Tasks\n${tasks.length ? tasks.join('\n') : '(none)'}`);
+      if (boardOn(ctx.workspaceId)) {
+        const tasks = listTasks(ctx.workspaceId).filter((x) => x.ownerId === b.id).map((x) => `- ${taskLine(x, user)}`);
+        out.push(`## Tasks\n${tasks.length ? tasks.join('\n') : '(none)'}`);
+      }
       out.push(`## Right now\n${activitySnapshot(b.id)}`);
       const notes = listMemories(b.id).filter((m) => m.source === 'notes').map((m) => `- ${clip(m.text.replace(/\s+/g, ' '), 300)}`).join('\n');
       if (notes) out.push(`## Their notes\n${clip(notes, 1500)}`);
@@ -297,10 +307,11 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Checking the task board',
     impl: async (a, ctx) => {
+      if (!boardOn(ctx.workspaceId)) return BOARD_OFF;
       const o = ownerByName(ctx, a.owner);
       if ('output' in o) return o;
       const user = ownerName(ctx.userId);
-      const tasks = listTasks(ctx.userId).filter((t) => (o.id === undefined || t.ownerId === o.id) && (a.include_done || t.status !== 'done'));
+      const tasks = listTasks(ctx.workspaceId).filter((t) => (o.id === undefined || t.ownerId === o.id) && (a.include_done || t.status !== 'done'));
       if (!tasks.length) return { output: 'No tasks.' };
       const order = (s: string) => TASK_STATUSES.indexOf(s as (typeof TASK_STATUSES)[number]);
       return { output: tasks.sort((x, y) => order(x.status) - order(y.status)).map((t) => `- ${taskLine(t, user, { owner: true })}`).join('\n') };
@@ -318,11 +329,12 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Adding a task',
     impl: async (a, ctx) => {
+      if (!boardOn(ctx.workspaceId)) return BOARD_OFF;
       const title = a.title.trim();
       if (!title) return { output: 'A task needs a title.' };
       const o = ownerByName(ctx, a.owner ?? 'me');
       if ('output' in o) return o;
-      const r = addTask(ctx.userId, actorOf(ctx), { title: clip(title, 200), notes: a.notes, ownerId: o.id === undefined ? ctx.botId : o.id, status: a.status });
+      const r = addTask(ctx.workspaceId, actorOf(ctx), { title: clip(title, 200), notes: a.notes, ownerId: o.id === undefined ? ctx.botId : o.id, status: a.status });
       return { output: `Added ${r.task.id}.${wakeGiven(ctx, r.given)}`, summary: `Added "${clip(title, 60)}"` };
     },
   }),
@@ -339,10 +351,11 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Updating a task',
     impl: async (a, ctx) => {
-      if (!getTask(ctx.userId, a.task_id)) return { output: `No task ${a.task_id}. list_tasks shows the board.` };
+      if (!boardOn(ctx.workspaceId)) return BOARD_OFF;
+      if (!getTask(ctx.workspaceId, a.task_id)) return { output: `No task ${a.task_id}. list_tasks shows the board.` };
       const o = ownerByName(ctx, a.owner);
       if ('output' in o) return o;
-      const r = changeTask(ctx.userId, actorOf(ctx), a.task_id, { status: a.status, note: a.note, title: a.title ? clip(a.title.trim(), 200) : undefined, ownerId: o.id });
+      const r = changeTask(ctx.workspaceId, actorOf(ctx), a.task_id, { status: a.status, note: a.note, title: a.title ? clip(a.title.trim(), 200) : undefined, ownerId: o.id });
       if (!r) return { output: `No task ${a.task_id}.` };
       return { output: `Updated: ${taskLine(r.task, ownerName(ctx.userId), { owner: true })}.${wakeGiven(ctx, r.given)}`, summary: `Updated "${clip(r.task.title, 60)}"` };
     },
@@ -357,11 +370,11 @@ export const TOOLS: ToolDef[] = [
       const ids: string[] = [];
       const missing: string[] = [];
       for (const n of (a.bot_names ?? []) as string[]) {
-        const b = botByName(ctx.userId, n);
+        const b = botByName(ctx.workspaceId, n);
         if (b && b.kind !== 'room') ids.push(b.id); else missing.push(n);
       }
       if (ids.length < 2) return { output: `A group needs at least 2 Bots. Not found: ${missing.join(', ') || 'none'}.` };
-      const id = createRoom(ctx.userId, String(a.name), [...new Set(ids)]);
+      const id = createRoom(ctx.userId, ctx.workspaceId, String(a.name), [...new Set(ids)]);
       appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${(a.bot_names as string[]).filter((n) => !missing.includes(n)).join(', ')}` });
       return { output: JSON.stringify({ ok: true, group_id: id, missing }), summary: `Created group ${a.name}` };
     },
@@ -426,6 +439,12 @@ export const TOOLS: ToolDef[] = [
 ];
 
 export const toolMap = new Map(TOOLS.map((t) => [t.name, t]));
+
+/** The tools a bot is offered: all of them, but the board's while its workspace has turned the board off. */
+export function toolsFor(botId: string): ToolDef[] {
+  const b = db.prepare<[string], Pick<BotRecord, 'workspace_id'>>('SELECT workspace_id FROM bots WHERE id=?').get(botId);
+  return b && !boardOn(b.workspace_id) ? TOOLS.filter((t) => !BOARD_TOOLS.has(t.name)) : TOOLS;
+}
 
 /** A Hermes tool name as the app knows it: tools served by this app's MCP server lose their `mcp_dispatch_` prefix. */
 export function appToolName(raw: string): { name: string; ours: boolean; server?: string } {

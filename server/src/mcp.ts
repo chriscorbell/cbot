@@ -5,7 +5,7 @@ import { conversation, getBotRow } from './store.js';
 import { mcpToken } from './engine.js';
 import { claimToolRow, enqueueBotMessage, turnDepth, wake } from './agent/turns.js';
 import { askDepth } from './agent/asks.js';
-import { inputSchema, runTool, toolMap, TOOLS, type ToolCtx } from './agent/tools.js';
+import { inputSchema, runTool, toolMap, toolsFor, type ToolCtx } from './agent/tools.js';
 import { liveCallOf } from './voice.js';
 import { errorText } from './lib/errors.js';
 
@@ -35,7 +35,8 @@ function caller(slug: string, auth: string | undefined): { botId: string } | nul
   return getBotRow(slug) ? { botId: slug } : null;
 }
 
-const listTools = () => TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: inputSchema(t) }));
+/** What Hermes is offered when it connects: the bot's tools (toolsFor), which the settings hash in engine.ts covers. */
+const listTools = (botId: string) => toolsFor(botId).map((t) => ({ name: t.name, description: t.description, inputSchema: inputSchema(t) }));
 
 async function callTool(botId: string, rawName: string, rawArgs: unknown, signal?: AbortSignal): Promise<CallResult> {
   const bot = getBotRow(botId);
@@ -53,7 +54,7 @@ async function callTool(botId: string, rawName: string, rawArgs: unknown, signal
   // deep in a chain of questions it is. Tools that write into the chat mark their rows with the call.
   const callId = claim ? undefined : liveCallOf(botId) ?? undefined;
   const ctx: ToolCtx = {
-    userId, botId, convo: claim?.transcript.convo ?? current, callId, enqueueBotMessage, wake,
+    userId, botId, workspaceId: bot.workspace_id, convo: claim?.transcript.convo ?? current, callId, enqueueBotMessage, wake,
     depth: turnDepth(botId), asking: claim ? 0 : askDepth(botId),
     // Hermes dropping the call, or the chat turn it belongs to being stopped.
     signal: AbortSignal.any([...(signal ? [signal] : []), ...(claim ? [claim.signal] : [])]),
@@ -115,7 +116,7 @@ async function handle(msg: unknown, botId: string, signal?: AbortSignal): Promis
     case 'ping':
       return { jsonrpc: '2.0', id, result: {} };
     case 'tools/list':
-      return { jsonrpc: '2.0', id, result: { tools: listTools() } };
+      return { jsonrpc: '2.0', id, result: { tools: listTools(botId) } };
     case 'tools/call': {
       const call = CallParams.safeParse(params);
       if (!call.success) return rpcError(id, -32602, 'Missing tool name');

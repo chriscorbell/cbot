@@ -20,6 +20,7 @@ export function toBot(r: BotRecord): Bot {
   }
   return {
     id: r.id,
+    workspaceId: r.workspace_id,
     name: r.name,
     label: r.label,
     description: r.description,

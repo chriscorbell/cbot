@@ -8,7 +8,7 @@ import type { Trigger } from './turns.js';
 
 /**
  * Group chats ("rooms").
- * A room is a bot row with kind='room' and a members list. It never runs its own agent loop:
+ * A room is a bot row with kind='room' and a members list, all from the room's workspace. It never runs its own agent loop:
  * a user message is dispatched to the members who should answer (@mentioned ones, else all,
  * capped), each member runs its normal loop with the group context and replies into the room
  * with post_to_group.
@@ -28,14 +28,31 @@ export function roomMembers(roomId: string): { id: string; name: string }[] {
   return ids.map((id) => byId.get(id)).filter((m) => m !== undefined);
 }
 
-export function createRoom(userId: string, name: string, memberIds: string[]) {
+/** A group chat in the workspace. Its caller has checked the members are agents of that workspace. */
+export function createRoom(userId: string, workspaceId: string, name: string, memberIds: string[]) {
   const id = newId('room');
   db.prepare(
-    `INSERT INTO bots(id,user_id,name,label,description,avatar_shape,avatar_color,kind,members,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,'room',?,?,?)`,
-  ).run(id, userId, name.slice(0, 60), 'Group', '', 'cloud', 'gray', JSON.stringify(memberIds), now(), now());
+    `INSERT INTO bots(id,user_id,workspace_id,name,label,description,avatar_shape,avatar_color,kind,members,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,'room',?,?,?)`,
+  ).run(id, userId, workspaceId, name.slice(0, 60), 'Group', '', 'cloud', 'gray', JSON.stringify(memberIds), now(), now());
   hub.emit(userId, { type: 'roster' });
   return id;
+}
+
+/** The workspace's agents among `ids`, each once: who may be in one of its group chats. */
+export const workspaceMembers = (workspaceId: string, ids: string[]) =>
+  [...new Set(ids)].filter((id) => db.prepare("SELECT 1 FROM bots WHERE id=? AND workspace_id=? AND kind<>'room'").get(id, workspaceId));
+
+/** The bot leaves every group chat it is in (it is moving to another workspace), and each says so. */
+export function leaveRooms(botId: string) {
+  const bot = requireBot(botId);
+  const rooms = db.prepare<[string, string], Pick<BotRecord, 'id' | 'members'>>("SELECT id, members FROM bots WHERE workspace_id=? AND kind='room' AND members LIKE ?").all(bot.workspace_id, `%${botId}%`);
+  for (const r of rooms) {
+    const members: string[] = r.members ? JSON.parse(r.members) : [];
+    if (!members.includes(botId)) continue;
+    db.prepare('UPDATE bots SET members=?, updated_at=? WHERE id=?').run(JSON.stringify(members.filter((m) => m !== botId)), now(), r.id);
+    appendRow(r.id, 'event', { type: 'event', event: 'bot-message', text: `${bot.name} left` });
+  }
 }
 
 export type MemberFiles = Map<string, { file: string; type: string; size: number }[]>;
@@ -96,7 +113,7 @@ export function dispatchRoomMessage(roomId: string, text: string, enqueue: (botI
 
 export function postToRoom(fromBotId: string, roomName: string, text: string) {
   const from = requireBot(fromBotId);
-  const room = db.prepare<[string, string], BotRecord>("SELECT * FROM bots WHERE user_id=? AND kind='room' AND lower(name)=lower(?)").get(from.user_id, roomName.trim());
+  const room = db.prepare<[string, string], BotRecord>("SELECT * FROM bots WHERE workspace_id=? AND kind='room' AND lower(name)=lower(?)").get(from.workspace_id, roomName.trim());
   if (!room) return `No group named "${roomName}".`;
   const members: string[] = room.members ? JSON.parse(room.members) : [];
   if (!members.includes(fromBotId)) return `You're not a member of "${room.name}".`;

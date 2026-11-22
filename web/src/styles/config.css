@@ -216,3 +216,25 @@
 .cfg-edit + .cfg-edit { border-top: 1px solid var(--color-border-tertiary); }
 @media (max-width: 600px) { .cfg-edit__form { flex-wrap: wrap; padding-left: 10px; } .cfg-edit__form .text-input { flex-basis: 100%; } }
 @media (prefers-reduced-motion: reduce) { .cfg-edit__form, .cfg-edit__status { animation: none; } }
+
+/* Settings > Workspace (WorkspaceSection) */
+/* base.css comes later in the bundle: these need the row in their selector to win over .text-input's width. */
+.cfg-row .ws-settings__name { width: 210px; flex-shrink: 0; }
+.cfg-row .ws-settings__zone { width: 230px; flex-shrink: 0; }
+.ws-checkins { transition: opacity var(--dur-med) var(--ease-out); }
+.ws-checkins.is-off { opacity: 0.55; }
+.ws-times { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; max-width: 460px; }
+.ws-time {
+  display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 4px 0 11px; border-radius: var(--radius-full);
+  background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight); font-size: var(--text-sm); color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums; animation: pop-in var(--dur-med) var(--ease-out);
+}
+.ws-time__remove {
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: var(--radius-full); color: var(--color-text-tertiary);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+.ws-time__remove:hover:not(:disabled) { background: var(--surface-active); color: var(--color-text-primary); }
+.ws-time__remove:disabled { opacity: 0.35; }
+.ws-time-add { display: inline-flex; align-items: center; gap: 6px; }
+.ws-time-add .ws-time-add__input { width: 116px; height: 28px; padding: 4px 10px; }
+@media (prefers-reduced-motion: reduce) { .ws-time { animation: none; } .ws-checkins { transition: none; } }

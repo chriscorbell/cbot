@@ -1,15 +1,16 @@
 import { useCallback, useState } from 'react';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { api } from '../../lib/api';
-import { useStore } from '../../store';
+import { currentWorkspaceId, useStore } from '../../store';
 import { Icon } from '../Icon';
 import { Modal } from './Modal';
 
-/** New group chat: a name plus at least two Bots. */
+/** New group chat in the shown workspace: a name plus at least two of its Bots. */
 export function CreateGroupModal() {
   const setModal = useStore((s) => s.setModal);
   const allBots = useStore((s) => s.bots);
-  const bots = allBots.filter((b) => b.kind !== 'room');
+  const workspaceId = useStore(currentWorkspaceId);
+  const bots = allBots.filter((b) => b.kind !== 'room' && b.workspaceId === workspaceId);
   const [name, setName] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -20,10 +21,10 @@ export function CreateGroupModal() {
 
   /** Never rejects: a failure shows in `error`. */
   const create = async () => {
-    if (!canCreate) return;
+    if (!canCreate || !workspaceId) return;
     setBusy(true); setError(null);
     try {
-      const { id } = await api.createRoom(name.trim(), picked);
+      const { id } = await api.createRoom(name.trim(), picked, workspaceId);
       const { bots: all } = await api.bots();
       const st = useStore.getState();
       st.set({ bots: all });

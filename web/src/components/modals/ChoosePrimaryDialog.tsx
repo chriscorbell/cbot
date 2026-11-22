@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { BotAvatarFor } from '../../avatar/BotAvatar';
 import { configApi } from '../../lib/configApi';
-import { useStore } from '../../store';
+import { currentWorkspaceId, useStore } from '../../store';
 import { Modal } from './Modal';
 
-/** Picks which bot is the primary one: it sits first in the rail, wears the star and is the main point of contact. */
+/** Picks which bot of the shown workspace is its primary one: it sits first in the rail, wears the star and is the main point of contact there. */
 export function ChoosePrimaryDialog({ onClose }: { onClose: () => void }) {
   const bots = useStore((s) => s.bots);
+  const workspaceId = useStore(currentWorkspaceId);
   const [q, setQ] = useState('');
   const [pick, setPick] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -15,10 +16,10 @@ export function ChoosePrimaryDialog({ onClose }: { onClose: () => void }) {
   const options = useMemo(() => {
     const n = q.trim().toLowerCase();
     return bots
-      .filter((b) => !b.isPrimary && b.kind !== 'room')
+      .filter((b) => !b.isPrimary && b.kind !== 'room' && b.workspaceId === workspaceId)
       .filter((b) => !n || `${b.name} ${b.label}`.toLowerCase().includes(n))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [bots, q]);
+  }, [bots, q, workspaceId]);
   const confirm = async () => {
     if (!pick) return;
     setBusy(true); setError(null);

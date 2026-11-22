@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDownToLine, BellDot, ClipboardCopy, Copy, Eye, EyeOff, LogOut, MessagesSquare, PanelLeft, Plus, Repeat2, Search, Settings, SquareKanban, Trash2 } from 'lucide-react';
+import { ArrowDownToLine, BellDot, Check, ChevronsUpDown, ClipboardCopy, Copy, Eye, EyeOff, LogOut, MessagesSquare, PanelLeft, Plus, Repeat2, Search, Settings, Settings2, SquareKanban, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { configApi } from '../lib/configApi';
 import { ConfirmDialog } from './modals/ConfirmDialog';
@@ -9,7 +9,7 @@ import { useConfigUI } from '../configStore';
 import type { Bot } from '@shared/types';
 import { BotAvatarFor } from '../avatar/BotAvatar';
 import { botVars } from '../lib/colors';
-import { displayName, useStore } from '../store';
+import { currentWorkspaceId, displayName, useStore } from '../store';
 import { notifyFailure } from '../lib/uiEvents';
 import { trapTabWithin } from '../lib/focus';
 import { Menu, type MenuItem } from './Menu';
@@ -203,6 +203,63 @@ function AccountButton({ name, avatarUrl, tips }: { name: string; avatarUrl?: st
   );
 }
 
+/**
+ * The workspace shown, at the top of the sidebar: its initials in the rail, its name in the full
+ * sidebar. Its menu switches to another workspace (a dot marks one with unread messages), makes a new
+ * one, or opens the shown one's settings.
+ */
+function WorkspaceSwitcher({ tips }: { tips: boolean }) {
+  const workspaces = useStore((s) => s.workspaces);
+  const bots = useStore((s) => s.bots);
+  const currentId = useStore(currentWorkspaceId);
+  const set = useStore((s) => s.set);
+  const [open, setOpen] = useState(false);
+  const current = workspaces?.find((w) => w.id === currentId) ?? workspaces?.[0];
+  if (!workspaces || !current) return null;
+  const unread = (id: string) => bots.some((b) => b.workspaceId === id && b.unread > 0);
+  const elsewhere = workspaces.some((w) => w.id !== current.id && unread(w.id));
+  const go = (fn: () => void) => () => { set({ drawerOpen: false }); fn(); };
+  const ic = { size: 14, strokeWidth: 1.75 } as const;
+  const items: MenuItem[] = [
+    ...workspaces.map((w): MenuItem => ({
+      id: w.id,
+      label: w.name,
+      icon: <span className="ws-mark ws-mark--sm" aria-hidden>{initials(w.name)}</span>,
+      trailing: w.id === current.id
+        ? <Check className="menu__check" size={14} strokeWidth={2} aria-label="Shown now" />
+        : unread(w.id) ? <span className="ws-unread" aria-label="Unread messages" /> : undefined,
+      onSelect: () => useStore.getState().switchWorkspace(w.id),
+    })),
+    { id: '+new', label: 'New workspace', icon: <Plus {...ic} />, separatorBefore: true, onSelect: go(() => useStore.getState().setModal('workspace')) },
+    { id: '+settings', label: 'Workspace settings', icon: <Settings2 {...ic} />, onSelect: go(() => useConfigUI.getState().openAppSettings('workspace')) },
+  ];
+  return (
+    <div className="rail-ws">
+      <button
+        type="button"
+        className="rail-ws__btn"
+        onClick={() => { showTip(null); setOpen(!open); }}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Workspace: ${current.name}${elsewhere ? ', another has unread messages' : ''}`}
+        {...(open || !tips ? {} : tipProps(current.name, elsewhere ? 'Another workspace has unread messages' : 'Workspace'))}
+      >
+        <span className="ws-mark" aria-hidden>
+          {initials(current.name)}
+          {elsewhere && <span className="ws-mark__dot" />}
+        </span>
+        <span className="rail-ws__name">{current.name}</span>
+        <ChevronsUpDown className="rail-ws__chev" size={14} strokeWidth={1.75} aria-hidden />
+      </button>
+      <Presence show={open} ms={110}>
+        <Menu items={items} onClose={() => setOpen(false)}>
+          <div className="menu__header">Workspaces</div>
+        </Menu>
+      </Presence>
+    </div>
+  );
+}
+
 /** Right-click menu for a bot in the rail, at the pointer. */
 function BotMenu({ at, onClose, onDialog, onCopied }: { at: { bot: Bot; x: number; y: number }; onClose: () => void; onDialog: (kind: 'delete' | 'primary', bot: Bot) => void; onCopied: (ok: boolean) => void }) {
   const { bot } = at;
@@ -235,7 +292,9 @@ function BotMenu({ at, onClose, onDialog, onCopied }: { at: { bot: Bot; x: numbe
 }
 
 export function Sidebar() {
-  const bots = useStore((s) => s.bots);
+  const allBots = useStore((s) => s.bots);
+  const workspaceId = useStore(currentWorkspaceId);
+  const board = useStore((s) => s.workspaces?.find((w) => w.id === currentWorkspaceId(s))?.taskBoard ?? true);
   const live = useStore((s) => s.live);
   const selectedBotId = useStore((s) => s.selectedBotId);
   const user = useStore((s) => s.user);
@@ -244,7 +303,9 @@ export function Sidebar() {
   const update = useStore((s) => s.update);
   const set = useStore((s) => s.set);
   const selectBot = useStore((s) => s.selectBot);
-  const born = useBornIds(bots);
+  const born = useBornIds(allBots);
+  // Only the shown workspace's bots.
+  const bots = allBots.filter((b) => b.workspaceId === workspaceId);
 
   // The primary bot first, then the rest by latest activity. Bots hidden from the sidebar are listed
   // under Hidden Bots in the full sidebar only; the icon rail leaves them out.
@@ -308,22 +369,29 @@ export function Sidebar() {
         <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('search')} aria-label="Search" title={`Search (${MOD}K)`} tabIndex={expanded ? 0 : -1}>
           <Search size={16} strokeWidth={1.75} aria-hidden />
         </button>
-        <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('tasks')} aria-label="Tasks" title="Tasks" tabIndex={expanded ? 0 : -1}>
-          <SquareKanban size={16} strokeWidth={1.75} aria-hidden />
-        </button>
+        {board && (
+          <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('tasks')} aria-label="Tasks" title="Tasks" tabIndex={expanded ? 0 : -1}>
+            <SquareKanban size={16} strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
         <button type="button" className="icon-btn glass rail__top-btn" onClick={() => openModal('create')} aria-label="New bot" title="New bot" tabIndex={expanded ? 0 : -1}>
           <Plus size={17} strokeWidth={1.75} aria-hidden />
         </button>
       </div>
 
+      <WorkspaceSwitcher tips={!expanded} />
+
       <div className="rail__scroll">
-        <div className="rail__bots">{ordered.map(railBot)}</div>
-        {expanded && hiddenBots.length > 0 && (
-          <>
-            <div className="rail__label">Hidden Bots</div>
-            <div className="rail__bots">{hiddenBots.map(railBot)}</div>
-          </>
-        )}
+        {/* Keyed by workspace, so switching fades the other team in. */}
+        <div className="rail__team" key={workspaceId ?? ''}>
+          <div className="rail__bots">{ordered.map(railBot)}</div>
+          {expanded && hiddenBots.length > 0 && (
+            <>
+              <div className="rail__label">Hidden Bots</div>
+              <div className="rail__bots">{hiddenBots.map(railBot)}</div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="rail__foot">
@@ -332,9 +400,11 @@ export function Sidebar() {
         </Presence>
         {!expanded && (
           <>
-            <button type="button" className="rail-btn" onClick={() => openModal('tasks')} aria-label="Tasks" {...tipProps('Tasks')}>
-              <span className="rail-btn__icon"><SquareKanban size={18} strokeWidth={1.6} aria-hidden /></span>
-            </button>
+            {board && (
+              <button type="button" className="rail-btn" onClick={() => openModal('tasks')} aria-label="Tasks" {...tipProps('Tasks')}>
+                <span className="rail-btn__icon"><SquareKanban size={18} strokeWidth={1.6} aria-hidden /></span>
+              </button>
+            )}
             <button type="button" className="rail-btn" onClick={() => openModal('create')} aria-label="New bot" {...tipProps('New bot')}>
               <span className="rail-btn__icon"><Plus size={18} strokeWidth={1.6} aria-hidden /></span>
             </button>

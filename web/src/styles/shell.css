@@ -29,7 +29,41 @@
 .rail__toggle:hover { color: var(--color-text-primary); background: color-mix(in srgb, var(--surface) 70%, transparent); }
 .rail__top .icon-btn { width: 34px; height: 34px; flex-shrink: 0; }
 
+/* The workspace shown (Sidebar WorkspaceSwitcher): its initials on a rounded square in the rail, with its
+   name and a chevron in the full sidebar. A dot on the square says another workspace has unread messages. */
+.rail-ws { position: relative; display: flex; justify-content: center; flex-shrink: 0; width: var(--rail-w); padding: 12px 0 0; }
+.rail-ws::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 24px; height: 1px; translate: -50% 0; background: var(--sidebar-border); }
+.rail-ws__btn {
+  display: flex; align-items: center; gap: 10px; padding: 5px; border-radius: 13px; color: var(--color-text-primary);
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.rail-ws__btn:hover, .rail-ws__btn[aria-expanded='true'] { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.rail-ws__btn:active { transform: scale(0.96); }
+.ws-mark {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex-shrink: 0; border-radius: 11px;
+  background: linear-gradient(160deg, var(--surface-active), var(--surface)); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border);
+  color: var(--color-text-secondary); font-size: 12px; font-weight: 650; line-height: 1; letter-spacing: 0.02em;
+  transition: color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.rail-ws__btn:hover .ws-mark, .rail-ws__btn[aria-expanded='true'] .ws-mark { color: var(--color-text-primary); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--input); }
+.ws-mark--sm { width: 22px; height: 22px; border-radius: 7px; font-size: 9px; }
+.ws-mark__dot, .ws-unread { width: 9px; height: 9px; border-radius: 50%; background: var(--color-border-focus); animation: status-in var(--dur-med) var(--ease-out); }
+.ws-mark__dot { position: absolute; top: -2px; right: -2px; box-shadow: 0 0 0 2px var(--color-bg-sidebar); }
+.ws-unread { width: 7px; height: 7px; margin-right: 3px; }
+.menu__check { color: var(--color-text-secondary); flex-shrink: 0; animation: pop-in var(--dur-fast) var(--ease-out); }
+.rail-ws__name, .rail-ws__chev { display: none; }
+.rail-ws .menu { left: 8px; min-width: 228px; }
+.rail-ws .menu__item-main span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar.is-expanded .rail-ws { width: 100%; padding: 4px 8px 0; }
+.sidebar.is-expanded .rail-ws::after { display: none; }
+.sidebar.is-expanded .rail-ws__btn { width: 100%; padding: 5px 10px 5px 5px; border-radius: 12px; }
+.sidebar.is-expanded .rail-ws__name { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-align: left; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; font-weight: 600; line-height: 19px; animation: fade var(--dur-slow) var(--ease-out); }
+.sidebar.is-expanded .rail-ws__chev { display: block; flex-shrink: 0; color: var(--color-text-tertiary); animation: fade var(--dur-slow) var(--ease-out); }
+.rail__team { animation: rise var(--dur-med) var(--ease-out); }
+
 .rail__scroll { flex: 1 1 0; min-height: 0; width: var(--rail-w); overflow-y: auto; overflow-x: hidden; padding: 12px 0 8px; scrollbar-width: none; }
+.rail-ws + .rail__scroll { padding-top: 14px; }
+.sidebar.is-expanded .rail-ws + .rail__scroll { padding-top: 6px; }
 .rail__scroll::-webkit-scrollbar { display: none; }
 .rail__label { display: none; }
 .rail__bots { display: flex; flex-direction: column; align-items: center; gap: 6px; }
@@ -120,6 +154,7 @@
 .sidebar.is-expanded .rail-account__btn .rail-bot__text { display: flex; animation: fade var(--dur-slow) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .rail__top { transition: none; }
+  .rail__team, .ws-mark__dot, .ws-unread, .menu__check, .sidebar.is-expanded .rail-ws__name, .sidebar.is-expanded .rail-ws__chev { animation: none; }
   .sidebar.is-expanded .rail-bot__text, .sidebar.is-expanded .rail__label { animation: none; }
 }
 

@@ -4,7 +4,7 @@ import { BotAvatar } from '../../avatar/BotAvatar';
 import { api } from '../../lib/api';
 import { COLOR_ORDER } from '../../lib/colors';
 import { pickOther } from '../../lib/pick';
-import { useStore } from '../../store';
+import { currentWorkspaceId, useStore } from '../../store';
 import { AvatarPicker } from '../AvatarPicker';
 import { Icon } from '../Icon';
 import { Modal } from './Modal';
@@ -35,7 +35,9 @@ export function CreateBotModal() {
     if (!canCreate) return;
     setBusy(true); setError(null);
     try {
-      const { bot } = await api.createBot({ name: name.trim(), avatarShape: shape, avatarColor: color });
+      // It joins the workspace shown.
+      const workspaceId = currentWorkspaceId(useStore.getState()) ?? undefined;
+      const { bot } = await api.createBot({ name: name.trim(), avatarShape: shape, avatarColor: color, workspaceId });
       const st = useStore.getState();
       st.set({ bots: st.bots.some((b) => b.id === bot.id) ? st.bots : [...st.bots, bot] });
       st.selectBot(bot.id);
