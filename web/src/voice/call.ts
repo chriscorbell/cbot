@@ -9,6 +9,7 @@ import { EchoCanceller, loadAec3 } from './aec';
 import { CallOutput, MicCapture, PcmPlayer, ThinkingLoop, base64ToPcm, createAudioContext, micErrorMessage, openMic, pcmToBase64 } from './audio';
 import { EchoGate } from './echo';
 import { keepScreenOn, letScreenSleep } from './wakeLock';
+import { isAppleMobile } from '../lib/platform';
 import type { VoiceEcho } from '@shared/contract';
 import type { ClientEvent, RelayEvent } from '@shared/voice-protocol';
 
@@ -81,11 +82,12 @@ class VoiceCall {
   player!: PcmPlayer;
   /**
    * The call's speaker. With the call's own echo canceller (aec.ts) it plays straight from the
-   * context; with the browser's, through WebRTC, which is what the browser's knows to remove.
+   * context; with the browser's, through WebRTC, which is what the browser's knows to remove, and
+   * what an iPhone keeps at full volume (see the constructor).
    */
   private output!: CallOutput;
   private loop!: ThinkingLoop;
-  /** AEC3, loading from the moment the call button is pressed; null if it can't run here. */
+  /** AEC3, loading from the moment the call button is pressed; null if it can't run here or isn't wanted. */
   private aec: Promise<Awaited<ReturnType<typeof loadAec3>> | null>;
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private mic: MicCapture | null = null;
@@ -107,7 +109,12 @@ class VoiceCall {
     // Created synchronously inside the click so autoplay policy lets it run.
     this.ctx = createAudioContext();
     this.speakers(this.ctx);
-    this.aec = loadAec3().catch((e: unknown) => {
+    // An iPhone or iPad turns down what an AudioContext plays while the microphone is open (WebKit bug
+    // 236219), so a call played straight from the context, as AEC3 needs, is barely audible there. A
+    // call's WebRTC track keeps full volume, and Apple's voice processing, the browser's canceller
+    // there, knows to remove it: so there the call uses the browser's canceller and plays through
+    // WebRTC, as call apps in the browser do.
+    this.aec = isAppleMobile() ? Promise.resolve(null) : loadAec3().catch((e: unknown) => {
       console.warn('[voice] AEC3 can’t run here; the browser cancels echo instead:', e);
       return null;
     });

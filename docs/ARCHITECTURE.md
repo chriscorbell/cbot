@@ -386,7 +386,7 @@ The call cancels the bot's echo itself, as a native call app does. Browsers' own
 
 So the microphone is opened with the browser's echo cancellation, noise suppression and gain control off, and WebRTC's AEC3, compiled to WebAssembly (`web/src/voice/aec.ts`, `@ennuicastr/webrtcaec3.js`, loaded when a call starts), subtracts what the call plays. The capture worklet takes the call's sound as a second input, on the same AudioContext clock as the microphone, and AEC3 gives the microphone back at 24 kHz about 10 ms later.
 
-If AEC3 can't load or start, the browser's canceller is used, and the bot plays through WebRTC (above).
+If AEC3 can't load or start, the browser's canceller is used, and the bot plays through WebRTC (above). An iPhone or iPad uses those from the start: iOS turns down what an AudioContext plays while the microphone is open (WebKit bug 236219), so a call played from the context was barely audible there at full volume, while a call's WebRTC track keeps full volume and Apple's voice processing removes it from the microphone.
 
 Firefox won't connect a microphone to a context at another sample rate (Mozilla bug 1674892), so then the browser captures in a context of its own at a rate it accepts. When Firefox can't capture the microphone in the call's context (another rate), the call moves its playback to the microphone's context before it connects. A microphone that sends no frames for three seconds ends the call with a message.
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from './api';
 import { takeLaunchBot } from './launch';
+import { isAppleMobile } from './platform';
 import { useStore } from '../store';
 
 /**
@@ -37,7 +38,6 @@ let registration: Promise<ServiceWorkerRegistration> | null = null;
 /** The server's key, fetched ahead so turning notifications on needs no request before the browser asks. */
 let publicKey: string | null = null;
 
-const isAppleMobile = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const standalone = () => window.matchMedia('(display-mode: standalone)').matches;
 
 function keyBytes(b64url: string): Uint8Array<ArrayBuffer> {
