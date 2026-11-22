@@ -4,11 +4,13 @@ ssh-keygen only:
 
     python3 -m unittest discover -s scripts -p 'test_*.py'
 """
+import http.server
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 
 # install.sh isn't committed: each run tests a fresh join of its parts, as a build makes it.
@@ -111,6 +113,30 @@ class ReleaseCheckTest(unittest.TestCase):
     def test_releases_that_cannot_be_reached_fail_the_check(self):
         r = self.bash('newest_release "$1" "$2"', self.repo, "http://127.0.0.1:9/releases")
         self.assertNotEqual(r.returncode, 0)
+
+    def serve(self, answers):
+        """An HTTP server answering GET /<tag>/SHA256SUMS.sig with answers[tag], 404 for the rest."""
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(answers.get(self.path.split("/")[1], 404))
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_only_not_found_passes_a_tag_over(self):
+        # v0.14.0 isn't published; v0.13.0 is, and v0.12.0 below it too.
+        r = self.bash('newest_release "$1" "$2"', self.repo, self.serve({"v0.13.0": 200, "v0.12.0": 200}))
+        self.assertEqual((r.returncode, r.stdout.strip()), (0, "v0.13.0"), r.stderr)
+        # GitHub failing to answer for v0.13.0 isn't a reason to settle for v0.12.0.
+        for status in (429, 503):
+            r = self.bash('newest_release "$1" "$2"', self.repo, self.serve({"v0.13.0": status, "v0.12.0": 200}))
+            self.assertNotEqual(r.returncode, 0, status)
+            self.assertEqual(r.stdout, "")
 
     def test_older_compares_version_numbers(self):
         def older(a, b):

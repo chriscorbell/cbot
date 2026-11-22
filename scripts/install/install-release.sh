@@ -38,16 +38,17 @@ release_tools() {
 # when there is none. scripts/publish.sh pushes a tag before GitHub Actions builds its release, which
 # stays a draft nobody else can download until it is signed, and a tag can be pushed by mistake: both
 # are passed over, so neither stops installs and updates. Only the ten highest tags are tried. Other
-# tags, such as v2.0.0-rc1, aren't releases. Fails when GitHub can't be reached.
+# tags, such as v2.0.0-rc1, aren't releases. Only "not found" passes a tag over: when GitHub can't be
+# reached or answers with another error, this fails rather than settle for an older release.
 newest_release() {
-  local refs tag rc
+  local refs tag rc code
   refs="$(github_git ls-remote --tags --refs "$1")" || return 1
   for tag in $(sed -nE 's#^[0-9a-f]{40}\trefs/tags/(v[0-9]+\.[0-9]+\.[0-9]+)$#\1#p' <<<"$refs" | sort -rV | head -n 10); do
     rc=0
-    curl -fsSL --max-time 30 -o /dev/null "$2/$tag/SHA256SUMS.sig" || rc=$?
-    case $rc in
-      0) echo "$tag"; return 0 ;;
-      22 | 37) ;; # not there (an HTTP error, or a missing file for scripts/test_install.py)
+    code="$(curl -sL --max-time 30 -o /dev/null -w '%{http_code}' "$2/$tag/SHA256SUMS.sig")" || rc=$?
+    case "$rc:$code" in
+      0:200 | 0:000) echo "$tag"; return 0 ;; # 000: a file:// URL (scripts/test_install.py)
+      0:404 | 37:*) ;;                         # not published: a draft, or a tag with no release
       *) return 1 ;;
     esac
   done
