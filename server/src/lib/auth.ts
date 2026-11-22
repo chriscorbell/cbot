@@ -44,7 +44,9 @@ export function initAuth(u: User) {
     db.prepare('DELETE FROM auth_sessions').run();
     announceSetupCode();
   }
-  if (process.env.DISPATCH_USER || process.env.DISPATCH_PASSWORD) console.warn('[auth] DISPATCH_USER and DISPATCH_PASSWORD are no longer read: the account is created in the app on the first visit');
+  // DISPATCH_USER once named the sign-in too; it names the bots' account now (account.ts), so only a
+  // password left in the environment is worth a word.
+  if (process.env.DISPATCH_PASSWORD) console.warn('[auth] DISPATCH_PASSWORD is no longer read: the account is created in the app on the first visit');
 }
 
 // ---------- the setup code ----------
