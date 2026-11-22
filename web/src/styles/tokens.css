@@ -135,10 +135,10 @@
   --color-bot-gray: #999999;
   --bot-on-action: #FFFFFF;
 
-  /* type: the system UI face (SF Pro on a Mac), Geist elsewhere */
-  --font-stack: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Geist Variable', 'Segoe UI', system-ui, sans-serif;
+  /* type: Geist everywhere, bundled, so every device shows the same face */
+  --font-stack: 'Geist Variable', system-ui, sans-serif;
   --font-display: var(--font-stack);
-  --font-mono-stack: ui-monospace, 'SF Mono', 'Geist Mono Variable', Menlo, Consolas, monospace;
+  --font-mono-stack: 'Geist Mono Variable', ui-monospace, monospace;
   --text-2xs: 11px;
   --text-xs: 12px;
   --text-sm: 13px;
