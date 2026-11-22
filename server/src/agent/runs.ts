@@ -104,14 +104,18 @@ export function settleLeftoverRuns(): Promise<Map<string, Leftover>> {
     const out = new Map<string, Leftover>();
     await Promise.all(left.map(async (r) => {
       let answer: string | null = null;
+      let keep = false;
       const engine = gatewayIfRunning(r.bot_id);
       const state = engine ? await stateOf(engine, r.id) : null;
       if (engine && state?.status === 'completed') answer = state.output.trim();
-      else if (engine && state && !OVER.has(state.status)) {
+      else if (engine && !(state && OVER.has(state.status))) {
+        // Going, or the gateway didn't say (it may only be slow): asked to stop either way.
         const stopped = await requestStop(engine, r.id, `the ${r.surface} run the last process left`);
         if (stopped !== null) console.log(`[hermes] ${r.bot_id}: stopped the ${r.surface} run ${r.id}, which nobody follows since the restart`);
+        // One Hermes says is still going but wouldn't stop stays, for the next start to try again.
+        else if (state) keep = true;
       }
-      forget.run(r.id);
+      if (!keep) forget.run(r.id);
       out.set(r.id, { botId: r.bot_id, surface: r.surface, answer });
     }));
     return out;
@@ -247,8 +251,9 @@ export class HermesRun {
       this.over();
       return { how: 'completed', output: state.output.trim(), recovered: true };
     }
-    // Over, or the gateway that ran it is gone: nothing is left to stop.
-    if (!state || OVER.has(state.status)) this.over();
+    // Over: nothing is left to stop. When Hermes didn't say (gone, or only slow to answer), close()
+    // still asks it to stop, and a run it can't be asked about stays in `runs` for the next start.
+    if (state && OVER.has(state.status)) this.over();
     console.warn(`[hermes] ${this.botId}: the ${this.surface} run ${id} sent no end; Hermes says ${state ? state.status : 'nothing of it'}`);
     return { how: 'failed', error: LOST };
   }

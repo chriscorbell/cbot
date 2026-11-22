@@ -52,6 +52,8 @@ export function fakeHermes(...scripts: Step[][]) {
   const open = new Map<string, Set<string>>();
   const plays = new Map<string, Step[]>();
   const states = new Map<string, { status: string; output?: string }>();
+  const unanswered = new Set<string>();
+  const unstoppable = new Set<string>();
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
@@ -92,6 +94,7 @@ export function fakeHermes(...scripts: Step[][]) {
       return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } });
     }
     if (method === 'GET' && (m = path.match(/^\/v1\/runs\/([^/]+)$/))) {
+      if (unanswered.has(m[1])) return json({ error: { message: 'busy' } }, 503);
       if (!plays.has(m[1]) && !states.has(m[1])) return json({ error: { message: `Run not found: ${m[1]}` } }, 404);
       return json({ run_id: m[1], status: 'running', ...states.get(m[1]), pending_controls: [...(open.get(m[1]) ?? [])].map((id) => ({ kind: 'approval', prompt_id: id })) });
     }
@@ -103,6 +106,7 @@ export function fakeHermes(...scripts: Step[][]) {
       return json({ run_id: m[1], status: 'resolved', prompt_id: body.request_id });
     }
     if (method === 'POST' && (m = path.match(/^\/v1\/runs\/([^/]+)\/stop$/))) {
+      if (unstoppable.has(m[1])) return json({ error: { message: 'internal error' } }, 500);
       open.get(m[1])?.clear();
       return json({ run_id: m[1], status: 'stopping' });
     }
@@ -117,6 +121,10 @@ export function fakeHermes(...scripts: Step[][]) {
     calls,
     sessions,
     states,
+    /** Runs whose state GET /v1/runs/<id> doesn't answer, as a gateway too busy to reply. */
+    unanswered,
+    /** Runs Hermes refuses to stop. */
+    unstoppable,
     /** Hermes stops waiting for a prompt (its timeout), as if nobody answered. */
     expire: (promptId: string) => { for (const s of open.values()) s.delete(promptId); },
   });

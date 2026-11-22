@@ -206,6 +206,16 @@ describe('endings', () => {
     await vi.waitFor(() => expect(hermes.calls).toContainEqual({ method: 'POST', path: '/v1/runs/run_1/stop', body: {} }));
   });
 
+  test('a run whose events stop is still stopped when the gateway is too busy to say how it is', async () => {
+    const bot = seedBot(userId);
+    const hermes = fakeHermes([ev.text('Half of an answ')]);
+    hermes.unanswered.add('run_1');
+    loop.enqueue(bot.id, { type: 'user', text: 'hi' });
+    await loop.whenIdle(bot.id);
+    expect(rows(bot.id).at(-1)?.body).toMatchObject({ type: 'notice', tone: 'error' });
+    await vi.waitFor(() => expect(hermes.calls).toContainEqual({ method: 'POST', path: '/v1/runs/run_1/stop', body: {} }));
+  });
+
   test('a stream that breaks after the run finished still shows its whole answer', async () => {
     const bot = seedBot(userId);
     const hermes = fakeHermes([ev.text('The answer is'), ev.toolCall('todo', 'c1')]);
@@ -577,6 +587,17 @@ describe('after a restart', () => {
     expect(hermes.map((r) => r.input)).toEqual(['two']);
     expect(hermes.calls.filter((c) => c.path.endsWith('/stop')).map((c) => c.path).sort()).toEqual(['/v1/runs/run_call/stop', '/v1/runs/run_old/stop']);
     expect(left(bot.id)).toEqual([{ n: 0 }, { n: 0 }]);
+  });
+
+  test('a run the last process left that Hermes won\'t stop stays, for the next start to try again', async () => {
+    const bot = leftMidTurn('run_stuck');
+    const hermes = fakeHermes();
+    hermes.states.set('run_stuck', { status: 'running' });
+    hermes.unstoppable.add('run_stuck');
+    await loop.resumeTurns();
+    expect(hermes.calls.some((c) => c.path === '/v1/runs/run_stuck/stop')).toBe(true);
+    expect(db.prepare<[string], { id: string }>('SELECT id FROM runs WHERE bot_id=?').all(bot.id)).toEqual([{ id: 'run_stuck' }]);
+    db.prepare('DELETE FROM runs WHERE id=?').run('run_stuck'); // so the next start in this file doesn't find it
   });
 
   test('a run that finished while the server was down shows its answer', async () => {
