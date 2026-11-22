@@ -220,7 +220,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual(self.current(), f"releases/{OLD}")
 
     def test_the_port_comes_from_the_machines_settings(self):
-        self.write(self.path("etc/dispatch/env"), "PORT=9000\n")
+        self.write(self.path("etc/dispatch/env"), 'TZ=UTC\nPORT="9000"\n')
         shim = self.path("bin/curl")
         self.write(shim, self.read(shim).replace("#!/usr/bin/env bash\n", '#!/usr/bin/env bash\necho "curl $*" >>"$CALLS"\n', 1))
         self.assertEqual(self.release(OLD).returncode, 0)

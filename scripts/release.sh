@@ -30,8 +30,13 @@ etc="$root/etc/dispatch"
 releases="$srv/releases"
 final="$releases/$commit"
 say() { echo "[release] $*"; }
-# setting <name> <default>: a variable from /etc/dispatch/env, which overrides the unit's own.
-setting() { local v; v="$(sed -n "s/^$1=//p" "$etc/env" 2>/dev/null | tail -n 1)"; echo "${v:-$2}"; }
+# setting <name> <default>: a variable from /etc/dispatch/env, which overrides the unit's own, unquoted
+# as systemd's EnvironmentFile reads it.
+setting() {
+  local v
+  v="$(sed -nE "s/^[[:space:]]*$1=[\"']?([^\"']*)[\"']?[[:space:]]*\$/\\1/p" "$etc/env" 2>/dev/null | tail -n 1)"
+  echo "${v:-$2}"
+}
 port="$(setting PORT 8787)"
 # The database, and the copy of it taken before the switch (reset.ts erases dispatch.db*).
 db="$root$(setting DATA_DIR /var/lib/dispatch)/dispatch.db"
