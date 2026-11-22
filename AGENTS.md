@@ -36,7 +36,9 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `scripts/backup.sh`, `scripts/restore.sh`, `server/src/backup-db.ts` | Backing up both places Dispatch keeps data in, while it runs, and putting a backup back |
 | `server/src/reset.ts` | Resetting Dispatch to a fresh install: every bot deleted, the data erased, then the process exits for its supervisor to restart it |
 | `server/src/updates.ts` | Updating Dispatch from GitHub: checking for a newer release (or commit of the branch the installer was told to follow), and running this release's installer again in a unit of its own |
-| `scripts/install/`, `scripts/bundle.sh`, `scripts/publish.sh`, `.github/workflows/release.yml` | Installing and updating from signed releases (`release_signers`, `fetch_signed` for the tag and `fetch_assets` for the build, in `install-release.sh`), building a release from its tag in GitHub Actions, and publishing it: `publish.sh` checks the build against its own and signs its checksums. `.node-version` and `scripts/node.sha256` pin the Node a release brings; change them together. Changing `release_signers` changes which keys every machine trusts once it updates. `curl \| bash` fetches one file, so `scripts/bundle.sh` joins the parts into `install.sh` and `uninstall.sh`. Those aren't committed: every build bundles them (`build-release.sh`), each release has them attached, and the install and uninstall commands download them from the newest release. Edit the parts. `common.sh` is in both |
+| `scripts/install/`, `scripts/publish.sh`, `.github/workflows/release.yml` | Installing and updating from signed releases (`release_signers`, `fetch_signed` for the tag and `fetch_assets` for the build, in `install-release.sh`), building a release from its tag in GitHub Actions, and publishing it: `publish.sh` checks the build against its own and signs its checksums. Changing `release_signers` changes which keys every machine trusts once it updates |
+| `.node-version`, `scripts/node.sha256` | Pin the Node a release brings; change them together |
+| `scripts/bundle.sh` | `curl \| bash` fetches one file, so `scripts/bundle.sh` joins the parts into `install.sh` and `uninstall.sh`. Those aren't committed: every build bundles them (`build-release.sh`), each release has them attached, and the install and uninstall commands download them from the newest release. Edit the parts. `common.sh` is in both |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/units.ts`, `deploy/dispatch-*@.service`, `scripts/install-units.sh` | The systemd units each bot's screen, gateway, Chrome and apps run as, and each bot's slice with its memory limit |
@@ -84,13 +86,24 @@ Each lifecycle has one owner module. Its states are written down there; other co
 - **Requests name rows by generation.** The web app sends a row's `generation` with an answer or a reaction; the server refuses an answer to a cleared chat and patches the row of that generation.
 - **Read, check, write with no await between.** A route that checks state before changing it (a question still pending) reads it after its last `await`, so two requests at once can't both pass the check.
 - **Live state through `live.ts`.** Only `agent/turns.ts` and `agent/transcript.ts` call its transitions.
-- **Validate at the boundary.** Route bodies go through `body(c, schema)` from `lib/validate.ts`. Tool arguments are the tool's zod `params`. Data from outside is parsed with zod where it enters, like route bodies: Hermes' run events and answers (`agent/run-events.ts`, `engine.ts`), the MCP envelope (`mcp.ts`), the speech service's and the browser's call events (`voice-relay.ts`), and other services (`weather.ts`). What doesn't fit is logged and dropped, or fails the request with a clear error; it is never cast. Inside, trust the types; lint refuses `any`.
+- **Validate at the boundary.** Route bodies go through `body(c, schema)` from `lib/validate.ts`. Tool arguments are the tool's zod `params`. Data from outside is parsed with zod where it enters, like route bodies:
+  - Hermes' run events and answers (`agent/run-events.ts`, `engine.ts`)
+  - the MCP envelope (`mcp.ts`)
+  - the speech service's and the browser's call events (`voice-relay.ts`)
+  - other services (`weather.ts`)
+
+  What doesn't fit is logged and dropped, or fails the request with a clear error; it is never cast. Inside, trust the types; lint refuses `any`.
 - **Contracts are shared, not restated.** A route's response type lives in `contract.ts` and the handler returns `{ ... } satisfies ThatType`; the web call names the same type. Server events are `ServerEvent` in `types.ts`; voice messages are in `voice-protocol.ts`. `types.ts`, `contract.ts` and `voice-protocol.ts` import nothing from the server, because the web app bundles them.
 - **Exhaustive switches.** A switch over a union ends with `default: { const x: never = ev; ... }` where it must handle every case (`lib/events.ts`, `voice/call.ts`). Lint enforces it in both workspaces.
 - **No floating promises.** Await it, `.catch` it, or write `void` when it is deliberate and cannot reject. An unhandled rejection stops the server; in the browser it fails without a word. A caught error is `unknown`: read it with `errorText` and `errorField` (`server/src/lib/errors.ts`).
 - **Exact versions.** Every dependency is pinned to one version in `package.json`, and Dependabot proposes the updates. TypeScript, Vite and Vitest are declared once, at the root.
 - **Constants in one place.** Paths, ports and display numbers the box scripts need too are in `server/box/machine.json`, which `machine.ts` and `server/box/dispatchlib.py` both read; change them there. Other server-only paths are in `machine.ts`, and the speech service's fixed address on a host is in `deploy/speech.env`.
-- **The bots' files are their account's.** Every bot runs as one ordinary account (`account.ts`); the server is root. Whatever the server writes under the bots' folders (`BOTS_ROOT`: Hermes homes, Libraries, Chrome profiles) goes through `own`/`mkdirOwned` (or `box.writeFile`, which does it), and a command it runs in a bot's home goes through `asAccount`; the box scripts use `own`, `write_owned` and `as_account`. Otherwise a bot can't change its own file. The server's own data (`DATA_DIR`) stays root's.
+- **The bots' files are their account's.** Every bot runs as one ordinary account (`account.ts`); the server is root.
+  - Whatever the server writes under the bots' folders (`BOTS_ROOT`: Hermes homes, Libraries, Chrome profiles) goes through `own`/`mkdirOwned` (or `box.writeFile`, which does it).
+  - A command it runs in a bot's home goes through `asAccount`.
+  - The box scripts use `own`, `write_owned` and `as_account`.
+
+  Otherwise a bot can't change its own file. The server's own data (`DATA_DIR`) stays root's.
 - **The MCP tool list is a contract with every bot's model.** `test/fixtures/mcp-tools.json` records what Hermes is offered. Changing a tool's name, description or parameters changes that file on purpose. Renaming or adding a tool restarts every gateway on the next deploy (the settings hash covers tool names).
 - **Long-lived processes are systemd units.** A display, a gateway, a Chrome, the dock, the home screen server and whatever the bots open on their screens run as units of their own (`units.ts`, `dispatchlib.py`), outside `dispatch.service`, so restarting the server leaves them running. Start, find and stop them through systemd; never spawn something long-lived detached from the server.
 - **Nothing starts at import.** Modules may prepare statements and define things; timers, processes and network calls start from `index.ts` (the `init*` functions) or from a request.
@@ -112,7 +125,13 @@ Each lifecycle has one owner module. Its states are written down there; other co
 
 **Change the voice protocol.** Change `voice-protocol.ts`; the relay and the browser both fail to compile until they agree. The speech service's events are documented in `speech/README.md`.
 
-**Add web state.** Data from the server goes in `web/src/store.ts` with a named action; view-only state stays in the component or `configStore.ts`. An optimistic change keeps the previous value and rolls back only if nothing newer replaced it (see `patchRow`). A request from one part of the UI to another with no shared parent ("put this in the composer") goes through `web/src/lib/uiEvents.ts`, typed. An async answer that may arrive after the user switched bots, or after the panel closed, goes through `guarded()` (`web/src/lib/guarded.ts`) or checks it is still about the bot shown (see `Composer.tsx`, `EngineSettings.tsx`). A reply in the composer names its row by generation too (`web/src/lib/reply.ts`).
+**Add web state.**
+
+- Data from the server goes in `web/src/store.ts` with a named action; view-only state stays in the component or `configStore.ts`.
+- An optimistic change keeps the previous value and rolls back only if nothing newer replaced it (see `patchRow`).
+- A request from one part of the UI to another with no shared parent ("put this in the composer") goes through `web/src/lib/uiEvents.ts`, typed.
+- An async answer that may arrive after the user switched bots, or after the panel closed, goes through `guarded()` (`web/src/lib/guarded.ts`) or checks it is still about the bot shown (see `Composer.tsx`, `EngineSettings.tsx`).
+- A reply in the composer names its row by generation too (`web/src/lib/reply.ts`).
 
 **Change behaviour the user sees.** Update `README.md` (what Dispatch is and how to install it), `docs/RUNNING.md` (how to run it) and `docs/ARCHITECTURE.md` in the same commit, and say in the commit message what changed for the user. Don't invent new UI patterns without asking.
 
