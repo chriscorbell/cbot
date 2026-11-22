@@ -390,8 +390,8 @@
 @media (max-width: 560px) {
   .drawer-btn { display: inline-flex; }
   .rail-toggle { display: none; }
-  .chat__header { padding: 0 8px; padding-top: env(safe-area-inset-top); height: calc(var(--header-h) + env(safe-area-inset-top)); }
-  .transcript { --fade-start: env(safe-area-inset-top); padding: calc(var(--header-h) + env(safe-area-inset-top) + 6px) 14px 14px; }
+  .chat__header { padding: 0 8px; padding-top: var(--top-inset); height: calc(var(--header-h) + var(--top-inset)); }
+  .transcript { --fade-start: var(--top-inset); padding: calc(var(--header-h) + var(--top-inset) + 6px) 14px 14px; }
   .composer-area { padding: 4px 10px 10px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
   .msg-actions { display: none; }
   :root { --bubble-max: 88%; }

@@ -163,7 +163,7 @@
   .sidebar, .sidebar.is-expanded {
     position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw);
     transform: translateX(-100%); transition: transform var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow);
-    background: var(--color-bg-sidebar); padding-top: env(safe-area-inset-top);
+    background: var(--color-bg-sidebar); padding-top: var(--top-inset);
   }
   .sidebar.is-drawer-open { transform: none; box-shadow: 0 0 0 1px var(--border), 24px 0 48px -12px #00000080; }
   .drawer-scrim {

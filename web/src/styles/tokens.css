@@ -170,6 +170,8 @@
 
   /* layout */
   --header-h: 52px;
+  /* Where a phone's status bar ends and the app's own controls may start (the header, the drawer). */
+  --top-inset: env(safe-area-inset-top);
   /* The visible height: the screen, less a phone keyboard while one is up (lib/viewport.ts). */
   --visible-h: var(--app-h, 100dvh);
   --rail-w: 72px;
@@ -222,5 +224,15 @@
     --leading-message: 22px;
     --leading-lg: 22px;
     --leading-xl: 25px;
+  }
+}
+
+/* On an iPhone or iPad, an app added to the Home Screen gets a frosted band from iOS over the top of
+   the page: opaque under the status bar, then blurring out about 23 points below it, drawn above the
+   page so nothing in it can cover the band (WebKit bug 301994). Anything placed just under the status
+   bar there is half blurred, so the app's controls start below the band. A Safari tab has no band. */
+@media (display-mode: standalone) {
+  @supports (-webkit-touch-callout: none) {
+    :root { --top-inset: calc(env(safe-area-inset-top) + 16px); }
   }
 }

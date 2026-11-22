@@ -163,7 +163,7 @@
 
 @media (max-width: 560px) {
   /* Under the header, which grows by the status bar's height on a phone (chat.css). */
-  .vcall-wrap { top: calc(var(--header-h) + env(safe-area-inset-top) + 4px); }
+  .vcall-wrap { top: calc(var(--header-h) + var(--top-inset) + 4px); }
 }
 @media (max-width: 600px) {
   .vcall { height: 46px; gap: 2px; }

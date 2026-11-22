@@ -191,5 +191,5 @@
 }
 @media (max-width: 600px) {
   .details { width: 100vw; box-shadow: none; }
-  .details__close { top: max(10px, env(safe-area-inset-top)); }
+  .details__close { top: max(10px, var(--top-inset)); }
 }
