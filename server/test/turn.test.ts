@@ -70,6 +70,23 @@ describe('messages', () => {
     expect(unread(id)).toBe(1);
   });
 
+  test.each([
+    ['streamed', [ev.text('Hi Tess, I’m Ada. I can also check in with you each day.')]],
+    ['marked commentary', [ev.text('Hi Tess, I’m Ada.'), ev.interim('Hi Tess, I’m Ada.', true)]],
+    ['after looking for the tool', [ev.text('Hi Tess, I’m Ada.'), ev.toolCall('tool_search', 'c0'), ev.toolDone('c0')]],
+  ])('what the bot writes just before asking the user a question is a message to them (%s)', async (_, before) => {
+    const id = await turn([...before, ev.toolCall('mcp_dispatch_ask_user', 'c1'), ev.toolDone('c1'), ev.completed('')]);
+    const messages = rows(id).filter((r) => r.kind === 'message');
+    expect(messages.map((r) => !!msg(r).note)).toEqual([false]);
+    expect(msg(messages[0]).text).toMatch(/^Hi Tess, I’m Ada\./);
+    expect(unread(id)).toBe(1);
+  });
+
+  test('text before another tool, then a question, stays a note', async () => {
+    const id = await turn([ev.text('Let me look.'), ev.toolCall('read_file', 'c1'), ev.toolDone('c1'), ev.toolCall('mcp_dispatch_ask_user', 'c2'), ev.toolDone('c2'), ev.completed('Done.')]);
+    expect(rows(id).filter((r) => r.kind === 'message').map((r) => [msg(r).text, !!msg(r).note])).toEqual([['Let me look.', true], ['Done.', false]]);
+  });
+
   test('commentary that arrives whole is a note', async () => {
     const id = await turn([ev.interim('Thinking about it.'), ev.toolCall('todo', 'c1'), ev.toolDone('c1'), ev.completed('Done.')]);
     expect(rows(id).map((r) => (r.body.type === 'message' ? [msg(r).text, !!msg(r).note] : r.kind))).toEqual([

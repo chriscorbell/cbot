@@ -18,6 +18,9 @@ import type { StepEvent } from './run-events.js';
  *              as a note:    a tool call followed, or Hermes marked it commentary (the bot talking
  *                            to itself; kept for the record, hidden in the chat, shown on the status line)
  *
+ * But text written just before ask_user leads into the question (a greeting, why it asks): it is a
+ * message, even when it had closed as a note.
+ *
  * A turn that wrote only notes answers with its last one; a final answer that never streamed comes
  * whole with the run's end. A tool that ends the turn (ask_user, stay_silent, post_to_group) makes the
  * transcript `silent`: closing text after it is dropped.
@@ -61,6 +64,8 @@ export class TurnTranscript {
   private shown = false;
   /** Seqs of this turn's notes, oldest first. */
   private readonly notes: number[] = [];
+  /** The note written since the last tool call, if any: the lead-in to a question that may follow. */
+  private leadIn: number | null = null;
 
   private lastCaption = 0;
 
@@ -106,14 +111,17 @@ export class TurnTranscript {
   }
 
   private toolStarted(d: Extract<StepEvent, { event: 'tool.started' }>) {
-    // Text written before this call was the bot thinking aloud: a note, not a message.
-    this.closeMessage(true);
     const raw = d.tool ?? '';
     const { name, ours } = appToolName(raw);
+    // Text written before this call was the bot thinking aloud: a note, not a message. Before a
+    // question to the user it was written to them.
+    if (ours && name === 'ask_user') this.leadInToQuestion();
+    else this.closeMessage(true);
     if (!ours && TOOLBOX.has(name)) {
       this.caption('Finding the right tool', true);
       return;
     }
+    this.leadIn = null;
     const act = activityFor(raw);
     const callId = d.tool_call_id ?? '';
     const row = this.convo.append('tool-call', { type: 'tool-call', callId, name, label: act.label, status: 'running' } satisfies ToolCallBody);
@@ -276,6 +284,20 @@ export class TurnTranscript {
     this.shown = true;
   }
 
+  /** The bot is asking the user something: what it wrote just before is a message to them, a note it closed as included. */
+  private leadInToQuestion() {
+    if (this.text.trim()) { this.closeMessage(); return; }
+    this.closeMessage();
+    const seq = this.leadIn;
+    const row = seq === null ? null : this.convo.get(seq);
+    if (seq === null || row?.body.type !== 'message' || !row.body.note) return;
+    this.convo.update(seq, { ...row.body, note: undefined });
+    this.notes.splice(this.notes.indexOf(seq), 1);
+    this.leadIn = null;
+    this.shown = true;
+    this.unread();
+  }
+
   /** A whole note to itself (Hermes' "commentary"). */
   private note(t: string) {
     if (this.silent || !t.trim()) return;
@@ -290,7 +312,9 @@ export class TurnTranscript {
   }
 
   private pushNote(seq: number | undefined) {
-    if (seq !== undefined) this.notes.push(seq);
+    if (seq === undefined) return;
+    this.notes.push(seq);
+    this.leadIn = seq;
   }
 
   private caption(c: string | null, force = false) {
