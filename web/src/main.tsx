@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { initViewport } from './lib/viewport';
 import { captureSetupCode } from './lib/setupCode';
+import { captureLaunch } from './lib/launch';
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './styles/tokens.css';
@@ -20,6 +21,7 @@ import './styles/tasks.css';
 
 initViewport();
 captureSetupCode();
+captureLaunch();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

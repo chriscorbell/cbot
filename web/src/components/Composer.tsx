@@ -7,6 +7,7 @@ import { Icon } from './Icon';
 import { isCallActive, startCall, toggleMute, useVoice } from '../voice/call';
 import { useDictation } from '../voice/dictation';
 import { onUi } from '../lib/uiEvents';
+import { takeShared } from '../lib/launch';
 import { replyAction, type ReplyRef } from '../lib/reply';
 import { useStore } from '../store';
 
@@ -79,6 +80,9 @@ export function Composer({ bot, running, rows }: { bot: Bot; running: boolean; r
   // Per-bot drafts. Opening a chat puts the cursor in it, except on a phone, where that would raise the
   // keyboard over the chat the person came to read.
   useEffect(() => {
+    // Text shared from another app (lib/launch.ts) joins the draft of the chat that opens.
+    const shared = takeShared();
+    if (shared) drafts.set(bot.id, [drafts.get(bot.id)?.trim(), shared].filter(Boolean).join('\n'));
     setText(drafts.get(bot.id) ?? ''); setError(null); setReply(null); setFiles([]);
     if (!window.matchMedia('(hover: none) and (pointer: coarse)').matches) ref.current?.focus();
   }, [bot.id]);

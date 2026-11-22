@@ -110,7 +110,7 @@ Signing in to ChatGPT, Grok or Copilot shows a link and a short code. Open the l
 
 Dispatch works in a phone's browser, and **Add to Home Screen** (Safari's Share menu, or Chrome's menu) gives it an icon and a window of its own. The sidebar opens from the button at the top left. Hold a message to react, reply or copy its text, and hold a bot in the sidebar for its menu (mark as unread, copy, hide, delete). The chat stays above the keyboard while you type.
 
-The screen stays on during a voice call, since a phone that locks stops the page and with it the call.
+The screen stays on during a voice call, since a phone that locks stops the page and with it the call. On Android, Dispatch added to the home screen shows in the share sheet: what you share goes in the composer of the chat that opens.
 
 ## Approvals
 
