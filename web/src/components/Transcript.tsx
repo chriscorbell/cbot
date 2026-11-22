@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Copy, Ellipsis, FileText, Reply, SmilePlus } from 'lucide-react';
-import type { Attachment, Bot, LiveState, MessageBody, Row } from '@shared/types';
+import { Copy, Ellipsis, FileText, MessagesSquare, Reply, SmilePlus } from 'lucide-react';
+import type { Attachment, Bot, BotQuestion, LiveState, MessageBody, Row } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { isWaitingForYou } from '../lib/phrases';
 import { dividerLabel } from '../lib/time';
@@ -302,9 +302,47 @@ function VoiceCallRow({ row }: { row: Row }) {
   );
 }
 
+/**
+ * One bot's question to another (ask_bot), in both their chats: a quiet line that opens to the question
+ * and the answer. The asker's chat says whom it asked; the answerer's chat says who asked.
+ */
+function BotQuestionRow({ row, ask }: { row: Row; ask: BotQuestion }) {
+  const [open, setOpen] = useState(false);
+  const asker = row.botId === ask.from.id;
+  const asking = ask.status === 'asking';
+  const head = asker ? (asking ? `Asking ${ask.to.name}…` : `Asked ${ask.to.name}`) : (asking ? `${ask.from.name} is asking…` : `${ask.from.name} asked`);
+  const question = ask.question.replace(/\s+/g, ' ').trim();
+  return (
+    <div className={`call-row ask-row is-${ask.status}${open ? ' is-open' : ''}`}>
+      <div className="call-row__head">
+        <button type="button" className="call-row__title ask-row__title" onClick={() => setOpen(!open)} aria-expanded={open} title={open ? 'Hide the question' : 'Show the question and answer'}>
+          <MessagesSquare className="ask-row__icon" size={13} strokeWidth={1.9} aria-hidden />
+          <span className="ask-row__head">{head}</span>
+          <span className="ask-row__question">{question}</span>
+        </button>
+      </div>
+      {open && (
+        <div className="call-row__summary ask-row__body">
+          <div className="ask-row__part">
+            <div className="ask-row__who">{ask.from.name}</div>
+            <div className="ask-row__text">{ask.question}</div>
+          </div>
+          {ask.answer && (
+            <div className={`ask-row__part${ask.status === 'failed' ? ' is-failed' : ''}`}>
+              <div className="ask-row__who">{ask.status === 'failed' ? 'No answer' : ask.to.name}</div>
+              {ask.status === 'failed' ? <div className="ask-row__text">{ask.answer}</div> : <Markdown text={ask.answer} />}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SystemRow({ row }: { row: Row }) {
   const b = row.body;
   if (b.type === 'event' && b.call?.phase === 'ended') return <VoiceCallRow row={row} />;
+  if (b.type === 'event' && b.event === 'bot-question' && b.ask) return <BotQuestionRow row={row} ask={b.ask} />;
   if (b.type === 'event') return <div className="system-event">{b.text}</div>;
   if (b.type === 'notice') return <div className={`notice is-${b.tone ?? 'info'}`}>{b.text}</div>;
   if (b.type === 'card') return <CardRow row={row} />;

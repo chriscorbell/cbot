@@ -16,6 +16,7 @@ import './styles/viewer.css';
 import './styles/voice.css';
 import './styles/signin.css';
 import './styles/setup.css';
+import './styles/tasks.css';
 
 initViewport();
 captureSetupCode();

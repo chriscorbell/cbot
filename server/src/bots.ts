@@ -4,11 +4,13 @@ import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { toUser } from './lib/auth.js';
 import { assignEngine, provisionEngine, removeEngine } from './engine.js';
-import { getBot, listRoutines } from './store.js';
+import { getBot, listRoutines, requireBot } from './store.js';
 import { clear as clearTurns, enqueue } from './agent/turns.js';
 import { unscheduleRoutine } from './routines.js';
 import { forgetBotFiles, releaseScreen } from './computer.js';
 import { dropCalls } from './voice.js';
+import { dropAsks } from './agent/asks.js';
+import { teamJoined, teamLeft } from './agent/team.js';
 import { cancelBotSignIns } from './signin.js';
 import { NEW_BOT_VOICES } from './speech.js';
 import { removeBotUnits } from './units.js';
@@ -47,6 +49,8 @@ export function createBot(userId: string, b: { name: string; label?: string; des
   ).run(id, userId, b.name.trim().slice(0, 60) || 'New Bot', (b.label ?? '').trim().slice(0, 60), (b.description ?? '').trim().slice(0, 500), (b.instructions ?? '').trim().slice(0, 8000), shape, color, primary ? 1 : 0, voice, now(), now());
   assignEngine(id);
   provisionEngine(id);
+  // The rest of the team hears about it at their next turn; its own instructions list them already.
+  teamJoined(requireBot(id));
   hub.emit(userId, { type: 'roster' });
   return getBot(id)!;
 }
@@ -106,8 +110,11 @@ export async function deleteBot(b: BotRecord) {
   const routines = listRoutines(b.id);
   clearTurns(b.id);
   dropCalls(b.id);
+  dropAsks(b.id);
   cancelBotSignIns(b.id);
   db.transaction(() => {
+    // Its tasks go back to nobody, and the rest of the team hears it left.
+    teamLeft(b);
     db.prepare('INSERT OR REPLACE INTO deleted_bots(id,kind,engine_port,deleted_at) VALUES (?,?,?,?)').run(b.id, b.kind, b.engine_port, now());
     db.prepare('DELETE FROM bots WHERE id=?').run(b.id);
   })();

@@ -10,14 +10,13 @@ import { db, now, type BotRecord, type RowRecord } from './db.js';
 import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import type { AuthVars } from './lib/auth.js';
-import { appendRow, conversation, emitBot, getBotRow, ownBot, requireBot, updateRow } from './store.js';
-import { getLive } from './agent/live.js';
-import { computerState, screenForWork } from './computer.js';
+import { appendRow, conversation, emitBot, getBotRow, ownBot, updateRow } from './store.js';
+import { screenForWork } from './computer.js';
 import { engineFor } from './engine.js';
 import { HermesRun } from './agent/runs.js';
 import { instructionsFor } from './agent/prompt.js';
-import { ago, callLength, chatCursor, type ChatCursor } from './agent/catchup.js';
-import type { ActivityKind, CardBody, EventBody, RowBody, VoiceCallRecord } from './types.js';
+import { activitySnapshot, ago, callLength, chatCursor, recentMessages, type ChatCursor } from './agent/catchup.js';
+import type { EventBody, VoiceCallRecord } from './types.js';
 import { SAMPLE_RATE, mapSpeed, mapVoice, speak, transcribe, voiceCatalog, type VoiceCatalog } from './speech.js';
 import type { EchoSecond, Transcription, VoiceEnded, VoiceOptions, VoiceSession } from './contract.js';
 import { errorText } from './lib/errors.js';
@@ -35,54 +34,7 @@ function settingsOf(bot: BotRecord, catalog: VoiceCatalog) {
   return { voice: mapVoice(bot.voice, catalog), speed: mapSpeed(bot.voice_speed ?? 1, catalog) };
 }
 
-// ---------- helpers ----------
-
-const ACTIVITY_WORDS: Partial<Record<ActivityKind, string>> = {
-  thinking: 'thinking it through', working: 'working on it', searching_web: 'searching the web', reading_web: 'reading a web page',
-  browsing_web: 'browsing the web', on_its_computer: 'using its computer', running_commands: 'running commands on its computer',
-  waiting_on_command: 'waiting on a command', messaging_named: 'messaging another Bot', connecting_service: 'using an app',
-  waiting_for_you: 'waiting for the user', drafting_file: 'drafting a file', remembering: 'making a note',
-};
-
-function messageText(body: RowBody): { role: 'user' | 'assistant'; text: string; via?: string } | null {
-  // Notes are the bot thinking aloud between steps, not part of the conversation.
-  if (body.type !== 'message' || body.streaming || body.note) return null;
-  const via = body.from ? (body.from.kind === 'voice' ? 'said on a call' : body.from.kind === 'routine' ? `routine ${body.from.name}` : `from ${body.from.name}`) : undefined;
-  return { role: body.role, text: body.text, via };
-}
-
-/** Recent messages in the bot's current conversation, oldest first. */
-function recentMessages(botId: string, count: number) {
-  const b = requireBot(botId);
-  const rows = db.prepare("SELECT seq, body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','event','card') ORDER BY seq DESC LIMIT ?").all(botId, b.generation, count * 2) as Pick<RowRecord, 'seq' | 'body' | 'created_at'>[];
-  const out: { seq: number; at: number; who: string; text: string }[] = [];
-  for (const r of rows) {
-    const body = JSON.parse(r.body) as RowBody;
-    const m = messageText(body);
-    if (m) out.push({ seq: r.seq, at: r.created_at, who: m.role === 'user' ? `User${m.via ? ` (${m.via})` : ''}` : b.name, text: m.text });
-    else if (body.type === 'event' && body.event === 'voice-call' && body.call?.phase === 'ended') out.push({ seq: r.seq, at: r.created_at, who: 'Call record', text: body.text });
-    else if (body.type === 'card' && body.status === 'pending') out.push({ seq: r.seq, at: r.created_at, who: 'Waiting for the user', text: body.card === 'approval' ? body.title : body.question });
-    if (out.length >= count) break;
-  }
-  return out.reverse();
-}
-
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-
-function activitySnapshot(botId: string) {
-  const live = getLive(botId);
-  const pending = (db.prepare("SELECT body FROM rows WHERE bot_id=? AND generation=? AND kind='card' ORDER BY seq DESC LIMIT 20").all(botId, requireBot(botId).generation) as Pick<RowRecord, 'body'>[])
-    .map((r) => JSON.parse(r.body) as CardBody)
-    .filter((b): b is Extract<CardBody, { card: 'approval' | 'question' }> => (b.card === 'approval' || b.card === 'question') && b.status === 'pending');
-  const lines: string[] = [];
-  if (live.isRunning) lines.push(`Busy right now: ${ACTIVITY_WORDS[live.activity.kind] ?? 'working'}${live.activity.detail ? ` (${live.activity.detail})` : ''}, started ${ago(live.startedAt)}.`);
-  else lines.push('Idle: not working on anything right now.');
-  if (pending.length) lines.push(`Waiting on the user in chat:\n${pending.map((b) => `- ${b.card === 'approval' ? b.title : b.question}`).join('\n')}`);
-  const comp = computerState(requireBot(botId).user_id);
-  lines.push(`Computer: ${comp.status === 'running' ? 'running' : `a screen did not start (${comp.error})`}.`);
-  return lines.join('\n');
-}
-
 
 // ---------- the call's instructions and canned lines ----------
 

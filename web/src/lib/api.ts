@@ -1,7 +1,7 @@
-import type { ApprovalChoice, Attachment, Bot } from '@shared/types';
+import type { ApprovalChoice, Attachment, Bot, TaskStatus } from '@shared/types';
 import type {
   BotResponse, BotsResponse, ComputerResponse, MeResponse, Ok, RoomCreated, RoomMembersResponse, RoomMembersSet, SearchResponse,
-  RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, UploadResponse,
+  RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, TaskResponse, TasksResponse, UploadResponse,
 } from '@shared/contract';
 import { request as req, upload } from './http';
 
@@ -10,6 +10,11 @@ export type { RoomMember } from '@shared/contract';
 
 /** A message's reaction; null clears it. */
 export type RowPatch = { reaction?: string | null };
+
+/** A new task on the team's board. `ownerId` null leaves it unassigned; a bot given one is told and starts on it. */
+export interface TaskInput { title: string; notes?: string; ownerId?: string | null; status?: TaskStatus }
+/** The fields of a task that change; the ones left out stay as they are. */
+export type TaskPatch = Partial<TaskInput>;
 
 export const api = {
   me: () => req<MeResponse>('GET', '/auth/me'),
@@ -52,4 +57,10 @@ export const api = {
   roomMembers: (id: string) => req<RoomMembersResponse>('GET', `/rooms/${id}/members`),
   setRoomMembers: (id: string, botIds: string[]) => req<RoomMembersSet>('PUT', `/rooms/${id}/members`, { botIds }),
   createRoom: (name: string, botIds: string[]) => req<RoomCreated>('POST', '/rooms', { name, botIds }),
+
+  /** The team's task board: every open task and the ones finished lately. */
+  tasks: () => req<TasksResponse>('GET', '/tasks'),
+  addTask: (t: TaskInput) => req<TaskResponse>('POST', '/tasks', t),
+  updateTask: (id: string, p: TaskPatch) => req<TaskResponse>('PATCH', `/tasks/${id}`, p),
+  deleteTask: (id: string) => req<Ok>('DELETE', `/tasks/${id}`),
 };

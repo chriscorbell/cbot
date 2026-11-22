@@ -77,6 +77,8 @@ export interface BotRecord {
    * starts it again at 0.
    */
   told_seq: number;
+  /** The last entry of `team_log` the bot's agent has been told (agent/team.ts). A new bot starts at the newest. */
+  team_seen: number;
 }
 
 export interface RowRecord { bot_id: string; generation: number; seq: number; updated_seq: number; kind: string; body: string; created_at: number }
@@ -118,13 +120,33 @@ export interface SettingRecord { key: string; value: string; updated_at: number 
 export interface TurnRecord { id: number; bot_id: string; generation: number; trigger: string; run_id: string | null; created_at: number }
 
 /** A Hermes run started and not yet seen to end (agent/runs.ts), by Hermes' run id. */
-export interface RunRecord { id: string; bot_id: string; surface: 'chat' | 'voice' | 'summary'; started_at: number }
+export interface RunRecord { id: string; bot_id: string; surface: 'chat' | 'voice' | 'summary' | 'ask'; started_at: number }
 
 /**
  * A bot whose row is gone while what ran for it is still being taken down (deleteBot in bots.ts).
  * A restart finishes the job; its gateway's port goes to no other bot until then.
  */
 export interface DeletedBotRecord { id: string; kind: string; engine_port: number | null; deleted_at: number }
+
+/** A task on the team's board (agent/team.ts). `status` is a TaskStatus. */
+export interface TaskRecord {
+  id: string; user_id: string; title: string; notes: string;
+  status: 'todo' | 'doing' | 'blocked' | 'done';
+  /** The bot whose task it is; null while nobody has it. */
+  owner_id: string | null;
+  /** The name of the owner that was removed from the team, while the task waits for a new one. */
+  previous_owner: string | null;
+  /** The bot that put it on the board and its name then; both null when the user did. */
+  created_by: string | null; creator_name: string | null;
+  created_at: number; updated_at: number;
+}
+
+/**
+ * Something the team's agents are told at the start of their next turn (agent/team.ts): a bot joined or
+ * left, a task changed hands or got done. `audience` is the one bot it is for, or null for every bot but
+ * `actor_id`, the bot it is about.
+ */
+export interface TeamLogRecord { id: number; user_id: string; actor_id: string | null; audience: string | null; text: string; created_at: number }
 
 /**
  * The schema, one migration per change. The first is the whole schema as it stood before the first
@@ -287,6 +309,38 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         engine_port INTEGER,
         deleted_at INTEGER NOT NULL
       );
+    `);
+  },
+  // 4. The team's task board, and what each agent is told about changes to the team (agent/team.ts).
+  (d) => {
+    d.exec(`
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'todo',
+        -- The bot whose task it is; null while nobody has it. Deleting a bot hands its tasks back first
+        -- (bots.ts), and says whose they were in previous_owner.
+        owner_id TEXT REFERENCES bots(id) ON DELETE SET NULL,
+        previous_owner TEXT,
+        -- The bot that put it on the board and its name then; null when the user did.
+        created_by TEXT,
+        creator_name TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX tasks_owner ON tasks(owner_id);
+      CREATE TABLE team_log (
+        id INTEGER PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        actor_id TEXT,
+        audience TEXT,
+        text TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      -- The last team_log entry each bot's agent has been told.
+      ALTER TABLE bots ADD COLUMN team_seen INTEGER NOT NULL DEFAULT 0;
     `);
   },
 ];

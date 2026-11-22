@@ -150,12 +150,30 @@ export interface WeatherCard {
 
 export interface EventBody {
   type: 'event';
-  /** 'routine-run' is only in older chats; nothing writes it now and the chat hides it. */
-  event: 'routine-created' | 'routine-updated' | 'routine-run' | 'bot-message' | 'conversation-cleared' | 'computer' | 'voice-call';
+  /**
+   * 'routine-run' is only in older chats; nothing writes it now and the chat hides it. 'task': something
+   * on the team's task board that concerns this bot. 'bot-question': one bot asked another with ask_bot.
+   */
+  event: 'routine-created' | 'routine-updated' | 'routine-run' | 'bot-message' | 'conversation-cleared' | 'computer' | 'voice-call' | 'task' | 'bot-question';
   text: string;
   ref?: string;
   /** voice-call only: the call record (set on the end-of-call row). */
   call?: VoiceCallRecord;
+  /** bot-question only: the question and, once it came, the answer. */
+  ask?: BotQuestion;
+}
+
+/**
+ * A question one bot asked another with ask_bot (server/src/agent/asks.ts). The row is in both bots'
+ * chats: written 'asking' when the question goes out and rewritten once it is answered or failed.
+ */
+export interface BotQuestion {
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+  question: string;
+  status: 'asking' | 'answered' | 'failed';
+  /** The answer, or why there is none. */
+  answer?: string;
 }
 
 export interface VoiceCallRecord {
@@ -196,6 +214,26 @@ export type LiveState =
 export interface Routine {
   id: string; botId: string; name: string; prompt: string; schedule: string; timezone: string;
   enabled: boolean; nextRunAt: number | null; lastRunAt: number | null; description: string;
+}
+
+/** Where a task is on the team's board, in the board's column order. */
+export const TASK_STATUSES = ['todo', 'doing', 'blocked', 'done'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/** A task on the team's shared board (server/src/agent/team.ts owns it). */
+export interface Task {
+  id: string;
+  title: string;
+  notes: string;
+  status: TaskStatus;
+  /** The bot whose task it is; null while nobody has it. */
+  ownerId: string | null;
+  /** The name of the bot that had it until it was removed from the team; null otherwise. */
+  previousOwner: string | null;
+  /** The bot that put it on the board, with its name at the time; null when the user did. */
+  createdBy: { id: string; name: string } | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** One entry of a bot's Hermes memory: what it knows about the user (USER.md) or its own notes (MEMORY.md). */
@@ -294,5 +332,7 @@ export type ServerEvent =
   | { type: 'computer'; state: ComputerState }
   | { type: 'routines'; botId: string }
   | { type: 'memories'; botId: string }
+  /** The team's task board changed. */
+  | { type: 'tasks' }
   | { type: 'update'; update: UpdateState }
   | { type: 'ping' };

@@ -3,7 +3,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { conversation, getBotRow } from './store.js';
 import { mcpToken } from './engine.js';
-import { claimToolRow, enqueueBotMessage, turnDepth } from './agent/turns.js';
+import { claimToolRow, enqueueBotMessage, turnDepth, wake } from './agent/turns.js';
+import { askDepth } from './agent/asks.js';
 import { inputSchema, runTool, toolMap, TOOLS, type ToolCtx } from './agent/tools.js';
 import { liveCallOf } from './voice.js';
 import { errorText } from './lib/errors.js';
@@ -36,7 +37,7 @@ function caller(slug: string, auth: string | undefined): { botId: string } | nul
 
 const listTools = () => TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: inputSchema(t) }));
 
-async function callTool(botId: string, rawName: string, rawArgs: unknown): Promise<CallResult> {
+async function callTool(botId: string, rawName: string, rawArgs: unknown, signal?: AbortSignal): Promise<CallResult> {
   const bot = getBotRow(botId);
   if (!bot) return text('The team app has no bot for this agent any more.', true);
   const userId: string = bot.user_id;
@@ -48,9 +49,15 @@ async function callTool(botId: string, rawName: string, rawArgs: unknown): Promi
   if (claim && rawArgs && typeof rawArgs === 'object') claim.transcript.noteArgs(claim.seq, rawArgs);
   const report = (status: 'done' | 'error', summary?: string) => claim?.transcript.noteOutcome(claim.seq, { status, summary });
   // A call no chat turn claimed came from elsewhere: the bot's voice call if it is on one (or, rarely,
-  // Hermes' CLI while it is). Tools that write into the chat mark their rows with that call.
+  // Hermes' CLI while it is), or its answer to a teammate's question (agent/asks.ts), which counts how
+  // deep in a chain of questions it is. Tools that write into the chat mark their rows with the call.
   const callId = claim ? undefined : liveCallOf(botId) ?? undefined;
-  const ctx: ToolCtx = { userId, botId, convo: claim?.transcript.convo ?? current, callId, enqueueBotMessage, depth: turnDepth(botId) };
+  const ctx: ToolCtx = {
+    userId, botId, convo: claim?.transcript.convo ?? current, callId, enqueueBotMessage, wake,
+    depth: turnDepth(botId), asking: claim ? 0 : askDepth(botId),
+    // Hermes dropping the call, or the chat turn it belongs to being stopped.
+    signal: AbortSignal.any([...(signal ? [signal] : []), ...(claim ? [claim.signal] : [])]),
+  };
   const own = toolMap.get(name);
   if (!own) {
     report('error', 'Unknown tool');
@@ -83,7 +90,7 @@ const InitializeParams = z.object({ protocolVersion: z.string() });
 const CallParams = z.object({ name: z.string().min(1), arguments: z.unknown().optional() });
 
 /** Answer one JSON-RPC message; null for notifications (they get no answer). */
-async function handle(msg: unknown, botId: string): Promise<object | null> {
+async function handle(msg: unknown, botId: string, signal?: AbortSignal): Promise<object | null> {
   const req = RpcRequest.safeParse(msg);
   if (!req.success) {
     // A response to something we never asked; nothing to do with it.
@@ -114,7 +121,7 @@ async function handle(msg: unknown, botId: string): Promise<object | null> {
       if (!call.success) return rpcError(id, -32602, 'Missing tool name');
       // The tool checks its arguments against its own schema (runTool); none at all is an empty object.
       const args = call.data.arguments;
-      return { jsonrpc: '2.0', id, result: await callTool(botId, call.data.name, args && typeof args === 'object' ? args : {}) };
+      return { jsonrpc: '2.0', id, result: await callTool(botId, call.data.name, args && typeof args === 'object' ? args : {}, signal) };
     }
     case 'resources/list':
       return { jsonrpc: '2.0', id, result: { resources: [] } };
@@ -135,10 +142,10 @@ mcpApi.post('/:bot', async (c) => {
   let body: unknown;
   try { body = await c.req.json(); } catch { return c.json(rpcError(null, -32700, 'Parse error'), 400); }
   if (Array.isArray(body)) {
-    const answers = (await Promise.all(body.map((m) => handle(m, who.botId)))).filter(Boolean);
+    const answers = (await Promise.all(body.map((m) => handle(m, who.botId, c.req.raw.signal)))).filter(Boolean);
     return answers.length ? c.json(answers) : c.body(null, 202);
   }
-  const answer = await handle(body, who.botId);
+  const answer = await handle(body, who.botId, c.req.raw.signal);
   return answer ? c.json(answer) : c.body(null, 202);
 });
 

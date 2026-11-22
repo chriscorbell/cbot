@@ -12,7 +12,7 @@ const { conversation } = await import('../src/store.js');
 
 let userId: string;
 beforeAll(() => { userId = seedOwner().id; });
-const ctx = (botId: string) => ({ userId, botId, convo: conversation(botId), depth: 0, enqueueBotMessage: () => {} });
+const ctx = (botId: string) => ({ userId, botId, convo: conversation(botId), depth: 0, asking: 0, enqueueBotMessage: () => {}, wake: () => {} });
 
 test('the tools Hermes is offered are exactly the ones recorded in fixtures/mcp-tools.json', () => {
   // Hermes reads these when it connects; changing one changes what every bot's model sees.

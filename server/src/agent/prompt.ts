@@ -1,23 +1,30 @@
 import { db, type BotRecord, type SkillRecord, type UserRecord } from '../db.js';
 import { listRoutines, requireBot } from '../store.js';
-import { libraryDir } from '../machine.js';
+import { BOTS_DIR, libraryDir } from '../machine.js';
 import { getSetting } from '../settings.js';
 
 /**
  * What the app adds to the agent's own system prompt on every turn (sent as `instructions`).
  *
  * The agent (Hermes) already has its persona, memory and tool descriptions. This only says where it
- * is and how the app's own tools fit in. It must stay byte-identical between turns unless something
- * really changed (a routine, a teammate), because it sits in the cached part of the prompt:
- * nothing here may depend on the clock.
+ * is, who else is on the team and how the app's own tools fit in. It must stay byte-identical between
+ * turns unless something really changed (a routine, a teammate), because it sits in the cached part of
+ * the prompt: nothing here may depend on the clock, and nothing that changes as the team works (tasks,
+ * what teammates are doing) belongs here. Those reach the agent as notes at the start of a turn
+ * (agent/team.ts) or through its tools.
  */
 export async function instructionsFor(userId: string, botId: string): Promise<string> {
   const bot = requireBot(botId);
   const user = db.prepare<[string], UserRecord>('SELECT * FROM users WHERE id=?').get(userId);
   const owner = user?.username ?? 'the user';
 
-  const team = db.prepare<[string, string], Pick<BotRecord, 'name' | 'label' | 'is_primary'>>("SELECT name, label, is_primary FROM bots WHERE user_id=? AND id<>? AND kind<>'room' ORDER BY created_at").all(userId, botId)
-    .map((b) => `- ${b.name}${b.label ? ` (${b.label})` : ''}${b.is_primary ? ' [main point of contact]' : ''}`)
+  // The org chart: each teammate's role and what they are about, so a bot knows whom to ask.
+  const team = db.prepare<[string, string], Pick<BotRecord, 'id' | 'name' | 'label' | 'description' | 'is_primary'>>("SELECT id, name, label, description, is_primary FROM bots WHERE user_id=? AND id<>? AND kind<>'room' ORDER BY created_at").all(userId, botId)
+    .map((b) => {
+      const about = b.description.trim().replace(/\s+/g, ' ');
+      const line = `- ${b.name}${b.label ? `, ${b.label}` : ''}${b.is_primary ? ` (${owner}'s main point of contact)` : ''}${about ? `: ${about.length > 300 ? `${about.slice(0, 299)}…` : about}` : ''}`;
+      return `${line}${/[.!?…]$/.test(line) ? '' : '.'} Library: ~/${BOTS_DIR}/files/${b.id}/`;
+    })
     .join('\n');
   const groupRows = db.prepare<[string, string], Pick<BotRecord, 'name' | 'description' | 'instructions'>>("SELECT name, description, instructions FROM bots WHERE user_id=? AND kind='room' AND members LIKE ? ORDER BY created_at").all(userId, `%${botId}%`);
   const groups = groupRows.map((g) => g.name).join(', ');
@@ -40,7 +47,8 @@ The app gives you extra tools through its MCP server "dispatch"; their names car
 - ask_user asks a multiple-choice question when you need a real decision; set multiple when ${owner} may pick several. After calling it, stop; the answer arrives as the next message.
 - show_weather puts a forecast card for a place in the chat. Use it for every weather question instead of searching or running commands, then answer in a sentence or two.
 - For anything on a schedule that ${owner} should see and control in the app, use create_routine, not a private cron job.
-- send_to_bot hands work to another agent on the team or asks them something. Their reply comes back to you as a message. post_to_group posts into a group chat you belong to.
+- Your tasks are on the team's task board (list_tasks, add_task, update_task), where ${owner} can give you tasks too.
+- post_to_group posts into a group chat you belong to.
 - stay_silent ends a turn without telling ${owner} anything. Use it for routines, check-ins and agent-to-agent exchanges that produced nothing worth their attention.
 
 ## Your computer
@@ -53,8 +61,20 @@ ${getSetting('searxng-url') ? 'web_search finds pages; open them in your browser
 - Never say something is done unless a tool result shows it. Never invent facts.
 - Report outcomes; do not narrate each tool call.
 
-## Context
-- User: ${owner}
-${team ? `- Other agents on the team:\n${team}` : '- You are the only agent on the team so far.'}${groups ? `\n- Group chats you are in: ${groups}` : ''}
+${team ? `## Your team
+You work with the other agents on ${owner}'s team like colleagues at a small company, each with a role:
+${team}
+
+How you work together:
+- Ask the teammate who owns something rather than guessing about their work. ask_bot asks them and gives you their answer in this turn.
+- check_on_bot shows where a teammate stands: their role and instructions, routines, tasks, what they're doing right now, their notes and their latest messages with ${owner}. They aren't told.
+- Give a teammate work with add_task, with them as owner: they're told at once and start on it, and you hear when it's done.
+- Keep your own tasks current with update_task as you work: doing when you start, blocked with a note when you're stuck, done when it's finished.
+- send_to_bot sends a teammate a message for their chat, when it is neither a question nor a task.
+- You can read a teammate's Library. Change only your own files.
+- When the team changes or a task of yours moves, a [Team news] note at the start of your next message says so.
+
+` : ''}## Context
+- User: ${owner}${team ? '' : '\n- You are the only agent on the team so far.'}${groups ? `\n- Group chats you are in: ${groups}` : ''}
 ${routines ? `\n## Your routines in the app\n${routines}\n` : ''}${groupNotes ? `\n## Group chats\nWhat ${owner} set for the groups you are in. Follow a group's instructions when you post there.\n${groupNotes}` : ''}${skills ? `\n## Skills ${owner} gave you\n${skills}\n` : ''}${bot.instructions ? `\n## Instructions from ${owner}\n${bot.instructions}\n` : ''}`;
 }

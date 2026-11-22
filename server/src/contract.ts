@@ -3,7 +3,7 @@
 // same type, so changing a response here breaks the build on both sides until both agree.
 // Request bodies are the zod schemas next to their routes (lib/validate.ts).
 import type {
-  ApprovalMode, Attachment, Bot, ComputerState, EngineInfo, LibraryFile, LiveState, Memory, Routine, Row, Skill, UpdateState, User, VoiceOption,
+  ApprovalMode, Attachment, Bot, ComputerState, EngineInfo, LibraryFile, LiveState, Memory, Routine, Row, Skill, Task, UpdateState, User, VoiceOption,
 } from './types.js';
 
 export interface Ok { ok: true }
@@ -53,6 +53,10 @@ export interface ProvidersResponse {
   selfHosted: { url: string; models: string[]; error: string | null };
   searxngUrl: string;
 }
+
+/** GET /api/tasks: every open task, and the ones finished in the last 14 days. */
+export interface TasksResponse { tasks: Task[] }
+export interface TaskResponse { task: Task }
 
 export interface RoomMember { id: string; name: string; label: string; avatarShape: string; avatarColor: string }
 export interface RoomMembersResponse { members: RoomMember[] }
