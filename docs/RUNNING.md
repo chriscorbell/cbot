@@ -147,7 +147,7 @@ The file holds:
 
 - the database: the account, bots, chats, routines, settings and provider keys,
 - the secret the bots' tokens are signed with, and the certificate,
-- each bot's Hermes home (memory, sessions, keys and sign-ins), its Library, and its Chrome profile without Chrome's caches.
+- each bot's Hermes home (memory, sessions, keys and sign-ins) without the Python packages it downloaded, its Library, and its Chrome profile without Chrome's caches.
 
 The databases are copied whole even while they're written to. The file has keys and sign-ins in it, so only root can read it; keep it somewhere safe. The machine's settings in `/etc/dispatch/env` aren't in it, since the installer writes them for each machine.
 

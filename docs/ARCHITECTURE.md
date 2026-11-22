@@ -438,7 +438,7 @@ Then systemd (`Restart=always`) or the container's restart policy starts it agai
 `scripts/backup.sh` copies both places into one archive (`data/`, `bots/` and a `BACKUP` file naming the release and the account) without stopping anything:
 
 - Every SQLite database among them, Dispatch's and each Hermes home's, goes through SQLite's backup (`server/dist/backup-db.js`, with the release's own Node), so a database in WAL mode is copied whole.
-- The rest is copied as it is, without Chrome's caches and lock files or `release.sh`'s copy of the database.
+- The rest is copied as it is, without Chrome's caches and lock files, the packages uv keeps in each Hermes home (`cache/uv`), or `release.sh`'s copy of the database.
 
 `scripts/restore.sh`:
 

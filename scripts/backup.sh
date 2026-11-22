@@ -7,7 +7,8 @@
 #   data/   DATA_DIR (/var/lib/dispatch): the database, the secret that signs the bots' tokens, the
 #           sign-in fingerprint and the HTTPS certificate,
 #   bots/   the bots' folder in their account's home (~/dispatch): each bot's Hermes home (its keys,
-#           sign-ins, memory and sessions), Library and Chrome profile, without Chrome's caches,
+#           sign-ins, memory and sessions) without uv's package cache, its Library, and its Chrome
+#           profile without Chrome's caches,
 #   BACKUP  when it was made, from which release, and the account the bots ran as.
 # Every SQLite database among them (Dispatch's, and each Hermes home's) is copied with SQLite's own
 # backup (server/dist/backup-db.js), whole even while it is written to; other files are copied as they
@@ -72,8 +73,9 @@ fi
 } >"$stage/BACKUP"
 
 # The live folders go in by their paths from /, renamed data/ and bots/ as they go. Chrome's caches,
-# its lock files, the database copy release.sh keeps for a rollback, and the databases copied above
-# stay out.
+# its lock files, the packages uv keeps in a Hermes home (hundreds of megabytes it downloads again
+# when it needs them), the database copy release.sh keeps for a rollback, and the databases copied
+# above stay out.
 rx() { sed 's/[][\.*^$|]/\\&/g' <<<"${1#/}"; }
 names=()
 [ -d "$bots" ] && names+=("${bots#/}")
@@ -88,6 +90,7 @@ tar -czf "$out.partial" \
   --exclude="${data#/}/dispatch.db.before-update*" \
   --exclude="$p/Cache" --exclude="$p/Code Cache" --exclude="$p/GPUCache" --exclude="$p/GrShaderCache" \
   --exclude="$p/ShaderCache" --exclude="$p/DawnCache" --exclude="$p/Singleton*" \
+  --exclude="${bots#/}/engines/*/cache/uv" \
   --transform="s|^$(rx "$data")|data|S" --transform="s|^$(rx "$bots")|bots|S" \
   -C "$stage" BACKUP data bots \
   -C / "${data#/}" "${names[@]}" || rc=$?

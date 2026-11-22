@@ -82,6 +82,7 @@ class BackupTest(unittest.TestCase):
         bots = {
             "engines/a/state.db": "SQLite sessions", "engines/a/state.db-wal": "SQLite log",
             "engines/a/notes.db": "plain notes", "engines/a/memories/MEMORY.md": "memory",
+            "engines/a/cache/uv/wheels/numpy.whl": "a package", "engines/a/cache/screenshots/s.png": "a screenshot",
             "files/a/report.md": "report", "files/a/site/profiles/x/Cache/kept": "a Library folder",
             "profiles/a/Default/Cookies": "cookies", "profiles/a/Default/Cache/data_0": "cache",
             "profiles/a/Default/Code Cache/js": "cache", "profiles/a/SingletonLock": "lock",
@@ -126,6 +127,9 @@ class BackupTest(unittest.TestCase):
         self.assertFalse([n for n in m if "/Default/Cache" in n or "Code Cache" in n or "Singleton" in n])
         self.assertNotIn("data/dispatch.db.before-update", m)
         self.assertEqual(m["bots/files/a/site/profiles/x/Cache/kept"], "a Library folder one")
+        # uv's packages in a Hermes home come again when needed; what else Hermes keeps there stays.
+        self.assertFalse([n for n in m if "/cache/uv" in n])
+        self.assertEqual(m["bots/engines/a/cache/screenshots/s.png"], "a screenshot one")
         # Nothing by its path on this machine.
         self.assertFalse([n for n in m if not (n == "BACKUP" or n.split("/")[0] in ("data", "bots"))])
 
