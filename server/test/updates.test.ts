@@ -185,6 +185,9 @@ test('a release still being built, or with no signed checksums, is not offered',
   expect(await checkForUpdate()).toMatchObject({ error: null, available: { version: 'v0.10.0' } });
   github = releasesAnswer(['v0.12.0', 'v0.9.0'], { unsigned: ['v0.12.0'] });
   expect(await checkForUpdate()).toMatchObject({ available: null, error: null });
+  // Marked a prerelease on GitHub, which the installer can't see: offered, since it would install it.
+  github = () => Response.json([{ tag_name: 'v0.13.0', draft: false, prerelease: true, assets: [{ name: 'SHA256SUMS.sig' }] }]);
+  expect(await checkForUpdate()).toMatchObject({ error: null, available: { version: 'v0.13.0' } });
 });
 
 test('updating to a release runs the installer with no branch, so it installs the newest signed one', async () => {

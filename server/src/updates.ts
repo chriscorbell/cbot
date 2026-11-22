@@ -165,7 +165,6 @@ const GitHubCommit = z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
 const GitHubReleases = z.array(z.object({
   tag_name: z.string(),
   draft: z.boolean(),
-  prerelease: z.boolean(),
   assets: z.array(z.object({ name: z.string() })),
 }));
 
@@ -180,13 +179,14 @@ async function latestCommit(repo: string, ref: string): Promise<string> {
  * The newest published release, picked as install.sh's newest_release picks it: the highest vX.Y.Z
  * whose signed checksums are attached. A tag whose release is still a draft (publish.sh pushes the
  * tag before GitHub Actions builds it) or has none isn't offered, since the installer would pass it
- * over. Whether it is really signed is for the installer to check.
+ * over. GitHub's prerelease mark counts for nothing, as the installer can't see it. Whether a release
+ * is really signed is for the installer to check.
  */
 async function latestRelease(repo: string): Promise<string> {
   const body = GitHubReleases.safeParse(await askGitHub(`repos/${repo}/releases?per_page=30`, `GitHub has no ${repo}.`));
   if (!body.success) throw new Error('GitHub’s answer didn’t list the releases.');
   const versions = body.data
-    .filter((r) => !r.draft && !r.prerelease && VERSION.test(r.tag_name) && r.assets.some((a) => a.name === 'SHA256SUMS.sig'))
+    .filter((r) => !r.draft && VERSION.test(r.tag_name) && r.assets.some((a) => a.name === 'SHA256SUMS.sig'))
     .map((r) => r.tag_name);
   if (!versions.length) throw new Error(`${repo} has no published release yet.`);
   return versions.reduce((a, b) => (laterRelease(b, a) ? b : a));
