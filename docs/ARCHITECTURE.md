@@ -120,7 +120,7 @@ The two endpoints are Hermes named custom providers in `config.yaml`'s `provider
 
 Hermes asks only the current provider's endpoint for its models, so Dispatch asks both endpoints itself (`endpointModels`, kept for a minute) and offers what they list.
 
-Whether a provider is connected comes from Hermes' own `/api/model/options`. Signing in opens a terminal on the bot's screen that runs `hermes auth add <provider>` with `BROWSER` set to the bot's Chrome, and the user finishes it through the viewer.
+Whether a provider is connected comes from Hermes' own `/api/model/options`. Signing in happens with a link and a code, with nothing on the bot's screen (below).
 
 ### Subscription sign-ins
 
