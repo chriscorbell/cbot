@@ -424,6 +424,35 @@
     }
   },
   {
+    "name": "show_visual",
+    "description": "Draw a visual in the chat as a web page you write: a chart, a table, a diagram, a timeline, a comparison or a small interactive tool such as a calculator. Use it on your own, without being asked, whenever an answer has numbers that compare or change (a series over time, options side by side, a breakdown) or lays out a schedule, a process or a plan. Not for simple answers. Afterwards reply with the takeaway in a sentence or two, not what the visual already shows. The page is one HTML document with its CSS and scripts inline. Libraries from a CDN are fine (e.g. Chart.js, D3 or Mermaid from cdn.jsdelivr.net). Images on your computer, named by an absolute path or a path relative to the page's file in a src attribute or CSS url(), are copied in; they must be in your Library. It shows in a frame as wide as the chat (about 720px on a computer, 360px on a phone) on the chat's own background, so leave html and body without a background, and the page without an outer card, border, banner or side padding. Use fluid widths, and keep text readable on a phone: size a chart to the frame's width rather than scaling a wide drawing down (an SVG with a viewBox shrinks its labels too). Give charts a fixed pixel height. The frame grows to fit the page: let the content set the height, and don't use vh units or height:100% on html or body. Use the app's colors and fonts through CSS variables so it matches the chat in light and dark mode: --background, --foreground, --muted-foreground, --surface, --border, --primary, --primary-foreground, --ring, --destructive, --success, --warning, --chart-1, --chart-2, --chart-3, --chart-4, --chart-5, --chart-6, --radius, --font-sans, --font-mono. The page already has the chat's background, text color and font. A box with its own background takes var(--surface), 16px padding and var(--radius) corners. Series in a chart take --chart-1 onwards. A script that draws with colors (a canvas chart) reads them with getComputedStyle(document.documentElement).getPropertyValue('--chart-1') and draws again on the window's 'themechange' event. Scripts run sandboxed, away from the app: no cookies, localStorage or sign-ins. Links open in a new tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "A few words naming it, e.g. \"Rent vs. buy over 10 years\""
+        },
+        "html": {
+          "description": "The page as HTML. Give this or path",
+          "type": "string"
+        },
+        "path": {
+          "description": "An .html file in your Library (~/dispatch/files/<your id>/), absolute or relative to it. Give this or html",
+          "type": "string"
+        },
+        "height": {
+          "description": "About how tall the page is in CSS pixels. Default 320; the frame fits the page once it loads",
+          "type": "number"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "post_to_chat",
     "description": "Post a message in your text chat with the user. On a voice call, use it for anything better read than heard (links, addresses, lists, code, numbers to copy, a written summary), then tell the user it's in the chat instead of reading it out. In the text chat itself, write your reply instead.",
     "inputSchema": {

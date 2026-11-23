@@ -109,6 +109,7 @@ function chatLine(body: RowBody, owner: string, callId: string): string | null {
       return `${owner}: ${text}`;
     }
     case 'card':
+      if (body.card === 'page') return `You showed ${owner} a visual: ${clip(oneLine(body.title), 200)}`;
       return body.card === 'question' && body.status === 'pending' ? `Your question, waiting for ${owner}'s answer: ${clip(oneLine(body.question), 300)}` : null;
     case 'notice':
       return `Notice from the app: ${clip(oneLine(body.text), 300)}`;

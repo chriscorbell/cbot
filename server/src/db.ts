@@ -174,6 +174,9 @@ export interface PushDeviceRecord { endpoint: string; user_id: string; session: 
 /** The server's one VAPID key pair (lib/webpush.ts), which every device subscribes with. Made on first use. */
 export interface PushKeysRecord { id: 1; public_key: string; private_key: string; created_at: number }
 
+/** A page a bot showed in its chat (show_visual, pages.ts): the HTML as it was shown, images copied in. */
+export interface PageRecord { id: string; bot_id: string; title: string; html: string; created_at: number }
+
 /**
  * The schema, one migration per change. The first is the whole schema as it stood before the first
  * release with real installs: the migrations that led there were folded into it once, when the only
@@ -434,6 +437,21 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         private_key TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+    `);
+  },
+  // 7. Pages bots show in their chats (show_visual, pages.ts). The page is kept as it was shown rather than
+  // read from the bot's Library each time, so changing or deleting the file leaves the chat as it was.
+  // They go with their bot, and stay through New chat like the rows that show them.
+  (d) => {
+    d.exec(`
+      CREATE TABLE pages (
+        id TEXT PRIMARY KEY,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        html TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX pages_bot ON pages(bot_id);
     `);
   },
 ];

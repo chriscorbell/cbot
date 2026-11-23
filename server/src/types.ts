@@ -143,7 +143,8 @@ export type CardBody =
       status: 'pending' | 'answered' | 'dismissed';
       answer?: string;
     }
-  | WeatherCard;
+  | WeatherCard
+  | PageCard;
 
 /** A forecast shown as a card (the show_weather tool). Temperatures are °C and wind km/h; the card converts. */
 export interface WeatherCard {
@@ -162,6 +163,57 @@ export interface WeatherCard {
   hourly: { time: string; temp: number; code: number; isDay: boolean; event?: 'sunrise' | 'sunset' }[];
   daily: { date: string; high: number; low: number; code: number; precip: number }[];
 }
+
+/**
+ * A page the bot wrote and showed in the chat (the show_visual tool): a chart, a table, a diagram. Its
+ * HTML is in the pages table (server/src/pages.ts); the chat shows it in a sandboxed frame.
+ */
+export interface PageCard {
+  type: 'card';
+  card: 'page';
+  status: 'shown';
+  pageId: string;
+  /** A few words naming it: the frame's title, and the header when it is open full screen. */
+  title: string;
+  /** About how tall the page is in CSS pixels: the frame's height until the page reports its own. */
+  height: number;
+}
+
+/**
+ * The CSS variables a page gets from the app, so it matches the chat in either theme, and the app's
+ * own token each one takes its value from (web/src/styles/tokens.css). The show_visual tool tells the
+ * bots these names; the chat's frame reads the tokens and hands them over (web PageCard.tsx).
+ */
+export const PAGE_VARS = {
+  '--background': '--background',
+  '--foreground': '--foreground',
+  '--muted-foreground': '--muted-foreground',
+  '--surface': '--surface',
+  '--border': '--border',
+  '--primary': '--primary',
+  '--primary-foreground': '--primary-foreground',
+  '--ring': '--ring',
+  '--destructive': '--destructive',
+  '--success': '--color-success',
+  '--warning': '--color-warn',
+  '--chart-1': '--chart-1',
+  '--chart-2': '--chart-2',
+  '--chart-3': '--chart-3',
+  '--chart-4': '--chart-4',
+  '--chart-5': '--chart-5',
+  '--chart-6': '--chart-6',
+  '--radius': '--radius',
+  '--font-sans': '--font-stack',
+  '--font-mono': '--font-mono-stack',
+} as const;
+
+/**
+ * What the chat and a page's frame say to each other (server/src/pages.ts writes the page's side). The
+ * page reports its height, so the frame fits it; the chat sends the theme when the frame opens (in the
+ * address's fragment, before the page paints) and again whenever it changes.
+ */
+export type PageTheme = { scheme: 'light' | 'dark'; vars: Record<string, string>; fonts: { family: string; url: string }[] };
+export type PageMessage = { type: 'dispatch:height'; height: number } | { type: 'dispatch:theme'; theme: PageTheme };
 
 export interface EventBody {
   type: 'event';

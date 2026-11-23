@@ -18,7 +18,7 @@ import { inlineType, type Attachment, type LibraryFile, type Skill } from './typ
 import type { BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, ProviderSignIn, SignInResponse, SkillResponse, UpdateResponse, UploadResponse, UrlResponse } from './contract.js';
 import { mkdirOwned } from './account.js';
 import { LIBRARY_ROOT } from './machine.js';
-import { numbered, safeName, uploadsDir } from './library.js';
+import { inLibrary, numbered, safeName, uploadsDir } from './library.js';
 import { setRelayMode } from './vnc.js';
 import { authorityPem } from './https.js';
 import { checkForUpdate, startUpdate, updateState } from './updates.js';
@@ -282,19 +282,6 @@ function safeRel(p: string | undefined): string | null {
   if (!rel) return '';
   if (rel.split('/').some((s) => !s || s === '.' || s === '..') || /[\0\n\r]/.test(rel)) return null;
   return rel;
-}
-
-/**
- * `rel` inside the Library at `root`, with links followed first, so a link inside the Library can't
- * reach outside it. Null when it isn't there or is outside.
- */
-async function inLibrary(root: string, rel: string): Promise<string | null> {
-  try {
-    const [real, top] = await Promise.all([fs.promises.realpath(rel ? `${root}/${rel}` : root), fs.promises.realpath(root)]);
-    return real === top || real.startsWith(`${top}/`) ? real : null;
-  } catch {
-    return null;
-  }
 }
 
 /** A folder's entries, a link as itself: folders first, then the newest first. */

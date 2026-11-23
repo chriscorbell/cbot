@@ -55,6 +55,12 @@ const app = createApp();
 // Serve the built web app in production.
 const webDist = path.resolve(new URL('.', import.meta.url).pathname, '../../web/dist');
 if (fs.existsSync(webDist)) {
+  // The pages bots show in their chats (pages.ts) use the app's fonts from a frame with an origin of
+  // its own, which a font may only be loaded into when its response allows it.
+  app.use('/assets/*', async (c, next) => {
+    await next();
+    if (c.req.path.endsWith('.woff2')) c.res.headers.set('access-control-allow-origin', '*');
+  });
   app.use('/*', serveStatic({ root: path.relative(process.cwd(), webDist) }));
   app.get('*', (c) => c.html(fs.readFileSync(path.join(webDist, 'index.html'), 'utf8')));
 }

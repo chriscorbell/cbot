@@ -21,6 +21,7 @@ import { defaultWorkspace, nameInUse, ownWorkspace } from './workspaces.js';
 import { applySchedule, runRoutine, unscheduleRoutine } from './routines.js';
 import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
 import { filesNote } from './library.js';
+import { getPage, PAGE_CSP, servePage } from './pages.js';
 import { voiceApi } from './voice.js';
 import { eraseAndExit, takeDown } from './reset.js';
 import { makeSetupCode } from './lib/auth.js';
@@ -236,6 +237,19 @@ api.get('/bots/:id/rows', (c) => {
   if (!b) return c.json({ error: 'not found' }, 404);
   const beforeSeq = c.req.query('beforeSeq') ? Number(c.req.query('beforeSeq')) : undefined;
   return c.json({ generation: b.generation, rows: listRows(b.id, { beforeSeq, limit: Number(c.req.query('limit') ?? 200) }) } satisfies RowsResponse);
+});
+
+// A page a bot showed in its chat (show_visual), for the chat's frame. It is never changed once kept, but
+// the frame's script added here may be, with an update: a day is long enough to cache it.
+api.get('/bots/:id/pages/:pageId', (c) => {
+  const b = ownBot(c.get('user').id, c.req.param('id'));
+  const page = b && getPage(b.id, c.req.param('pageId'));
+  if (!page) return c.json({ error: 'not found' }, 404);
+  return c.body(servePage(page.html), 200, {
+    'content-type': 'text/html; charset=utf-8',
+    'content-security-policy': PAGE_CSP,
+    'cache-control': 'private, max-age=86400',
+  });
 });
 
 const NewMessage = z.object({

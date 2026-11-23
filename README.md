@@ -18,6 +18,7 @@ https://github.com/user-attachments/assets/54f0e200-13e1-416a-9181-69a80f4627e5
 - Memory you can review and prune
 - Search across bots, messages, library files and folders
 - A library of the files that your bots create and the files you attach
+- Visuals in the chat: when a chart, table or diagram says it better than text, a bot draws one right in its reply
 - Voice calls
 - Dictation
 - A phone layout you can add to your home screen as an app

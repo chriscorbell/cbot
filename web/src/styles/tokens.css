@@ -36,6 +36,13 @@
   --sidebar-border: var(--border);
   --avatar-eye: #FFFFFF;
   --avatar-ink: #111111;
+  /* Series in the pages bots draw (show_visual): distinct at a glance, none louder than the rest. */
+  --chart-1: #3A78F2;
+  --chart-2: #1E9E5A;
+  --chart-3: #E08A1E;
+  --chart-4: #8B5CF6;
+  --chart-5: #E0474F;
+  --chart-6: #14A3A3;
 }
 
 :root[data-theme='dark'] {
@@ -60,6 +67,12 @@
   --primary-foreground: #111111;
   --avatar-eye: #141414;
   --avatar-ink: #F2F2F2;
+  --chart-1: #5B8FF5;
+  --chart-2: #34C17A;
+  --chart-3: #F0A43C;
+  --chart-4: #A78BFA;
+  --chart-5: #F06A70;
+  --chart-6: #2CC5C5;
 }
 
 /* App tokens, mapped onto the ones above. Defined once: each var() resolves per theme. */

@@ -18,8 +18,8 @@ function database(sql = ''): { d: Database.Database; file: string } {
 }
 
 test('a fresh database gets the whole schema and records its version', () => {
-  assert.equal(db.pragma('user_version', { simple: true }), 6);
-  assert.deepEqual(tables(db), ['approvals', 'auth_sessions', 'bots', 'deleted_bots', 'proactivity', 'push_devices', 'push_keys', 'routines', 'rows', 'runs', 'screens', 'settings', 'skills', 'tasks', 'team_log', 'turns', 'users', 'workspaces']);
+  assert.equal(db.pragma('user_version', { simple: true }), 7);
+  assert.deepEqual(tables(db), ['approvals', 'auth_sessions', 'bots', 'deleted_bots', 'pages', 'proactivity', 'push_devices', 'push_keys', 'routines', 'rows', 'runs', 'screens', 'settings', 'skills', 'tasks', 'team_log', 'turns', 'users', 'workspaces']);
   for (const col of ['kind', 'members', 'voice', 'engine', 'engine_port', 'handback_at', 'sidebar_hidden', 'told_seq', 'team_seen']) {
     assert.ok(columns(db, 'bots').includes(col), `bots.${col}`);
   }
@@ -32,7 +32,7 @@ test('migrating a database that is up to date changes nothing', () => {
   const { d, file } = database();
   migrate(d, file);
   migrate(d, file);
-  assert.equal(d.pragma('user_version', { simple: true }), 6);
+  assert.equal(d.pragma('user_version', { simple: true }), 7);
   // References cascade once the migrations are done.
   assert.equal(d.pragma('foreign_keys', { simple: true }), 1);
   d.close();
@@ -42,7 +42,7 @@ test('a database from another version is refused with a way to start over, and l
   // The development versions before the schema was folded into one migration recorded nine.
   const { d, file } = database("CREATE TABLE bots (id TEXT PRIMARY KEY, hidden INTEGER); INSERT INTO bots VALUES ('bot_1', 0); PRAGMA user_version = 9;");
   assert.throws(() => migrate(d, file), (e: Error) => {
-    assert.match(e.message, /was made by another version of Dispatch \(schema 9; this version knows 6\)/);
+    assert.match(e.message, /was made by another version of Dispatch \(schema 9; this version knows 7\)/);
     assert.match(e.message, /docker compose -p dispatch-dev down -v/);
     return true;
   });
@@ -52,7 +52,7 @@ test('a database from another version is refused with a way to start over, and l
 
   // So is one with tables but no version at all, from before versions were recorded.
   const old = database("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT); INSERT INTO users VALUES ('usr_1', 'a@localhost');");
-  assert.throws(() => migrate(old.d, old.file), /schema 0; this version knows 6/);
+  assert.throws(() => migrate(old.d, old.file), /schema 0; this version knows 7/);
   assert.deepEqual(tables(old.d), ['users']);
   old.d.close();
 });
@@ -63,7 +63,7 @@ test('a database from before the task board gets it, and its bots have heard no 
   migrate(d, file, 3);
   d.exec("INSERT INTO users(id,created_at) VALUES ('usr_1', 0); INSERT INTO bots(id,user_id,name,created_at,updated_at) VALUES ('bot_1','usr_1','Ada',0,0);");
   migrate(d, file);
-  assert.equal(d.pragma('user_version', { simple: true }), 6);
+  assert.equal(d.pragma('user_version', { simple: true }), 7);
   assert.deepEqual(d.prepare('SELECT id, team_seen FROM bots').all(), [{ id: 'bot_1', team_seen: 0 }]);
   assert.ok(tables(d).includes('tasks') && tables(d).includes('team_log'));
   d.close();
@@ -81,7 +81,7 @@ test('a database from before workspaces puts everything it had in one called Per
     INSERT INTO proactivity(user_id,enabled,times,timezone,last_fired,updated_at) VALUES ('usr_1',1,'["08:00"]','Europe/Paris','2026-11-21 08:00',0);
   `);
   migrate(d, file);
-  assert.equal(d.pragma('user_version', { simple: true }), 6);
+  assert.equal(d.pragma('user_version', { simple: true }), 7);
   const ws = d.prepare('SELECT * FROM workspaces').all() as { id: string; user_id: string; name: string; task_board: number; created_at: number }[];
   assert.equal(ws.length, 1);
   assert.deepEqual({ ...ws[0], id: undefined }, { id: undefined, user_id: 'usr_1', name: 'Personal', task_board: 1, position: 0, created_at: 5, updated_at: 5 });

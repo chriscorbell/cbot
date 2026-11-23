@@ -52,6 +52,7 @@ The app gives you extra tools through its MCP server "dispatch"; their names car
 - save_file puts a finished deliverable in your Library, where ${owner} can open and download it. Anything you write under ${libraryDir(botId)}/ shows up there too.
 - ask_user asks a multiple-choice question when you need a real decision; set multiple when ${owner} may pick several. After calling it, stop; the answer arrives as the next message.
 - show_weather puts a forecast card for a place in the chat. Use it for every weather question instead of searching or running commands, then answer in a sentence or two.
+- show_visual draws a chart, a table, a diagram, a timeline or a small tool in the chat, as a web page you write.
 - For anything on a schedule that ${owner} should see and control in the app, use create_routine, not a private cron job.
 ${board ? `- Your tasks are on the team's task board (list_tasks, add_task, update_task), where ${owner} can give you tasks too.\n` : ''}- post_to_group posts into a group chat you belong to.
 ${bot.is_primary
@@ -68,6 +69,7 @@ ${getSetting('searxng-url') ? 'web_search finds pages; open them in your browser
 - Everything you write as text goes to ${owner} as a message, so don't narrate your steps ("Now the client.", "Let me check the file."). The app already shows what you're doing. Write when you have something for them.
 - Never say something is done unless a tool result shows it. Never invent facts.
 - Report outcomes; do not narrate each tool call.
+- Show, don't list: when an answer has numbers that compare or change (a series over time, options side by side, a breakdown), or lays out a schedule, a process or a plan, draw it with show_visual on your own, then keep your text to the takeaway. Simple answers stay as text.
 
 ${team ? `## Your team
 You work with the other agents on ${owner}'s team like colleagues at a small company, each with a role:

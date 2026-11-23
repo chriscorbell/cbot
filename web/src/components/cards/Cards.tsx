@@ -4,6 +4,7 @@ import type { ApprovalChoice, CardBody, Row } from '@shared/types';
 import { api } from '../../lib/api';
 import { Icon } from '../Icon';
 import { WeatherCard } from './WeatherCard';
+import { PageCard } from './PageCard';
 import { emitUi } from '../../lib/uiEvents';
 
 type Card<K extends CardBody['card']> = Extract<CardBody, { card: K }>;
@@ -138,6 +139,7 @@ export function CardRow({ row }: { row: Row }) {
     case 'approval': return <ApprovalCard body={b} />;
     case 'question': return <QuestionCard row={row} body={b} />;
     case 'weather': return <WeatherCard body={b} />;
+    case 'page': return <PageCard row={row} body={b} />;
     default: return null;
   }
 }

@@ -20,7 +20,7 @@ export function chatPreview(r: BotRecord): { text: string; from: string | null; 
   if (!last) return null;
   const b = JSON.parse(last.body) as RowBody;
   const text =
-    b.type === 'message' ? (b.text || (b.attachments?.length ? `Attached ${b.attachments.map((a) => a.name).join(', ')}` : '')) : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : `Weather in ${b.place}`) : b.type === 'event' ? b.text : '';
+    b.type === 'message' ? (b.text || (b.attachments?.length ? `Attached ${b.attachments.map((a) => a.name).join(', ')}` : '')) : b.type === 'card' ? (b.card === 'approval' ? `Waiting for you: ${b.title}` : b.card === 'question' ? b.question : b.card === 'page' ? b.title : `Weather in ${b.place}`) : b.type === 'event' ? b.text : '';
   return { text, from: b.type === 'message' && b.from?.kind === 'bot' ? b.from.name : null, at: last.created_at };
 }
 

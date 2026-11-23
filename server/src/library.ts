@@ -44,6 +44,19 @@ export async function copyToUploads(src: string, botId: string): Promise<string>
   }
 }
 
+/**
+ * `rel` inside the Library at `root`, with links followed first, so a link inside the Library can't
+ * reach outside it. Null when it isn't there or is outside.
+ */
+export async function inLibrary(root: string, rel: string): Promise<string | null> {
+  try {
+    const [real, top] = await Promise.all([fs.realpath(rel ? `${root}/${rel}` : root), fs.realpath(root)]);
+    return real === top || real.startsWith(`${top}/`) ? real : null;
+  } catch {
+    return null;
+  }
+}
+
 /** What a bot is told about attached files: where they are on its computer. */
 export function filesNote(files: { file: string; type: string; size: number }[]) {
   if (!files.length) return '';

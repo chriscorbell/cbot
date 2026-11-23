@@ -11,7 +11,8 @@ import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
 import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, type Actor } from './team.js';
 import { listMemories } from '../engine-memory.js';
-import { TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
+import { PAGE_VARS, TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
+import { DEFAULT_HEIGHT, deletePage, MAX_HEIGHT, MIN_HEIGHT, preparePage, savePage } from '../pages.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
 import { BOTS_DIR, libraryDir } from '../machine.js';
@@ -170,6 +171,15 @@ function wakeGiven(ctx: ToolCtx, botId: string | null): string {
   ctx.wake(botId, ctx.depth + 1);
   return ` ${name} was told and starts on it.`;
 }
+
+/** How a page for show_visual is made so it sits well in the chat: the layout, the theme, what it can load. */
+const PAGE_GUIDE = [
+  'The page is one HTML document with its CSS and scripts inline. Libraries from a CDN are fine (e.g. Chart.js, D3 or Mermaid from cdn.jsdelivr.net). Images on your computer, named by an absolute path or a path relative to the page\'s file in a src attribute or CSS url(), are copied in; they must be in your Library.',
+  "It shows in a frame as wide as the chat (about 720px on a computer, 360px on a phone) on the chat's own background, so leave html and body without a background, and the page without an outer card, border, banner or side padding. Use fluid widths, and keep text readable on a phone: size a chart to the frame's width rather than scaling a wide drawing down (an SVG with a viewBox shrinks its labels too). Give charts a fixed pixel height.",
+  "The frame grows to fit the page: let the content set the height, and don't use vh units or height:100% on html or body.",
+  `Use the app's colors and fonts through CSS variables so it matches the chat in light and dark mode: ${Object.keys(PAGE_VARS).join(', ')}. The page already has the chat's background, text color and font. A box with its own background takes var(--surface), 16px padding and var(--radius) corners. Series in a chart take --chart-1 onwards. A script that draws with colors (a canvas chart) reads them with getComputedStyle(document.documentElement).getPropertyValue('--chart-1') and draws again on the window's 'themechange' event.`,
+  'Scripts run sandboxed, away from the app: no cookies, localStorage or sign-ins. Links open in a new tab.',
+].join(' ');
 
 /** The tools that use the task board: a bot in a workspace that has turned the board off isn't offered them. */
 const BOARD_TOOLS = new Set(['list_tasks', 'add_task', 'update_task']);
@@ -519,6 +529,34 @@ export const TOOLS: ToolDef[] = [
       return {
         output: `Shown to the user as a card. ${card.place} now: ${Math.round(c.temp)}°C (feels ${Math.round(c.feelsLike)}°C), WMO code ${c.code}, humidity ${c.humidity}%, wind ${Math.round(c.wind)} km/h, today ${Math.round(c.low)}–${Math.round(c.high)}°C. Next days: ${days}. Reply in one or two short sentences; don't repeat the card.`,
         summary: card.place,
+      };
+    },
+  }),
+  tool({
+    name: 'show_visual',
+    description: `Draw a visual in the chat as a web page you write: a chart, a table, a diagram, a timeline, a comparison or a small interactive tool such as a calculator. Use it on your own, without being asked, whenever an answer has numbers that compare or change (a series over time, options side by side, a breakdown) or lays out a schedule, a process or a plan. Not for simple answers. Afterwards reply with the takeaway in a sentence or two, not what the visual already shows. ${PAGE_GUIDE}`,
+    params: z.object({
+      title: z.string().describe('A few words naming it, e.g. "Rent vs. buy over 10 years"'),
+      html: z.string().optional().describe('The page as HTML. Give this or path'),
+      path: z.string().optional().describe(`An .html file in your Library (~/${BOTS_DIR}/files/<your id>/), absolute or relative to it. Give this or html`),
+      height: z.number().optional().describe(`About how tall the page is in CSS pixels. Default ${DEFAULT_HEIGHT}; the frame fits the page once it loads`),
+    }),
+    activity: 'drafting_file',
+    label: 'Drawing a visual',
+    impl: async (a, ctx) => {
+      if ((a.html === undefined) === (a.path === undefined)) return { output: 'Give either html or path, not both.', summary: 'Nothing to show' };
+      const page = await preparePage(ctx.botId, a.html !== undefined ? { html: a.html } : { path: a.path! });
+      if ('error' in page) return { output: `Not shown: ${page.error}`, summary: 'Not shown' };
+      const title = clip(a.title.trim() || 'Visual', 120);
+      const id = savePage(ctx.botId, title, page.html);
+      const height = Math.round(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, a.height ?? DEFAULT_HEIGHT)));
+      if (!ctx.convo.append('card', { type: 'card', card: 'page', status: 'shown', pageId: id, title, height })) {
+        deletePage(id);
+        return { output: 'The user started a new chat meanwhile; nothing was shown.', summary: 'Chat was cleared' };
+      }
+      return {
+        output: `Shown to the user in the chat.${ctx.callId ? " You're on a voice call: tell them it's in the chat." : " Reply with only what it doesn't already say; don't describe it."}`,
+        summary: title,
       };
     },
   }),

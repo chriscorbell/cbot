@@ -114,3 +114,24 @@
 .wx-icon.is-storm { color: #C6A8F5; }
 /* Touch: the hourly row scrolls with a swipe, and the arrow (for a mouse) only crowded its last hour. */
 @media (hover: none) { .wx-hours__more { display: none; } }
+
+/* page card: a page a bot drew (show_visual), as wide as the chat, on the chat's own background. It sits
+   on a surface while it loads, then fades in; the frame eases to the height the page reports. */
+.page-card {
+  position: relative; align-self: stretch; border-radius: var(--radius); background: var(--surface);
+  transition: background-color var(--dur-slow) var(--ease-out); animation: msg-in 260ms var(--ease-out);
+}
+.page-card.is-loaded { background: transparent; }
+.page-card__frame {
+  display: block; width: 100%; border: 0; border-radius: var(--radius); opacity: 0;
+  transition: opacity 320ms var(--ease-out), height var(--dur-slow) var(--ease-out);
+}
+.page-card.is-loaded .page-card__frame { opacity: 1; }
+.page-card__expand {
+  position: absolute; top: 6px; right: 6px; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--surface-glass); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); color: var(--color-text-secondary);
+  opacity: 0; transform: scale(0.92); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast), color var(--dur-fast);
+}
+.page-card:hover .page-card__expand, .page-card__expand:focus-visible { opacity: 1; transform: none; }
+.page-card__expand:hover { background: var(--surface-glass-hover); color: var(--color-text-primary); }
+@media (hover: none) { .page-card.is-loaded .page-card__expand { opacity: 1; transform: none; } }

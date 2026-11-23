@@ -42,6 +42,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `.node-version`, `scripts/node.sha256` | Pin the Node a release brings; change them together |
 | `scripts/bundle.sh` | `curl \| bash` fetches one file, so `scripts/bundle.sh` joins the parts into `install.sh` and `uninstall.sh`. Those aren't committed: every build bundles them (`build-release.sh`), each release has them attached, and the install and uninstall commands download them from the newest release. Edit the parts. `common.sh` is in both |
 | `server/src/library.ts` | Attached files in a Library's `uploads/`: names, copies, and what the bot is told |
+| `server/src/pages.ts`, `web/src/components/cards/PageCard.tsx` | Pages bots draw in the chat (`show_visual`): checking and keeping them, serving them sandboxed, and the frame that fits and themes them |
 | `server/src/engine.ts` | Each bot's Hermes home and gateway |
 | `server/src/units.ts`, `deploy/dispatch-*@.service`, `scripts/install-units.sh` | The systemd units each bot's screen, gateway, Chrome and apps run as, and each bot's slice with its memory limit |
 | `server/src/signin.ts` | Subscription sign-ins with a link and a code (ChatGPT, Grok, Copilot) |
