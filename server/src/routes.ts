@@ -12,7 +12,7 @@ import { allLive } from './agent/live.js';
 import { computerState } from './computer.js';
 import { displayNumber, libraryDir, LIBRARY_ROOT } from './machine.js';
 import { displayRunning, screenshot } from './displays.js';
-import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncApprovals } from './engine.js';
+import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncApprovals, syncModel } from './engine.js';
 import { saveProviderSettings } from './providers.js';
 import { cleanSecret, cleanUrl, getSetting, SECRET_IDS, secretState, type SettingKey } from './settings.js';
 import { deleteMemory, memoryBot } from './engine-memory.js';
@@ -169,6 +169,7 @@ api.patch('/bots/:id', async (c) => {
     const v = p[k];
     if (v !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof v === 'boolean' ? (v ? 1 : 0) : v, now(), b.id);
   }
+  if (p.effort !== undefined) syncModel(b.id);
   showPersona(b, {
     persona: p.name !== undefined || p.label !== undefined || p.description !== undefined,
     looks: p.name !== undefined || p.label !== undefined || p.avatarShape !== undefined || p.avatarColor !== undefined,

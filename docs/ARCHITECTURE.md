@@ -78,10 +78,10 @@ A home is a Hermes root of its own rather than a profile under a shared root, be
 
 `writeHome` builds or refreshes a home before each gateway start:
 
-- `config.yaml` is created once. A new bot copies the primary bot's model, provider, auxiliary and fallback settings. After that Dispatch only rewrites the keys it owns, on every start:
+- `config.yaml` is created once. A new bot copies its workspace's primary bot's model, provider, auxiliary and fallback settings (a new workspace's first bot, the first workspace's: `templateBot`), and starts on its chosen model and reasoning effort too. After that Dispatch only rewrites the keys it owns, on every start:
   - the toolsets for the API server and for Hermes cron, and `agent.disabled_toolsets` (image generation, text to speech and Nous' connectors);
   - the SearXNG search backend;
-  - the default model, and Dispatch's two endpoints under `providers:` (below);
+  - the default model and `agent.reasoning_effort`, and Dispatch's two endpoints under `providers:` (below);
   - the terminal's working folder (the bot's Library);
   - the bot's Chrome as `browser.cdp_url`;
   - `mcp_servers.dispatch` with the bot's token;
@@ -89,8 +89,8 @@ A home is a Hermes root of its own rather than a profile under a shared root, be
   - switches that keep Hermes off other cloud services (Nous guest tier, connectors, telemetry, update, catalog and plugin checks, speech recognition, language server downloads).
 
   The approval keys (`approvals.mode`, `approvals.deny`, `command_allowlist`) are written too, but kept out of the settings hash, since Hermes reads them again whenever the file changes (see Approvals below).
-- The default model is the bot's chosen provider and model. Hermes resolves the default's credentials before it applies the provider a run asks for, so a default nobody has a key for would fail every run; Hermes' own cron jobs run on it too. With nothing chosen it is `deepseek-flash` when a DeepSeek key is set, unless a model was chosen in Hermes itself. Choosing a model rewrites it at once (`syncModel`); Hermes reads the file again, so it is kept out of the settings hash.
-- `.env` holds the API server's key, port and host, the model credentials, `BROWSER_CDP_URL` and `SEARXNG_URL`. A credential set in Settings > Providers wins; one that isn't stays as the home has it (an older bot's own Copilot sign-in wrote its token there) or comes from the primary bot's home. Keys added by hand stay.
+- The default model is the bot's chosen provider and model. Hermes resolves the default's credentials before it applies the provider a run asks for, so a default nobody has a key for would fail every run; Hermes' own cron jobs run on it too. With nothing chosen it is `deepseek-flash` when a DeepSeek key is set, unless a model was chosen in Hermes itself. Choosing a model rewrites it at once (`syncModel`); Hermes reads the file again, so it is kept out of the settings hash. The bot's reasoning effort is written the same way: each of the app's runs asks for it anyway, and Hermes' cron jobs and the bot reading its own config see the same.
+- `.env` holds the API server's key, port and host, the model credentials, `BROWSER_CDP_URL` and `SEARXNG_URL`. A credential set in Settings > Providers wins; one that isn't stays as the home has it (an older bot's own Copilot sign-in wrote its token there) or comes from the home the bot's started from. Keys added by hand stay.
 - `auth.json` holds the bot's own ChatGPT and Grok sign-ins (`signin.ts`), and a new bot starts without one. Copying the primary bot's would give two bots one refresh token, which a provider that rotates it on every refresh turns into a sign-out for whichever bot refreshes second.
 
   Claude has no sign-in: it runs on the token from `claude setup-token` in Settings > Providers (`CLAUDE_CODE_OAUTH_TOKEN`), which every bot shares, as it does Copilot's `COPILOT_GITHUB_TOKEN`. A Claude sign-in an older bot still has in `auth.json` comes first, and the token when that one fails.

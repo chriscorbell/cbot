@@ -426,7 +426,7 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'create_bot',
-    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
+    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model and reasoning effort. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
     params: z.object({
       name: z.string().describe('Its name, one or two words, not already on the team'),
       label: z.string().optional().describe('Its role in a few words, e.g. "Researcher"'),

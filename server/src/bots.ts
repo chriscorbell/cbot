@@ -3,7 +3,7 @@ import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { toUser } from './lib/auth.js';
-import { assignEngine, provisionEngine, refreshTools, removeEngine, syncPersona } from './engine.js';
+import { assignEngine, provisionEngine, refreshTools, removeEngine, syncPersona, templateBot } from './engine.js';
 import { getBot, getBotRow, listRoutines, requireBot } from './store.js';
 import { clear as clearTurns, enqueue } from './agent/turns.js';
 import { unscheduleRoutine } from './routines.js';
@@ -57,9 +57,12 @@ export function createBot(userId: string, b: NewBot, workspaceId = defaultWorksp
   // The workspace's first bot is its primary one: the user's main point of contact there, and the bot
   // later ones copy their model and sign-ins from (engine.ts).
   const primary = !primaryBot(workspaceId);
+  // It starts on the same model and reasoning effort as the primary bot (engine.ts templateBot), whose
+  // home its own starts from.
+  const from = templateBot(workspaceId, id);
   db.prepare(
-    'INSERT INTO bots(id,user_id,workspace_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(id, userId, workspaceId, name, clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, now(), now());
+    'INSERT INTO bots(id,user_id,workspace_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,provider,model,effort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+  ).run(id, userId, workspaceId, name, clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, from?.provider ?? null, from?.model ?? null, from?.effort ?? 'medium', now(), now());
   assignEngine(id);
   provisionEngine(id);
   // The rest of the team hears about it at their next turn; its own instructions list them already.

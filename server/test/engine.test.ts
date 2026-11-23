@@ -68,6 +68,17 @@ test("a bot's config.yaml that isn't valid YAML is left as it is, and the other 
   warn.mockRestore();
 });
 
+test("a bot's reasoning effort is its Hermes' default too, beside the agent settings already there", () => {
+  const user = seedOwner();
+  const bot = seedBot(user.id, { name: 'Effort' });
+  db.prepare("UPDATE bots SET engine='managed', effort='high' WHERE id=?").run(bot.id);
+  const file = path.join(env.enginesDir, bot.id, 'config.yaml');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'agent:\n  reasoning_effort: medium\n  disabled_toolsets: [kanban]\n');
+  syncModel(bot.id);
+  expect(fs.readFileSync(file, 'utf8')).toBe('agent:\n  reasoning_effort: high\n  disabled_toolsets:\n    - kanban\n');
+});
+
 test("Never Allow rules that can't be read make every action ask first, rather than none", () => {
   const user = seedOwner();
   db.prepare("UPDATE users SET approval_mode='off', approval_deny='[\"rm -rf *\"' WHERE id=?").run(user.id);

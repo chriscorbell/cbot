@@ -166,8 +166,13 @@ export function mcpToken(botId: string): string {
 }
 
 /** The oldest primary bot of any workspace: provider settings are shared, so any primary's home will do. */
-function primaryBotId(): string | null {
-  return db.prepare<[], Pick<BotRecord, 'id'>>("SELECT id FROM bots WHERE is_primary=1 AND kind <> 'room' ORDER BY created_at LIMIT 1").get()?.id ?? null;
+/**
+ * The bot a new one in the workspace starts from: its model, reasoning effort, provider settings and
+ * credentials. That is the workspace's primary bot, or, for a new workspace's first bot, the oldest
+ * workspace's. None for the very first bot.
+ */
+export function templateBot(workspaceId: string, botId: string): BotRecord | undefined {
+  return db.prepare<[string, string], BotRecord>("SELECT * FROM bots WHERE is_primary=1 AND kind <> 'room' AND id<>? ORDER BY workspace_id<>?, created_at LIMIT 1").get(botId, workspaceId);
 }
 
 /** The bot has a Hermes home and gateway of its own ('managed' in bots.engine). */
@@ -177,11 +182,12 @@ export function hasEngine(botId: string): boolean {
 
 const homeFor = (botId: string) => path.join(env.enginesDir, botId);
 
-/** The primary bot's home, which a newer bot's home starts from (model settings, .env credentials), or null for the primary bot itself. */
+/** The home a new bot's home starts from (model settings, .env credentials): its template bot's (templateBot), if it has one. */
 function inheritedHome(botId: string): string | null {
-  const primary = primaryBotId();
-  if (!primary || primary === botId) return null;
-  const home = homeFor(primary);
+  const b = botRow(botId);
+  const from = b && templateBot(b.workspace_id, botId);
+  if (!from) return null;
+  const home = homeFor(from.id);
   return fs.existsSync(home) ? home : null;
 }
 
@@ -254,11 +260,14 @@ function applyEndpoints(cfg: Mapping) {
  * The bot's provider and model are also its Hermes' default. Hermes resolves the default's credentials
  * before it looks at the provider a run asks for, so a default nobody has a key for fails every run;
  * and Hermes cron jobs the bot makes run on the default. A bot nobody chose a model for runs on DeepSeek
- * when its key is set; a model chosen in Hermes itself (`hermes model`) stays.
+ * when its key is set; a model chosen in Hermes itself (`hermes model`) stays. Its reasoning effort,
+ * which each of the app's runs asks for, is Hermes' default too, for those cron jobs and for the bot
+ * reading its own config.
  */
-function applyModel(cfg: Mapping, b: Pick<BotRecord, 'provider' | 'model'>) {
+function applyModel(cfg: Mapping, b: Pick<BotRecord, 'provider' | 'model' | 'effort'>) {
   if (b.provider) cfg.model = { provider: b.provider, ...(b.model ? { default: b.model } : {}) };
   else if (getSetting('deepseek') && !hasModel(cfg.model)) cfg.model = { provider: 'deepseek', default: DEFAULT_DEEPSEEK_MODEL };
+  cfg.agent = { ...section(cfg, 'agent'), reasoning_effort: b.effort };
 }
 
 function hasModel(m: unknown): boolean {
@@ -466,7 +475,6 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
     // starts on the defaults rather than not at all.
     const primary = (from ? readYamlOrSkip(path.join(from, 'config.yaml')) : null) ?? {};
     for (const k of SHARED_CONFIG) if (primary[k] !== undefined) cfg[k] = primary[k];
-    cfg.agent = { reasoning_effort: 'medium' };
   }
   applyManagedConfig(cfg, { bot: b, cwd, display, cdp });
   applyApprovals(cfg, approvalSettings(b.user_id), [...new Set([...allowlistOf(cfg), ...allowedActions(b.user_id)])]);
@@ -503,8 +511,11 @@ async function writeHome(botId: string): Promise<{ home: string; key: string; di
 
   const managed: Mapping = {};
   applyManagedConfig(managed, { bot: b, cwd, display, cdp });
-  // Hermes reads the default model again when config.yaml changes (syncModel), so choosing another one restarts nothing.
+  // Hermes reads the default model and reasoning effort again when config.yaml changes (syncModel), so
+  // choosing others restarts nothing.
   delete managed.model;
+  const { reasoning_effort: _, ...agent } = section(managed, 'agent');
+  managed.agent = agent;
   return { home, key, display, settings: settingsHash(botId, managed, vars), version };
 }
 
@@ -513,7 +524,7 @@ const SETTINGS_FILE = 'dispatch-settings';
 
 /**
  * A hash of what a gateway reads when it starts and this app decides: the config keys this app owns
- * (but the default model), the .env it writes, the Hermes install (scripts/provision.sh records its pin) and the names of the
+ * (but the default model and reasoning effort), the .env it writes, the Hermes install (scripts/provision.sh records its pin) and the names of the
  * app's MCP tools the bot is offered (toolsFor: its workspace may have turned the task board off), which
  * Hermes lists when it connects. A gateway that outlived this server keeps running only while the hash it
  * started with still matches.
@@ -749,7 +760,7 @@ export async function runSlot(botId: string): Promise<(event?: unknown) => void>
   };
 }
 
-/** A bot's provider or model changed: make it its Hermes' default now. Hermes reads config.yaml again when it changes. */
+/** A bot's provider, model or reasoning effort changed: make it its Hermes' default now. Hermes reads config.yaml again when it changes. */
 export function syncModel(botId: string) {
   const b = botRow(botId);
   if (!b || b.engine !== 'managed') return;
@@ -757,9 +768,10 @@ export function syncModel(botId: string) {
   if (!fs.existsSync(file)) return;
   const cfg = readYamlOrSkip(file);
   if (!cfg) return;
-  const before = JSON.stringify(cfg.model ?? null);
+  const chosen = (c: Mapping) => JSON.stringify([c.model ?? null, section(c, 'agent').reasoning_effort ?? null]);
+  const before = chosen(cfg);
   applyModel(cfg, b);
-  if (JSON.stringify(cfg.model ?? null) !== before) replacePrivate(file, YAML.stringify(cfg));
+  if (chosen(cfg) !== before) replacePrivate(file, YAML.stringify(cfg));
 }
 
 /**

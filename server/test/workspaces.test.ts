@@ -270,6 +270,27 @@ test('a name is used once in a workspace, by a bot or a group chat, whatever its
   expect(store.requireBot(kai.id).workspace_id).not.toBe(acme);
 });
 
+test("a new bot starts on its workspace's primary bot's model and reasoning effort; a new workspace's, on the first workspace's", async () => {
+  const { acme, ava, max } = twoTeams();
+  db.prepare("UPDATE bots SET provider='anthropic', model='claude-opus-5-5', effort='high' WHERE id=?").run(ava.id);
+  db.prepare("UPDATE bots SET provider='deepseek', model='deepseek-flash', effort='low' WHERE id=?").run(max.id);
+  const made = async (path: string, body: unknown) => {
+    const res = await app.request(path, json(body));
+    expect(res.status).toBe(200);
+    const id = ((await res.json()) as { bot: { id: string } }).bot.id;
+    return db.prepare<[string], Pick<BotRecord, 'provider' | 'model' | 'effort'>>('SELECT provider, model, effort FROM bots WHERE id=?').get(id);
+  };
+  const { env } = await import('../src/env.js');
+  const limit = env.maxBots;
+  env.maxBots = 10;
+  onTestFinished(() => { env.maxBots = limit; });
+  expect(await made('/api/bots', { name: 'Rhea', workspaceId: acme })).toEqual({ provider: 'deepseek', model: 'deepseek-flash', effort: 'low' });
+  expect(await made('/api/bots', { name: 'Nova' })).toEqual({ provider: 'anthropic', model: 'claude-opus-5-5', effort: 'high' });
+  const res = await app.request('/api/workspaces', json({ name: 'Side', bot: { name: 'Sol' } }));
+  const { bot } = (await res.json()) as WorkspaceCreated;
+  expect(db.prepare('SELECT provider, model, effort FROM bots WHERE id=?').get(bot.id)).toEqual({ provider: 'anthropic', model: 'claude-opus-5-5', effort: 'high' });
+});
+
 test('making a bot primary changes only its own workspace', async () => {
   const { ava, kai, max } = twoTeams();
   expect((await app.request(`/api/bots/${kai.id}/primary`, json({}))).status).toBe(200);
