@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { db } from '../src/db.js';
-import { allowedActions, approvalSettings, runSlot, syncApprovals, syncModel } from '../src/engine.js';
+import { allowedActions, approvalSettings, modelOffers, runSlot, syncApprovals, syncModel } from '../src/engine.js';
 import { env } from '../src/env.js';
 import { seedBot, seedOwner } from './helpers.js';
 
@@ -77,6 +77,30 @@ test("a bot's reasoning effort is its Hermes' default too, beside the agent sett
   fs.writeFileSync(file, 'agent:\n  reasoning_effort: medium\n  disabled_toolsets: [kanban]\n');
   syncModel(bot.id);
   expect(fs.readFileSync(file, 'utf8')).toBe('agent:\n  reasoning_effort: high\n  disabled_toolsets:\n    - kanban\n');
+});
+
+test("a bot can be put on its connected providers' models; a new one, not on the sign-ins each bot makes itself", async () => {
+  const user = seedOwner();
+  const bot = seedBot(user.id, { name: 'Offers' });
+  db.prepare("UPDATE bots SET engine='managed', engine_port=9990 WHERE id=?").run(bot.id);
+  // The bot's gateway is up, and lists what Hermes knows of each provider.
+  const options = {
+    providers: [
+      { slug: 'anthropic', authenticated: true, featured_models: ['claude-opus-5-5'] },
+      { slug: 'openai-codex', authenticated: true, models: ['gpt-5.5'] },
+      { slug: 'copilot', authenticated: true, models: ['gpt-5-mini'] },
+      { slug: 'xai', authenticated: false, models: ['grok-5'] },
+      { slug: 'openrouter', authenticated: true, models: [] },
+    ],
+  };
+  vi.stubGlobal('fetch', async (url: string) => Response.json(url.endsWith('/api/model/options') ? options : {}));
+  try {
+    const ids = (r: Awaited<ReturnType<typeof modelOffers>>) => ('offers' in r ? r.offers.map((p) => p.id) : r);
+    expect(ids(await modelOffers(bot.id))).toEqual(['anthropic', 'openai-codex', 'copilot']);
+    expect(ids(await modelOffers(bot.id, { fresh: true }))).toEqual(['anthropic', 'copilot']);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 test("Never Allow rules that can't be read make every action ask first, rather than none", () => {

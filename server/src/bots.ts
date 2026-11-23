@@ -3,7 +3,7 @@ import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { toUser } from './lib/auth.js';
-import { assignEngine, provisionEngine, refreshTools, removeEngine, syncPersona, templateBot } from './engine.js';
+import { assignEngine, provisionEngine, refreshTools, removeEngine, syncModel, syncPersona, templateBot } from './engine.js';
 import { getBot, getBotRow, listRoutines, requireBot } from './store.js';
 import { clear as clearTurns, enqueue } from './agent/turns.js';
 import { unscheduleRoutine } from './routines.js';
@@ -36,7 +36,13 @@ const agentCount = () => db.prepare<[], { n: number }>("SELECT COUNT(*) n FROM b
 export const primaryBot = (workspaceId: string) =>
   db.prepare<[string], BotRecord>("SELECT * FROM bots WHERE workspace_id=? AND is_primary=1 AND kind<>'room' ORDER BY created_at LIMIT 1").get(workspaceId);
 
-export interface NewBot { name: string; label?: string; description?: string; instructions?: string; avatarShape?: string; avatarColor?: string }
+type Effort = Bot['effort'];
+
+export interface NewBot {
+  name: string; label?: string; description?: string; instructions?: string; avatarShape?: string; avatarColor?: string;
+  /** The model it runs on, with its provider, and how hard it thinks, when the primary bot chose them (create_bot). */
+  provider?: string; model?: string; effort?: Effort;
+}
 
 /** Who a bot is to the team: its role, its About and its instructions, as long as createBot keeps them. */
 export interface Persona { label?: string; description?: string; instructions?: string }
@@ -58,11 +64,12 @@ export function createBot(userId: string, b: NewBot, workspaceId = defaultWorksp
   // later ones copy their model and sign-ins from (engine.ts).
   const primary = !primaryBot(workspaceId);
   // It starts on the same model and reasoning effort as the primary bot (engine.ts templateBot), whose
-  // home its own starts from.
+  // home its own starts from, unless the primary bot chose others for it. A model comes with its provider.
   const from = templateBot(workspaceId, id);
+  const model = b.model ? b : from;
   db.prepare(
     'INSERT INTO bots(id,user_id,workspace_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,provider,model,effort,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(id, userId, workspaceId, name, clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, from?.provider ?? null, from?.model ?? null, from?.effort ?? 'medium', now(), now());
+  ).run(id, userId, workspaceId, name, clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, model?.provider ?? null, model?.model ?? null, b.effort ?? from?.effort ?? 'medium', now(), now());
   assignEngine(id);
   provisionEngine(id);
   // The rest of the team hears about it at their next turn; its own instructions list them already.
@@ -113,6 +120,26 @@ export function updatePersona(b: BotRecord, p: Persona): (keyof Persona)[] {
     .run(next.label ?? null, next.description ?? null, next.instructions ?? null, now(), b.id);
   showPersona(b, { persona: changed.includes('label') || changed.includes('description'), looks: changed.includes('label') });
   hub.emit(b.user_id, { type: 'roster' });
+  return changed;
+}
+
+/** Which model a bot runs on, with its provider, and how hard it thinks. Undefined leaves one as it is; a null model or provider goes back to the agent's default. */
+export interface ModelChoice { provider?: string | null; model?: string | null; effort?: Effort }
+
+/**
+ * Choose a bot's model and reasoning effort, from its settings or for the workspace's primary bot
+ * (update_bot). They are saved on its row, which each run reads as it starts, and made its Hermes'
+ * default at once (engine.ts syncModel). Neither is in the gateway's settings hash, so no gateway
+ * restarts. Returns the ones that changed; the caller sends the bot to the web app (emitBot).
+ */
+export function setModel(botId: string, c: ModelChoice): (keyof ModelChoice)[] {
+  const b = getBotRow(botId);
+  if (!b) return [];
+  const clean = (v: string | null | undefined) => (v === undefined ? undefined : v?.trim() ? v.trim().slice(0, 120) : null);
+  const next: ModelChoice = { provider: clean(c.provider), model: clean(c.model), effort: c.effort };
+  const changed = (['provider', 'model', 'effort'] as const).filter((k) => next[k] !== undefined && next[k] !== b[k]);
+  for (const k of changed) db.prepare(`UPDATE bots SET ${k}=?, updated_at=? WHERE id=?`).run(next[k] ?? null, now(), botId);
+  syncModel(botId);
   return changed;
 }
 

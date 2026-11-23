@@ -11,7 +11,7 @@ import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
 import { addTask, changeTask, getTask, HOP_PAUSE_MS, listTasks, MAX_HOPS, ownerName, taskLine, toTask, withNote, type Actor, type TaskChange } from './team.js';
 import { listMemories } from '../engine-memory.js';
-import { MAX_TASK_NOTES, PAGE_VARS, TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
+import { EFFORTS, MAX_TASK_NOTES, PAGE_VARS, TASK_STATUSES, type ActivityKind, type EngineProvider, type EventBody } from '../types.js';
 import { DEFAULT_HEIGHT, deletePage, MAX_HEIGHT, MIN_HEIGHT, preparePage, savePage } from '../pages.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
@@ -20,7 +20,8 @@ import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
 import { boardOn, nameInUse } from '../workspaces.js';
 import { notify } from '../notifications.js';
-import type { addTeammate, updatePersona } from '../bots.js';
+import type { addTeammate, setModel, updatePersona } from '../bots.js';
+import type { modelOffers } from '../engine.js';
 
 export interface ToolCtx {
   userId: string;
@@ -35,11 +36,14 @@ export interface ToolCtx {
   /** Queue a turn for a bot a task change concerns: it was given the task, or created it and it got done or blocked (turns.ts wake). */
   wake: (botId: string, depth: number, o?: { later?: boolean }) => void;
   /**
-   * Add an agent to the calling bot's workspace, and change a teammate's label, About or instructions
-   * (bots.ts). Passed in like wake: bots.ts loads turns.ts, which loads this module.
+   * Add an agent to the calling bot's workspace, and change a teammate's label, About or instructions,
+   * or its model and reasoning effort among those it can run (bots.ts, engine.ts). Passed in like wake:
+   * bots.ts loads turns.ts, which loads this module, and engine.ts loads this module itself.
    */
   addTeammate: typeof addTeammate;
   updatePersona: typeof updatePersona;
+  setModel: typeof setModel;
+  modelOffers: typeof modelOffers;
   /** Bot-to-bot hops behind the turn that called the tool (team.ts MAX_HOPS). */
   depth: number;
   /** How deep in a chain of ask_bot questions the call is: 0 from a chat turn, 1 while answering a question asked from one. */
@@ -152,6 +156,38 @@ function routineFor(ctx: ToolCtx, id: string): RoutineRecord | undefined {
   const r = db.prepare<[string, string], RoutineRecord>('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.workspace_id=?').get(id, ctx.workspaceId);
   return r && (r.bot_id === ctx.botId || selfOf(ctx)?.is_primary) ? r : undefined;
 }
+
+/** A model the primary bot chose for a bot, with the provider it runs on, and how it reads to people. */
+interface PickedModel { provider: string; model: string; label: string }
+
+const modelLabel = (model: string, provider: string | null, offers: EngineProvider[]) => {
+  const p = provider && (offers.find((x) => x.id === provider)?.name ?? provider);
+  return p ? `${model} (${p})` : model;
+};
+
+/**
+ * A model the primary bot asked to put a bot on (create_bot, update_bot), among the ones the bot's
+ * settings offer (engine.ts modelOffers): with the bot's current provider when that has it, or else the
+ * first one that does. A new bot (`fresh`) is checked against `bot`, the primary bot it starts from.
+ * Or why it can't be, listing the models that can.
+ */
+async function pickModel(ctx: ToolCtx, model: string, bot: BotRecord, fresh = false): Promise<PickedModel | { output: string }> {
+  const who = fresh ? 'A new agent' : bot.name;
+  const r = await ctx.modelOffers(bot.id, { fresh });
+  if ('error' in r) return { output: `Couldn't check which models ${who} can run on: ${r.error}. Try again in a minute.` };
+  const want = model.trim();
+  const has = (p: EngineProvider) => p.models.find((m) => m.toLowerCase() === want.toLowerCase());
+  const p = r.offers.find((x) => x.id === bot.provider && has(x)) ?? r.offers.find(has);
+  const found = p && has(p);
+  if (p && found) return { provider: p.id, model: found, label: modelLabel(found, p.id, r.offers) };
+  // The one it runs on already, which its provider may no longer list.
+  if (!fresh && bot.model && bot.provider && want.toLowerCase() === bot.model.toLowerCase()) return { provider: bot.provider, model: bot.model, label: modelLabel(bot.model, bot.provider, r.offers) };
+  if (!r.offers.length) return { output: `${who} can't be put on another model: no provider with models is connected. ${ownerName(ctx.userId)} connects them in Settings > Providers.` };
+  return { output: `${who} can't run on "${want}". The models it can run on, by provider: ${r.offers.map((x) => `${x.name}: ${x.models.join(', ')}`).join('; ')}.` };
+}
+
+/** "a", "a and b", "a, b and c". */
+const listed = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
 /**
  * Something changed in a bot's routines or role: a line in its chat, so the user sees it there. Its
@@ -359,7 +395,7 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'check_on_bot',
-    description: "See where a teammate (another agent on the team, by name) stands: their role, About and instructions, skills, routines, their tasks on the board, what they're doing right now, their own notes, their latest messages with the user and where their Library is. Read-only; they aren't told.",
+    description: "See where a teammate (another agent on the team, by name) stands: their role, About and instructions, model and reasoning effort, skills, routines, their tasks on the board, what they're doing right now, their own notes, their latest messages with the user and where their Library is. Read-only; they aren't told.",
     params: z.object({ bot_name: z.string() }),
     activity: 'working',
     label: 'Checking on a teammate',
@@ -370,6 +406,7 @@ export const TOOLS: ToolDef[] = [
       const user = ownerName(ctx.userId);
       const out: string[] = [`# ${b.name}${b.label ? `, ${b.label}` : ''}${b.is_primary ? ` (${user}'s main point of contact)` : ''}`];
       if (b.description.trim()) out.push(`About: ${b.description.trim()}`);
+      out.push(`Runs on: ${b.model ? modelLabel(b.model, b.provider, []) : "their agent's default model"}, ${b.effort} reasoning effort`);
       // Whole, as long as they are kept (bots.ts): the primary bot rewrites them from here with update_bot.
       if (b.instructions.trim()) out.push(`## Instructions from ${user}\n${clip(b.instructions.trim(), 8000)}`);
       const skills = db.prepare<[string], { name: string }>('SELECT name FROM skills WHERE bot_id=? ORDER BY created_at').all(b.id).map((s) => s.name);
@@ -471,50 +508,84 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'create_bot',
-    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model and reasoning effort. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
+    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model and reasoning effort unless you choose others. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. For routine or high-volume work (research sweeps, drafting, monitoring), start it on a cheaper model or a lower effort. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
     params: z.object({
       name: z.string().describe('Its name, one or two words, not already on the team'),
       label: z.string().optional().describe('Its role in a few words, e.g. "Researcher"'),
       about: z.string().optional().describe('A sentence or two on what it does, shown to the user and the team'),
       instructions: z.string().optional().describe('How it should work: its job, what to focus on, standing preferences of the user'),
+      model: z.string().optional().describe("A model id to run on instead of yours, one the account's connected providers offer. One that isn't is refused with the list of those that are"),
+      effort: z.enum(EFFORTS).optional().describe('How hard it thinks, instead of as hard as you: low for routine work, xhigh for the hardest problems'),
     }),
     activity: 'working',
     label: 'Adding a teammate',
     impl: async (a, ctx) => {
-      const by = selfOf(ctx);
-      if (!by) return { output: 'You are no longer on the team.' };
-      if (!by.is_primary) return onlyPrimary(ctx, 'add an agent to the team');
+      const primary = () => {
+        const by = selfOf(ctx);
+        if (!by) return { output: 'You are no longer on the team.' };
+        return by.is_primary ? { by } : onlyPrimary(ctx, 'add an agent to the team');
+      };
+      let me = primary();
+      if ('output' in me) return me;
       const name = a.name.trim();
       if (!name) return { output: 'The new agent needs a name.' };
       const taken = nameInUse(ctx.workspaceId, name);
       if (taken) return { output: `${taken} Pick another name.` };
-      const r = ctx.addTeammate(by, { name, label: a.label, description: a.about, instructions: a.instructions });
+      const pick = a.model === undefined ? undefined : await pickModel(ctx, a.model, me.by, true);
+      if (pick && 'output' in pick) return pick;
+      // Checked again after that wait; createBot checks the name again itself.
+      if (pick) {
+        me = primary();
+        if ('output' in me) return me;
+      }
+      const by = me.by;
+      const r = ctx.addTeammate(by, { name, label: a.label, description: a.about, instructions: a.instructions, ...(pick && { provider: pick.provider, model: pick.model }), effort: a.effort });
       if ('error' in r) return { output: r.error, summary: 'Not added' };
-      return { output: `${r.bot.name} joined the team and is greeting ${ownerName(ctx.userId)} in their own chat. Give them work with add_task or send_to_bot.`, summary: `Added ${r.bot.name}` };
+      // What it runs on when you chose it, in its chat for the user too.
+      const on = [pick && `on ${pick.label}`, a.effort && `with ${a.effort} reasoning effort`].filter(Boolean).join(' ');
+      if (on) noteChange(ctx, r.bot.id, { type: 'event', event: 'bot-message', text: `${by.name} started ${r.bot.name} ${on}` });
+      return { output: `${r.bot.name} joined the team${on ? ` ${on}` : ''} and is greeting ${ownerName(ctx.userId)} in their own chat. Give them work with add_task or send_to_bot.`, summary: `Added ${r.bot.name}` };
     },
   }),
   tool({
     name: 'update_bot',
-    description: "Change a teammate's label (their role), About or instructions. Only the primary bot can. Each one you give replaces the old one whole, so read their instructions with check_on_bot first and keep what should stay. The teammate and the user see what changed.",
+    description: "Change a teammate's label (their role), About, instructions, model or reasoning effort. Only the primary bot can. Each label, About or instructions you give replaces the old one whole, so read their instructions with check_on_bot first and keep what should stay. Put a teammate doing routine or high-volume work (research sweeps, drafting, monitoring) on a cheaper model or a lower effort, and one doing hard work on a stronger one. The teammate and the user see what changed.",
     params: z.object({
       bot_name: z.string(),
       label: z.string().optional().describe('Their role in a few words'),
       about: z.string().optional().describe('A sentence or two on what they do, shown to the user and the team'),
       instructions: z.string().optional().describe('All of their instructions, as they should read from now on'),
+      model: z.string().optional().describe("A model id to run on, one the account's connected providers offer them. One that isn't is refused with the list of those that are"),
+      effort: z.enum(EFFORTS).optional().describe('How hard they think: low for routine work, xhigh for the hardest problems'),
     }),
     activity: 'working',
     label: 'Updating a teammate',
     impl: async (a, ctx) => {
-      const by = selfOf(ctx);
-      if (!by) return { output: 'You are no longer on the team.' };
-      if (!by.is_primary) return onlyPrimary(ctx, "change a teammate's role, About or instructions");
-      const t = teammate(ctx, a.bot_name);
+      const target = () => {
+        const by = selfOf(ctx);
+        if (!by) return { output: 'You are no longer on the team.' };
+        if (!by.is_primary) return onlyPrimary(ctx, "change a teammate's role, About, instructions or model");
+        const t = teammate(ctx, a.bot_name);
+        return 'output' in t ? t : { by, bot: t.bot };
+      };
+      let t = target();
       if ('output' in t) return t;
-      const changed = ctx.updatePersona(t.bot, { label: a.label, description: a.about, instructions: a.instructions });
-      if (!changed.length) return { output: `Nothing changed: ${t.bot.name}'s are already that.` };
-      const what = changed.map((k) => (k === 'description' ? 'About' : k)).join(' and ').replace(/ and (?=.* and )/, ', ');
-      noteChange(ctx, t.bot.id, { type: 'event', event: 'bot-message', text: `${by.name} changed ${t.bot.name}'s ${what}` });
-      return { output: `Changed ${t.bot.name}'s ${what}. They follow it from their next turn.`, summary: `Updated ${t.bot.name}` };
+      const pick = a.model === undefined ? undefined : await pickModel(ctx, a.model, t.bot);
+      if (pick && 'output' in pick) return pick;
+      // Read again after that wait, so nothing is changed for a teammate that left meanwhile.
+      if (pick) {
+        t = target();
+        if ('output' in t) return t;
+      }
+      const { by, bot } = t;
+      const what: string[] = ctx.updatePersona(bot, { label: a.label, description: a.about, instructions: a.instructions }).map((k) => (k === 'description' ? 'About' : k));
+      const model = pick || a.effort ? ctx.setModel(bot.id, { ...(pick && { provider: pick.provider, model: pick.model }), effort: a.effort }) : [];
+      if (pick && (model.includes('provider') || model.includes('model'))) what.push(`model to ${pick.label}`);
+      if (a.effort && model.includes('effort')) what.push(`reasoning effort to ${a.effort}`);
+      if (model.length) emitBot(bot.id);
+      if (!what.length) return { output: `Nothing changed: ${bot.name}'s are already that.` };
+      noteChange(ctx, bot.id, { type: 'event', event: 'bot-message', text: `${by.name} changed ${bot.name}'s ${listed(what)}` });
+      return { output: `Changed ${bot.name}'s ${listed(what)}. It applies from their next turn.`, summary: `Updated ${bot.name}` };
     },
   }),
   tool({

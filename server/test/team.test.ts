@@ -38,7 +38,7 @@ afterEach(() => {
 const woken: [string, number | 'later'][] = [];
 const ctx = (botId: string, o: { depth?: number; asking?: number } = {}) => ({
   userId, botId, workspaceId: store.requireBot(botId).workspace_id, convo: store.conversation(botId), depth: o.depth ?? 0, asking: o.asking ?? 0,
-  enqueueBotMessage: () => {}, wake: (id: string, depth: number, o?: { later?: boolean }) => { woken.push([id, o?.later ? 'later' : depth]); }, addTeammate: () => ({ error: 'not in this test' }), updatePersona: () => [],
+  enqueueBotMessage: () => {}, wake: (id: string, depth: number, o?: { later?: boolean }) => { woken.push([id, o?.later ? 'later' : depth]); }, addTeammate: () => ({ error: 'not in this test' }), updatePersona: () => [], setModel: () => [], modelOffers: async () => ({ offers: [] }),
 });
 const run = (name: string, args: unknown, c: ReturnType<typeof ctx>) => runTool(toolMap.get(name)!, args, c);
 

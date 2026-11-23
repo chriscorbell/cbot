@@ -14,7 +14,7 @@ const { ACCOUNT } = await import('../src/account.js');
 
 let userId: string;
 beforeAll(() => { userId = seedOwner().id; });
-const ctx = (botId: string) => ({ userId, botId, workspaceId: requireBot(botId).workspace_id, convo: conversation(botId), depth: 0, asking: 0, enqueueBotMessage: () => {}, wake: () => {}, addTeammate: () => ({ error: 'not in this test' }), updatePersona: () => [] });
+const ctx = (botId: string) => ({ userId, botId, workspaceId: requireBot(botId).workspace_id, convo: conversation(botId), depth: 0, asking: 0, enqueueBotMessage: () => {}, wake: () => {}, addTeammate: () => ({ error: 'not in this test' }), updatePersona: () => [], setModel: () => [], modelOffers: async () => ({ offers: [] }) });
 const show = (botId: string, args: Record<string, unknown>) => runTool(toolMap.get('show_visual')!, args, ctx(botId));
 const write = (file: string, data: string | Buffer) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, data); };
 const cards = (botId: string) => listRows(botId).flatMap((r) => (r.body.type === 'card' && r.body.card === 'page' ? [r.body] : []));

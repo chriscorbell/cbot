@@ -1041,5 +1041,18 @@ export async function engineInfo(botId: string): Promise<EngineInfo> {
   };
 }
 
+/**
+ * The providers a bot can be put on, with their models: the connected ones its settings offer
+ * (engineInfo), for the primary bot choosing a teammate's model (update_bot, create_bot). A new bot
+ * (`fresh`) starts from this one's home without its ChatGPT or Grok sign-in (writeHome), so those are
+ * left out: putting it on one would fail every run. An error when the bot's agent can't say yet.
+ */
+export async function modelOffers(botId: string, o: { fresh?: boolean } = {}): Promise<{ offers: EngineProvider[] } | { error: string }> {
+  const info = await engineInfo(botId);
+  if (info.status !== 'ready') return { error: info.error ?? 'its agent is starting' };
+  const ownSignIn = (id: string) => !!PROVIDERS.find((p) => p.id === id)?.signIn && id !== 'copilot';
+  return { offers: info.providers.filter((p) => p.connected && p.models.length && !(o.fresh && ownSignIn(p.id))) };
+}
+
 /** After a sign-in the provider list changes; drop what we remembered. */
 export function forgetEngineOptions(botId: string) { optionsCache.delete(botId); }

@@ -24,7 +24,7 @@ vi.mock('../src/units.js', async (orig) => ({ ...(await orig<typeof import('../s
 const { createApp } = await import('../src/app.js');
 const { db } = await import('../src/db.js');
 const { createWorkspace, defaultWorkspace } = await import('../src/workspaces.js');
-const { addTeammate, updatePersona } = await import('../src/bots.js');
+const { addTeammate, setModel, updatePersona } = await import('../src/bots.js');
 const { runTool, toolMap, toolsFor } = await import('../src/agent/tools.js');
 const { instructionsFor } = await import('../src/agent/prompt.js');
 const team = await import('../src/agent/team.js');
@@ -43,15 +43,22 @@ beforeAll(() => {
 afterEach(() => {
   enqueued.length = 0;
   retooled.length = 0;
+  offers = { offers: [] };
+  offered.length = 0;
   // Each test starts with Personal alone, empty.
   db.exec('DELETE FROM tasks; DELETE FROM team_log; DELETE FROM proactivity; DELETE FROM bots;');
   db.prepare('DELETE FROM workspaces WHERE id<>?').run(personal);
   db.prepare('UPDATE workspaces SET name=?, task_board=1 WHERE id=?').run('Personal', personal);
 });
 
+// What the bots' settings offer to run on (engine.ts modelOffers, which asks a bot's gateway), and who was asked.
+type Offers = Awaited<ReturnType<typeof import('../src/engine.js').modelOffers>>;
+let offers: Offers = { offers: [] };
+const offered: [string, { fresh?: boolean } | undefined][] = [];
+const modelOffers = async (botId: string, o?: { fresh?: boolean }) => { offered.push([botId, o]); return offers; };
 const ctx = (botId: string) => ({
   userId, botId, workspaceId: store.requireBot(botId).workspace_id, convo: store.conversation(botId), depth: 0, asking: 0,
-  enqueueBotMessage: () => {}, wake: () => {}, addTeammate, updatePersona,
+  enqueueBotMessage: () => {}, wake: () => {}, addTeammate, updatePersona, setModel, modelOffers,
 });
 const run = (name: string, args: unknown, botId: string) => runTool(toolMap.get(name)!, args, ctx(botId));
 const patch = (path: string, body: unknown) => app.request(path, { ...json(body), method: 'PATCH' });
@@ -216,12 +223,92 @@ test("the primary bot changes a teammate's label, About and instructions; the te
   expect((await run('update_bot', { bot_name: 'Max', label: 'X' }, max.id)).output).toBe('That is you.');
 
   const r = await run('update_bot', { bot_name: 'zed', label: 'Ops', about: ' Runs the servers ', instructions: 'Page me at night.' }, max.id);
-  expect(r.output).toBe("Changed Zed's About and instructions. They follow it from their next turn.");
+  expect(r.output).toBe("Changed Zed's About and instructions. It applies from their next turn.");
   expect(store.requireBot(zed.id)).toMatchObject({ label: 'Ops', description: 'Runs the servers', instructions: 'Page me at night.' });
   // A line in Zed's chat for the user. Zed's agent reads the new ones in its instructions at its next turn.
   expect(store.listRows(zed.id).map((row) => row.body)).toContainEqual({ type: 'event', event: 'bot-message', text: "Max changed Zed's About and instructions" });
   expect(await instructionsFor(userId, zed.id)).toContain('Page me at night.');
   expect((await run('update_bot', { bot_name: 'Zed', label: 'Ops' }, max.id)).output).toBe("Nothing changed: Zed's are already that.");
+});
+
+const provider = (id: string, name: string, models: string[]) => ({ id, name, kind: 'subscription' as const, signIn: false, connected: true, models });
+const CLAUDE = provider('anthropic', 'Claude', ['claude-opus-5-5', 'claude-sonnet-5-5']);
+const DEEPSEEK = provider('deepseek', 'DeepSeek', ['deepseek-flash', 'deepseek-pro']);
+const runsOn = (id: string) => db.prepare<[string], Pick<BotRecord, 'provider' | 'model' | 'effort'>>('SELECT provider, model, effort FROM bots WHERE id=?').get(id);
+const lines = (id: string) => store.listRows(id).flatMap((row) => (row.body.type === 'event' ? [row.body.text] : []));
+
+test("the primary bot puts a teammate on another model or reasoning effort, among those the teammate's settings offer", async () => {
+  const { max, zed } = twoTeams();
+  db.prepare("UPDATE bots SET provider='anthropic', model='claude-opus-5-5', effort='high' WHERE id IN (?,?)").run(max.id, zed.id);
+  offers = { offers: [CLAUDE, DEEPSEEK] };
+  expect((await run('update_bot', { bot_name: 'Max', model: 'deepseek-flash' }, zed.id)).output).toMatch(/^Only Max, the team's primary bot, can change a teammate's role, About, instructions or model/);
+
+  // A model the teammate can't run on is refused with the ones it can, and nothing else given changes either.
+  let r = await run('update_bot', { bot_name: 'Zed', label: 'Scout', model: 'gpt-9' }, max.id);
+  expect(r.output).toBe('Zed can\'t run on "gpt-9". The models it can run on, by provider: Claude: claude-opus-5-5, claude-sonnet-5-5; DeepSeek: deepseek-flash, deepseek-pro.');
+  expect(offered).toEqual([[zed.id, { fresh: false }]]);
+  // So is an effort that isn't one, by the tool's parameters.
+  r = await run('update_bot', { bot_name: 'Zed', effort: 'max' }, max.id);
+  expect(r.invalid).toBe(true);
+  expect(r.output).toContain('"low"|"medium"|"high"|"xhigh"');
+  // And anything at all while the teammate's agent can't say what it runs.
+  offers = { error: 'its agent is starting' };
+  expect((await run('update_bot', { bot_name: 'Zed', label: 'Scout', model: 'deepseek-flash' }, max.id)).output).toBe("Couldn't check which models Zed can run on: its agent is starting. Try again in a minute.");
+  expect(store.requireBot(zed.id).label).toBe('');
+  expect(runsOn(zed.id)).toEqual({ provider: 'anthropic', model: 'claude-opus-5-5', effort: 'high' });
+
+  // The model goes with the provider that offers it, the change is saved through the bot settings' own
+  // path, and the teammate's chat says what changed.
+  offers = { offers: [CLAUDE, DEEPSEEK] };
+  r = await run('update_bot', { bot_name: 'zed', label: 'Scout', model: 'DeepSeek-Flash', effort: 'low' }, max.id);
+  expect(r.output).toBe("Changed Zed's label, model to deepseek-flash (DeepSeek) and reasoning effort to low. It applies from their next turn.");
+  expect(runsOn(zed.id)).toEqual({ provider: 'deepseek', model: 'deepseek-flash', effort: 'low' });
+  expect(lines(zed.id)).toContain("Max changed Zed's label, model to deepseek-flash (DeepSeek) and reasoning effort to low");
+  expect(store.requireBot(zed.id).label).toBe('Scout');
+  expect((await run('check_on_bot', { bot_name: 'Zed' }, max.id)).output).toContain('Runs on: deepseek-flash (deepseek), low reasoning effort');
+
+  // What it runs on already is no change, and an effort alone asks no gateway.
+  expect((await run('update_bot', { bot_name: 'Zed', model: 'deepseek-flash', effort: 'low' }, max.id)).output).toBe("Nothing changed: Zed's are already that.");
+  offered.length = 0;
+  expect((await run('update_bot', { bot_name: 'Zed', effort: 'xhigh' }, max.id)).output).toBe("Changed Zed's reasoning effort to xhigh. It applies from their next turn.");
+  expect(offered).toEqual([]);
+  expect(runsOn(zed.id)).toEqual({ provider: 'deepseek', model: 'deepseek-flash', effort: 'xhigh' });
+
+  // With no connected provider listing models, the user is pointed to where they connect one.
+  offers = { offers: [] };
+  expect((await run('update_bot', { bot_name: 'Zed', model: 'claude-opus-5-5' }, max.id)).output).toBe(`Zed can't be put on another model: no provider with models is connected. ${team.ownerName(userId)} connects them in Settings > Providers.`);
+});
+
+test('the primary bot starts a new agent on another model or reasoning effort, among those its own settings offer a new bot', async () => {
+  const { max } = twoTeams();
+  db.prepare("UPDATE bots SET provider='anthropic', model='claude-opus-5-5', effort='high' WHERE id=?").run(max.id);
+  const { env } = await import('../src/env.js');
+  const limit = env.maxBots;
+  env.maxBots = 10;
+  onTestFinished(() => { env.maxBots = limit; });
+  offers = { offers: [CLAUDE, DEEPSEEK] };
+
+  // A model that isn't offered adds nobody.
+  expect((await run('create_bot', { name: 'Scout', model: 'gpt-9' }, max.id)).output).toMatch(/^A new agent can't run on "gpt-9"\. The models it can run on, by provider: Claude/);
+  expect(db.prepare("SELECT COUNT(*) n FROM bots WHERE name='Scout'").get()).toEqual({ n: 0 });
+  // A new bot starts from Max's home without Max's own sign-ins, so it is asked what a new bot could run.
+  expect(offered).toEqual([[max.id, { fresh: true }]]);
+
+  const r = await run('create_bot', { name: 'Scout', label: 'Researcher', model: 'deepseek-flash', effort: 'low' }, max.id);
+  expect(r.output).toBe(`Scout joined the team on deepseek-flash (DeepSeek) with low reasoning effort and is greeting ${team.ownerName(userId)} in their own chat. Give them work with add_task or send_to_bot.`);
+  const scout = db.prepare<[], BotRecord>("SELECT * FROM bots WHERE name='Scout'").get()!;
+  expect(runsOn(scout.id)).toEqual({ provider: 'deepseek', model: 'deepseek-flash', effort: 'low' });
+  expect(lines(scout.id)).toEqual(['Max started Scout on deepseek-flash (DeepSeek) with low reasoning effort']);
+
+  // An effort alone keeps Max's model; neither keeps Max's effort too, with no line.
+  await run('create_bot', { name: 'Echo', effort: 'medium' }, max.id);
+  const echo = db.prepare<[], BotRecord>("SELECT * FROM bots WHERE name='Echo'").get()!;
+  expect(runsOn(echo.id)).toEqual({ provider: 'anthropic', model: 'claude-opus-5-5', effort: 'medium' });
+  expect(lines(echo.id)).toEqual(['Max started Echo with medium reasoning effort']);
+  await run('create_bot', { name: 'Kit' }, max.id);
+  const kit = db.prepare<[], BotRecord>("SELECT * FROM bots WHERE name='Kit'").get()!;
+  expect(runsOn(kit.id)).toEqual({ provider: 'anthropic', model: 'claude-opus-5-5', effort: 'high' });
+  expect(lines(kit.id)).toEqual([]);
 });
 
 test("the primary bot sets up and changes a teammate's routines; other bots only their own", async () => {

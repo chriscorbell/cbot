@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/54f0e200-13e1-416a-9181-69a80f4627e5
 
 - A desktop for each bot (with Chrome, a terminal and file manager) that you can watch or take control of
 - Scheduled routines, and check-ins where your main bot messages you first when something needs you
-- A team that works together: each bot knows its teammates' roles, can ask one a question and get the answer straight away, and shares a task board you can see and change; a bot that hands out a task hears as soon as it's done or stuck. Your main bot runs the team: ask it and it adds a bot, changes a bot's role and instructions, or sets up its routines. What bots send each other stays out of your chats; each bot tells you what you need to know
+- A team that works together: each bot knows its teammates' roles, can ask one a question and get the answer straight away, and shares a task board you can see and change; a bot that hands out a task hears as soon as it's done or stuck. Your main bot runs the team: ask it and it adds a bot, changes a bot's role, instructions, model and thinking effort, or sets up its routines. What bots send each other stays out of your chats; each bot tells you what you need to know
 - Workspaces: separate teams of bots (work and personal, say), each with its own main bot, task board and check-ins
 - Group chats
 - Memory you can review and prune

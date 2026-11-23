@@ -12,11 +12,11 @@ import { allLive } from './agent/live.js';
 import { computerState } from './computer.js';
 import { displayNumber, libraryDir, LIBRARY_ROOT } from './machine.js';
 import { displayRunning, screenshot } from './displays.js';
-import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncApprovals, syncModel } from './engine.js';
+import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncApprovals } from './engine.js';
 import { saveProviderSettings } from './providers.js';
 import { cleanSecret, cleanUrl, getSetting, SECRET_IDS, secretState, type SettingKey } from './settings.js';
 import { deleteMemory, memoryBot } from './engine-memory.js';
-import { createBot, deleteBot, finishSetup, moveBot, primaryBot, setupPending, showPersona, UserError, welcome } from './bots.js';
+import { createBot, deleteBot, finishSetup, moveBot, primaryBot, setModel, setupPending, showPersona, UserError, welcome } from './bots.js';
 import { defaultWorkspace, nameInUse, ownWorkspace } from './workspaces.js';
 import { applySchedule, runRoutine, unscheduleRoutine } from './routines.js';
 import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
@@ -146,10 +146,11 @@ const BotPatch = z.object({
   sidebarHidden: z.boolean().optional(),
   voice: z.string().optional(), voiceSpeed: z.number().optional(),
 });
+// The reasoning effort is set with the model (bots.ts setModel).
 const BOT_COLUMNS = {
   name: 'name', label: 'label', description: 'description', instructions: 'instructions', avatarShape: 'avatar_shape', avatarColor: 'avatar_color',
-  effort: 'effort', sidebarHidden: 'sidebar_hidden', voice: 'voice', voiceSpeed: 'voice_speed',
-} satisfies Record<keyof z.infer<typeof BotPatch>, string>;
+  sidebarHidden: 'sidebar_hidden', voice: 'voice', voiceSpeed: 'voice_speed',
+} satisfies Record<Exclude<keyof z.infer<typeof BotPatch>, 'effort'>, string>;
 
 api.patch('/bots/:id', async (c) => {
   const b = ownBot(c.get('user').id, c.req.param('id'));
@@ -170,7 +171,7 @@ api.patch('/bots/:id', async (c) => {
     const v = p[k];
     if (v !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof v === 'boolean' ? (v ? 1 : 0) : v, now(), b.id);
   }
-  if (p.effort !== undefined) syncModel(b.id);
+  if (p.effort !== undefined) setModel(b.id, { effort: p.effort });
   showPersona(b, {
     persona: p.name !== undefined || p.label !== undefined || p.description !== undefined,
     looks: p.name !== undefined || p.label !== undefined || p.avatarShape !== undefined || p.avatarColor !== undefined,

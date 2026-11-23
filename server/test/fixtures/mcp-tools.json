@@ -205,7 +205,7 @@
   },
   {
     "name": "check_on_bot",
-    "description": "See where a teammate (another agent on the team, by name) stands: their role, About and instructions, skills, routines, their tasks on the board, what they're doing right now, their own notes, their latest messages with the user and where their Library is. Read-only; they aren't told.",
+    "description": "See where a teammate (another agent on the team, by name) stands: their role, About and instructions, model and reasoning effort, skills, routines, their tasks on the board, what they're doing right now, their own notes, their latest messages with the user and where their Library is. Read-only; they aren't told.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -324,7 +324,7 @@
   },
   {
     "name": "create_bot",
-    "description": "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model and reasoning effort. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
+    "description": "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model and reasoning effort unless you choose others. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. For routine or high-volume work (research sweeps, drafting, monitoring), start it on a cheaper model or a lower effort. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -343,6 +343,20 @@
         "instructions": {
           "description": "How it should work: its job, what to focus on, standing preferences of the user",
           "type": "string"
+        },
+        "model": {
+          "description": "A model id to run on instead of yours, one the account's connected providers offer. One that isn't is refused with the list of those that are",
+          "type": "string"
+        },
+        "effort": {
+          "description": "How hard it thinks, instead of as hard as you: low for routine work, xhigh for the hardest problems",
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
         }
       },
       "required": [
@@ -353,7 +367,7 @@
   },
   {
     "name": "update_bot",
-    "description": "Change a teammate's label (their role), About or instructions. Only the primary bot can. Each one you give replaces the old one whole, so read their instructions with check_on_bot first and keep what should stay. The teammate and the user see what changed.",
+    "description": "Change a teammate's label (their role), About, instructions, model or reasoning effort. Only the primary bot can. Each label, About or instructions you give replaces the old one whole, so read their instructions with check_on_bot first and keep what should stay. Put a teammate doing routine or high-volume work (research sweeps, drafting, monitoring) on a cheaper model or a lower effort, and one doing hard work on a stronger one. The teammate and the user see what changed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -371,6 +385,20 @@
         "instructions": {
           "description": "All of their instructions, as they should read from now on",
           "type": "string"
+        },
+        "model": {
+          "description": "A model id to run on, one the account's connected providers offer them. One that isn't is refused with the list of those that are",
+          "type": "string"
+        },
+        "effort": {
+          "description": "How hard they think: low for routine work, xhigh for the hardest problems",
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ]
         }
       },
       "required": [
