@@ -28,8 +28,15 @@ import type { Task, TaskStatus } from '../types.js';
  * and so does a task the bot created getting done or blocked, since the bot is waiting on that work.
  */
 
-/** Bot-to-bot hops in one chain of messages and tasks before the app stops waking bots for it. */
+/**
+ * Bot-to-bot hops in one chain of messages and tasks before the app stops waking bots for it at once,
+ * so two bots can't keep each other busy. A task the workspace's primary bot hands out starts a chain
+ * of its own (agent/tools.ts wakeFor), and a wake-up for the board that the limit holds back waits for
+ * HOP_PAUSE_MS instead (agent/turns.ts wake), so delegated work never sits until some unrelated turn.
+ */
 export const MAX_HOPS = 6;
+/** How long a wake-up held back by MAX_HOPS waits before it starts a chain of its own. */
+export const HOP_PAUSE_MS = 5 * 60_000;
 
 /** How long finished tasks stay on the board. */
 const DONE_SHOWN_MS = 14 * 86_400_000;

@@ -9,7 +9,7 @@ import { markTold, sideNews } from './catchup.js';
 import * as live from './live.js';
 import { closeCutShort, TurnTranscript, type ToolClaim } from './transcript.js';
 import { HermesRun, settleLeftoverRuns } from './runs.js';
-import { markTeamSeen, teamNews } from './team.js';
+import { HOP_PAUSE_MS, markTeamSeen, teamNews } from './team.js';
 
 /**
  * Turns: each one hands a message to the bot's Hermes gateway and streams the answer into the chat.
@@ -91,12 +91,30 @@ export function enqueue(botId: string, trigger: Trigger): boolean {
   return true;
 }
 
+/** Wake-ups held back by the hop limit, by bot: one each, until it fires. */
+const paused = new Map<string, NodeJS.Timeout>();
+
 /**
  * Wake the bot for its team news (it was given a task, or one it created got done or blocked): a 'team'
  * turn, unless one is already waiting in its queue, which will tell this news too. `depth`: the
  * bot-to-bot hops that led here.
+ *
+ * `later`: the chain behind it reached team.ts MAX_HOPS, so the wake-up waits HOP_PAUSE_MS and then
+ * starts a chain of its own. That slows a fast back-and-forth to a crawl without leaving the work for
+ * whatever turn comes next, which could be hours away. If an earlier turn tells the news meanwhile, the
+ * wake-up is skipped like any other. A restart forgets it, and the news waits for the bot's next turn.
  */
-export function wake(botId: string, depth: number) {
+export function wake(botId: string, depth: number, o: { later?: boolean } = {}) {
+  if (o.later) {
+    if (paused.has(botId)) return;
+    const t = setTimeout(() => {
+      paused.delete(botId);
+      wake(botId, 0);
+    }, HOP_PAUSE_MS);
+    t.unref();
+    paused.set(botId, t);
+    return;
+  }
   if (runners.get(botId)?.queued.some((j) => j.trigger.type === 'team')) return;
   enqueue(botId, { type: 'team', depth });
 }
@@ -304,6 +322,8 @@ async function runTurn(botId: string, running: Running) {
     if (bot.handback_at) {
       input = `[Note: the user took control of your screen for a while and has just handed it back. Look at the screen before you rely on what was there.]\n\n${input}`;
       db.prepare('UPDATE bots SET handback_at=NULL WHERE id=?').run(botId);
+      // The user is at work with the bot, so whatever chain of bots led to this turn ends here.
+      running.depth = 0;
     }
     // Voice calls and teammates' questions run in conversations of their own: what this one hasn't heard of them goes first.
     const news = sideNews(botId, convo.generation);

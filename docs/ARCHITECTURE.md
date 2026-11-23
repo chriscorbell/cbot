@@ -322,7 +322,9 @@ The bots are a team, each with a role, and work together like colleagues at a sm
   - `update_bot` changes a teammate's label, About or instructions (`updatePersona`, `bots.ts`), each replaced whole, so `check_on_bot` shows the instructions whole. Its persona file and desktop follow, as after an edit in its settings.
   - The routine tools take a teammate's name (`bot_name`): the primary bot sets up, lists, changes and deletes the teammate's routines, which run as the teammate's turns.
   - Each such change puts a line in the teammate's chat, for the user. The teammate's agent isn't told: its app instructions list its role, instructions and routines afresh at every turn.
-- Every message, wake-up and task between bots carries the number of hops behind it. After six the tools stop waking bots and tell the bot to answer the user.
+- Every message, wake-up and task between bots carries the number of hops behind it, so two bots can't keep each other busy. After six, `send_to_bot` refuses and tells the bot to answer the user or use the board, and a wake-up for the board waits five minutes and then starts a chain of its own, so delegated work never waits for some unrelated turn (a restart forgets the wait; the news waits for the bot's next turn).
+  - A task the workspace's primary bot hands out is management, not a reply, so it starts a chain of its own and never runs into the limit.
+  - A turn in which the user hands the screen back starts a chain of its own too.
 - A group chat is a bot row with `kind='room'` and a member list.
   - A user message goes to the @mentioned members, or to all of them, at most three; each one answers with `post_to_group` or stays silent.
   - Files attached in a group are uploaded to the group's own folder (`files/<roomId>/uploads`), which its chat shows them from. Sending the message copies them into every member's Library under `uploads/` (`library.ts`, numbered when the name is taken), and the members asked to answer are told where their copies are.

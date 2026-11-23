@@ -34,10 +34,11 @@ afterEach(() => {
   db.exec('DELETE FROM tasks; DELETE FROM team_log; DELETE FROM bots;');
 });
 
-const woken: [string, number][] = [];
+/** Bots woken by the tools: with the hops behind the wake-up, or 'later' for one the hop limit holds back. */
+const woken: [string, number | 'later'][] = [];
 const ctx = (botId: string, o: { depth?: number; asking?: number } = {}) => ({
   userId, botId, workspaceId: store.requireBot(botId).workspace_id, convo: store.conversation(botId), depth: o.depth ?? 0, asking: o.asking ?? 0,
-  enqueueBotMessage: () => {}, wake: (id: string, depth: number) => { woken.push([id, depth]); }, addTeammate: () => ({ error: 'not in this test' }), updatePersona: () => [],
+  enqueueBotMessage: () => {}, wake: (id: string, depth: number, o?: { later?: boolean }) => { woken.push([id, o?.later ? 'later' : depth]); }, addTeammate: () => ({ error: 'not in this test' }), updatePersona: () => [],
 });
 const run = (name: string, args: unknown, c: ReturnType<typeof ctx>) => runTool(toolMap.get(name)!, args, c);
 
@@ -77,12 +78,29 @@ describe('the task board', () => {
     expect(news(eng.id)).toBeNull();
   });
 
-  test('a long enough chain of hops gives the task without waking its owner', async () => {
+  test('a long enough chain of hops gives the task and wakes its owner once the back-and-forth has paused', async () => {
     woken.length = 0;
-    const [pm] = crew('Pam', 'Eli');
-    const r = await run('add_task', { title: 'Later', owner: 'Eli' }, ctx(pm.id, { depth: team.MAX_HOPS }));
-    expect(r.output).toMatch(/Eli will see it at their next turn/);
-    expect(woken).toEqual([]);
+    const [, eng, des] = crew('Pam', 'Eli', 'Dee');
+    const r = await run('add_task', { title: 'Later', owner: 'Dee' }, ctx(eng.id, { depth: team.MAX_HOPS }));
+    expect(r.output).toMatch(/Dee will be woken in 5 minutes, once the bots' back-and-forth has paused/);
+    expect(woken).toEqual([[des.id, 'later']]);
+    expect(news(des.id)).toMatch(/Eli gave you a task: "Later"/);
+    // send_to_bot still stops there, pointing at the board.
+    expect((await run('send_to_bot', { bot_name: 'Pam', message: 'hi' }, ctx(eng.id, { depth: team.MAX_HOPS }))).output).toMatch(/Too many hops[^]*add_task or update_task/);
+  });
+
+  test("a task the primary bot hands out starts a chain of its own, however long the one behind it", async () => {
+    woken.length = 0;
+    const [pm, eng] = crew('Pam', 'Eli');
+    db.prepare('UPDATE bots SET is_primary=1 WHERE id=?').run(pm.id);
+    const r = await run('add_task', { title: 'Next piece', owner: 'Eli' }, ctx(pm.id, { depth: team.MAX_HOPS }));
+    expect(r.output).toMatch(/Eli was told and starts on it\.$/);
+    expect(woken).toEqual([[eng.id, 1]]);
+    // Finishing it is a reply, and counts.
+    const id = r.output.match(/task_[\w-]+/)![0];
+    woken.length = 0;
+    await run('update_task', { task_id: id, status: 'done' }, ctx(eng.id, { depth: 1 }));
+    expect(woken).toEqual([[pm.id, 2]]);
   });
 
   test('the owner hears what a teammate changed, and whoever asked for it hears it got done and is woken', async () => {
@@ -128,13 +146,13 @@ describe('the task board', () => {
     expect(woken).toEqual([]);
   });
 
-  test('a long enough chain of hops tells the creator without waking it', async () => {
+  test('a long enough chain of hops tells the creator and wakes it once the back-and-forth has paused', async () => {
     woken.length = 0;
     const [pm, eng] = crew('Pam', 'Eli');
     const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Later', ownerId: eng.id });
     const r = await run('update_task', { task_id: task.id, status: 'done' }, ctx(eng.id, { depth: team.MAX_HOPS }));
-    expect(r.output).toMatch(/Pam, who created it, will see it at their next turn/);
-    expect(woken).toEqual([]);
+    expect(r.output).toMatch(/Pam, who created it, will be woken in 5 minutes/);
+    expect(woken).toEqual([[pm.id, 'later']]);
     expect(news(pm.id)).toMatch(/Eli finished "Later"/);
   });
 
@@ -239,6 +257,38 @@ describe('a wake-up', () => {
     await turns.whenIdle(eng.id);
     expect(h).toHaveLength(1);
     expect(String(h[0].input)).toMatch(/Pam gave you a task[^]*\]\n\nhi$/);
+  });
+
+  test('held back by the hop limit, runs once the pause is over, as a chain of its own', async () => {
+    const [pm, eng] = crew('Pam', 'Eli');
+    team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Fix the build', ownerId: eng.id });
+    const h = fakeHermes([ev.completed('On it.')]);
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      turns.wake(eng.id, 0, { later: true });
+      turns.wake(eng.id, 0, { later: true });
+      vi.advanceTimersByTime(team.HOP_PAUSE_MS - 1000);
+      expect(db.prepare('SELECT COUNT(*) n FROM turns WHERE bot_id=?').get(eng.id)).toEqual({ n: 0 });
+      vi.advanceTimersByTime(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(db.prepare('SELECT trigger FROM turns WHERE bot_id=?').all(eng.id)).toEqual([{ trigger: JSON.stringify({ type: 'team', depth: 0 }) }]);
+    await turns.whenIdle(eng.id);
+    expect(h).toHaveLength(1);
+    expect(String(h[0].input)).toMatch(/Pam gave you a task: "Fix the build"/);
+  });
+
+  test("a turn in which the user hands the screen back starts a chain of its own", async () => {
+    const [pm, eng] = crew('Pam', 'Eli');
+    const hold = gate();
+    const h = fakeHermes([hold.opened, ev.completed('Done.')]);
+    db.prepare('UPDATE bots SET handback_at=? WHERE id=?').run(Date.now(), eng.id);
+    turns.enqueue(eng.id, { type: 'bot', fromBotId: pm.id, fromName: 'Pam', text: 'Next?', depth: team.MAX_HOPS });
+    await vi.waitFor(() => expect(h).toHaveLength(1));
+    expect(turns.turnDepth(eng.id)).toBe(0);
+    hold.open();
+    await turns.whenIdle(eng.id);
   });
 
   test('waits in the queue once however often the bot is given tasks', async () => {

@@ -9,7 +9,7 @@ import { setCheckins } from '../proactive.js';
 import { createRoom, postToRoom } from './rooms.js';
 import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
-import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, toTask, withNote, type Actor, type TaskChange } from './team.js';
+import { addTask, changeTask, getTask, HOP_PAUSE_MS, listTasks, MAX_HOPS, ownerName, taskLine, toTask, withNote, type Actor, type TaskChange } from './team.js';
 import { listMemories } from '../engine-memory.js';
 import { MAX_TASK_NOTES, PAGE_VARS, TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
 import { DEFAULT_HEIGHT, deletePage, MAX_HEIGHT, MIN_HEIGHT, preparePage, savePage } from '../pages.js';
@@ -33,7 +33,7 @@ export interface ToolCtx {
   callId?: string;
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   /** Queue a turn for a bot a task change concerns: it was given the task, or created it and it got done or blocked (turns.ts wake). */
-  wake: (botId: string, depth: number) => void;
+  wake: (botId: string, depth: number, o?: { later?: boolean }) => void;
   /**
    * Add an agent to the calling bot's workspace, and change a teammate's label, About or instructions
    * (bots.ts). Passed in like wake: bots.ts loads turns.ts, which loads this module.
@@ -165,17 +165,24 @@ function noteChange(ctx: ToolCtx, botId: string, row: EventBody) {
 
 /**
  * Wake the bots a task change concerns (team.ts TaskChange): the one it was given to, and the one that
- * created it when it got done or blocked. Not when the chain of hops behind this turn is long enough already.
+ * created it when it got done or blocked. Once the chain of hops behind this turn reaches MAX_HOPS, the
+ * wake-up waits a few minutes instead (turns.ts wake). A task the workspace's primary bot hands out is
+ * management rather than a reply, and new work each time, so it starts a chain of its own: a manager
+ * handing out the next piece of work never runs into the limit.
  */
 function wakeFor(ctx: ToolCtx, r: TaskChange): string {
-  const one = (botId: string | null, who: (name: string) => string, now: string) => {
+  const one = (botId: string | null, who: (name: string) => string, now: string, fresh: boolean) => {
     if (!botId) return '';
     const name = who(nameOf(botId) ?? 'They');
-    if (ctx.depth >= MAX_HOPS) return ` ${name} will see it at their next turn (too many hops between bots to wake them now).`;
-    ctx.wake(botId, ctx.depth + 1);
+    if (!fresh && ctx.depth >= MAX_HOPS) {
+      ctx.wake(botId, 0, { later: true });
+      return ` ${name} will be woken in ${Math.round(HOP_PAUSE_MS / 60_000)} minutes, once the bots' back-and-forth has paused (too many hops between bots in a row to wake them now).`;
+    }
+    ctx.wake(botId, fresh ? 1 : ctx.depth + 1);
     return ` ${name} ${now}.`;
   };
-  return one(r.given, (n) => n, 'was told and starts on it') + one(r.creator, (n) => `${n}, who created it,`, 'was told');
+  const manages = !!r.given && !!selfOf(ctx)?.is_primary;
+  return one(r.given, (n) => n, 'was told and starts on it', manages) + one(r.creator, (n) => `${n}, who created it,`, 'was told', false);
 }
 
 /** How a page for show_visual is made so it sits well in the chat: the layout, the theme, what it can load. */
@@ -325,7 +332,7 @@ export const TOOLS: ToolDef[] = [
       if (!target) return { output: `No bot named "${a.bot_name}". Team: ${agentNames(ctx.workspaceId)}` };
       if (target.id === ctx.botId) return { output: 'That is you.' };
       if (target.kind === 'room') return { output: `"${target.name}" is a group chat; use post_to_group instead.` };
-      if (ctx.depth >= MAX_HOPS) return { output: 'Too many hops between bots; answer the user directly instead.' };
+      if (ctx.depth >= MAX_HOPS) return { output: 'Too many hops between bots in a row to send this now. Answer the user directly instead, or put the work on the board with add_task or update_task, which wakes them once the back-and-forth has paused.' };
       ctx.enqueueBotMessage(ctx.botId, target.id, String(a.message), ctx.depth + 1);
       return { output: `Sent to ${target.name}. Their reply will come back to you as a message.`, summary: `Messaged ${target.name}` };
     },
