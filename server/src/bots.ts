@@ -3,11 +3,11 @@ import { env } from './env.js';
 import { newId } from './lib/ids.js';
 import { hub } from './lib/hub.js';
 import { toUser } from './lib/auth.js';
-import { assignEngine, provisionEngine, refreshTools, removeEngine } from './engine.js';
+import { assignEngine, provisionEngine, refreshTools, removeEngine, syncPersona } from './engine.js';
 import { getBot, getBotRow, listRoutines, requireBot } from './store.js';
 import { clear as clearTurns, enqueue } from './agent/turns.js';
 import { unscheduleRoutine } from './routines.js';
-import { forgetBotFiles, releaseScreen } from './computer.js';
+import { forgetBotFiles, readyScreen, releaseScreen } from './computer.js';
 import { dropCalls } from './voice.js';
 import { dropAsks } from './agent/asks.js';
 import { ownerName, teamJoined, teamLeft } from './agent/team.js';
@@ -38,6 +38,11 @@ export const primaryBot = (workspaceId: string) =>
 
 export interface NewBot { name: string; label?: string; description?: string; instructions?: string; avatarShape?: string; avatarColor?: string }
 
+/** Who a bot is to the team: its role, its About and its instructions, as long as createBot keeps them. */
+export interface Persona { label?: string; description?: string; instructions?: string }
+const PERSONA_LIMITS = { label: 60, description: 500, instructions: 8000 } as const;
+const clipPersona = (k: keyof Persona, v: string | undefined) => v?.trim().slice(0, PERSONA_LIMITS[k]);
+
 /** A new bot in the workspace (the user's first one when none is named). The first bot of a workspace is its primary bot. */
 export function createBot(userId: string, b: NewBot, workspaceId = defaultWorkspace(userId).id) {
   // Every bot runs a screen, a Chrome and an agent of its own on the one computer.
@@ -51,7 +56,7 @@ export function createBot(userId: string, b: NewBot, workspaceId = defaultWorksp
   const primary = !primaryBot(workspaceId);
   db.prepare(
     'INSERT INTO bots(id,user_id,workspace_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(id, userId, workspaceId, b.name.trim().slice(0, 60) || 'New Bot', (b.label ?? '').trim().slice(0, 60), (b.description ?? '').trim().slice(0, 500), (b.instructions ?? '').trim().slice(0, 8000), shape, color, primary ? 1 : 0, voice, now(), now());
+  ).run(id, userId, workspaceId, b.name.trim().slice(0, 60) || 'New Bot', clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, now(), now());
   assignEngine(id);
   provisionEngine(id);
   // The rest of the team hears about it at their next turn; its own instructions list them already.
@@ -67,7 +72,7 @@ export function createBot(userId: string, b: NewBot, workspaceId = defaultWorksp
  */
 export function welcome(bot: Pick<BotRecord, 'id' | 'name' | 'is_primary'>, username: string, by?: string) {
   if (by) {
-    enqueue(bot.id, { type: 'system', text: `${by} just added you to the team at ${username}'s request. Greet ${username} by name and introduce yourself as ${bot.name} in one or two short sentences, saying what you are here to do. Nothing else.` });
+    enqueue(bot.id, { type: 'system', text: `${by} just added you to the team. Greet ${username} by name and introduce yourself as ${bot.name} in one or two short sentences, saying what you are here to do. Nothing else.` });
     return;
   }
   const checkins = bot.is_primary ? ` Add one short sentence saying you can also check in with ${username} at set times each day if they'd like, and that they can ask you or turn it on in the workspace's settings.` : '';
@@ -75,8 +80,8 @@ export function welcome(bot: Pick<BotRecord, 'id' | 'name' | 'is_primary'>, user
 }
 
 /**
- * An agent another agent added to its own workspace (create_bot). It greets the user like any new bot,
- * saying which bot added it. A reason instead of a bot when the computer has no room for another.
+ * An agent the workspace's primary bot added (create_bot). It greets the user like any new bot, saying
+ * which bot added it. A reason instead of a bot when the computer has no room for another.
  */
 export function addTeammate(by: BotRecord, b: NewBot): { bot: Bot } | { error: string } {
   let bot: Bot;
@@ -88,6 +93,34 @@ export function addTeammate(by: BotRecord, b: NewBot): { bot: Bot } | { error: s
   }
   if (!setupPending(by.user_id)) welcome(requireBot(bot.id), ownerName(by.user_id), by.name);
   return { bot };
+}
+
+/**
+ * Change a bot's label, About or instructions for the workspace's primary bot (update_bot), kept as long
+ * as createBot keeps them. Returns the ones that changed; its agent reads them from its next turn.
+ */
+export function updatePersona(b: BotRecord, p: Persona): (keyof Persona)[] {
+  const next: Persona = { label: clipPersona('label', p.label), description: clipPersona('description', p.description), instructions: clipPersona('instructions', p.instructions) };
+  const changed = (['label', 'description', 'instructions'] as const).filter((k) => next[k] !== undefined && next[k] !== b[k]);
+  if (!changed.length) return [];
+  db.prepare('UPDATE bots SET label=COALESCE(?,label), description=COALESCE(?,description), instructions=COALESCE(?,instructions), updated_at=? WHERE id=?')
+    .run(next.label ?? null, next.description ?? null, next.instructions ?? null, now(), b.id);
+  showPersona(b, { persona: changed.includes('label') || changed.includes('description'), looks: changed.includes('label') });
+  hub.emit(b.user_id, { type: 'roster' });
+  return changed;
+}
+
+/**
+ * After a bot's name, label or About changed, or its look: its persona file says who it is
+ * (engine.ts syncPersona), and its desktop, which shows its name, label and colour, is dressed again if
+ * it has one. A group chat has neither.
+ */
+export function showPersona(b: Pick<BotRecord, 'id' | 'user_id' | 'kind'>, o: { persona: boolean; looks: boolean }) {
+  if (b.kind === 'room') return;
+  if (o.persona) syncPersona(b.id);
+  if (o.looks && db.prepare('SELECT 1 FROM screens WHERE bot_id=?').get(b.id)) {
+    readyScreen(b.user_id, b.id, { redress: true }).catch((e) => console.warn('[computer] redress failed', e?.message ?? e));
+  }
 }
 
 /** A new workspace and its primary bot, together, so no workspace is ever without one. The bot greets the user. */

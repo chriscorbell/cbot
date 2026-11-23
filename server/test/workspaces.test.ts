@@ -24,7 +24,7 @@ vi.mock('../src/units.js', async (orig) => ({ ...(await orig<typeof import('../s
 const { createApp } = await import('../src/app.js');
 const { db } = await import('../src/db.js');
 const { createWorkspace, defaultWorkspace } = await import('../src/workspaces.js');
-const { addTeammate } = await import('../src/bots.js');
+const { addTeammate, updatePersona } = await import('../src/bots.js');
 const { runTool, toolMap, toolsFor } = await import('../src/agent/tools.js');
 const { instructionsFor } = await import('../src/agent/prompt.js');
 const team = await import('../src/agent/team.js');
@@ -51,7 +51,7 @@ afterEach(() => {
 
 const ctx = (botId: string) => ({
   userId, botId, workspaceId: store.requireBot(botId).workspace_id, convo: store.conversation(botId), depth: 0, asking: 0,
-  enqueueBotMessage: () => {}, wake: () => {}, addTeammate,
+  enqueueBotMessage: () => {}, wake: () => {}, addTeammate, updatePersona,
 });
 const run = (name: string, args: unknown, botId: string) => runTool(toolMap.get(name)!, args, ctx(botId));
 const patch = (path: string, body: unknown) => app.request(path, { ...json(body), method: 'PATCH' });
@@ -176,13 +176,17 @@ test('a bot moved to another workspace leaves its old team and group chats, and 
   expect(retooled).toEqual([]);
 });
 
-test("create_bot adds an agent to the caller's own workspace, which says hello; only for the user, under a free name, while there is room", async () => {
+test("only the primary bot adds an agent, to its own workspace; the new one says hello, under a free name, while there is room", async () => {
   const { acme, kai, max, zed } = twoTeams();
   const { env } = await import('../src/env.js');
   const limit = env.maxBots;
   env.maxBots = 5;
   onTestFinished(() => { env.maxBots = limit; });
-  const r = await run('create_bot', { name: ' Scout ', label: 'Researcher', about: 'Tracks AI news', instructions: 'Daily digest at 8.' }, max.id);
+  // Any other bot is told to ask the primary bot, which decides.
+  expect((await run('create_bot', { name: 'Scout' }, zed.id)).output).toBe("Only Max, the team's primary bot, can add an agent to the team. If it's needed, ask them with send_to_bot; they decide.");
+
+  // Even when a teammate asked it: the primary bot decides.
+  const r = await runTool(toolMap.get('create_bot')!, { name: ' Scout ', label: 'Researcher', about: 'Tracks AI news', instructions: 'Daily digest at 8.' }, { ...ctx(max.id), depth: 1 });
   expect(r.summary).toBe('Added Scout');
   const scout = db.prepare<[], BotRecord>("SELECT * FROM bots WHERE name='Scout'").get()!;
   expect([scout.workspace_id, scout.label, scout.description, scout.instructions, scout.is_primary]).toEqual([acme, 'Researcher', 'Tracks AI news', 'Daily digest at 8.', 0]);
@@ -198,12 +202,50 @@ test("create_bot adds an agent to the caller's own workspace, which says hello; 
   seedBot(userId, { name: 'Ops', kind: 'room', workspaceId: acme });
   expect((await run('create_bot', { name: 'scout' }, max.id)).output).toContain('already on the team');
   expect((await run('create_bot', { name: 'ops' }, max.id)).output).toContain('as a group chat');
-  // An agent answering another agent can't add one.
-  expect((await runTool(toolMap.get('create_bot')!, { name: 'Echo' }, { ...ctx(max.id), depth: 1 })).output).toContain('Only the user');
-  expect((await runTool(toolMap.get('create_bot')!, { name: 'Echo' }, { ...ctx(max.id), asking: 1 })).output).toContain('Only the user');
   // The computer has room for so many bots (5 here); the next one is refused with the reason.
   expect((await run('create_bot', { name: 'Echo' }, max.id)).summary).toBe('No room for another bot');
   expect(db.prepare("SELECT COUNT(*) n FROM bots WHERE kind<>'room'").get()).toEqual({ n: 5 });
+});
+
+test("the primary bot changes a teammate's label, About and instructions; the teammate and the user see it", async () => {
+  const { max, zed } = twoTeams();
+  db.prepare("UPDATE bots SET label='Ops', instructions='Old.' WHERE id=?").run(zed.id);
+  expect((await run('update_bot', { bot_name: 'Max', label: 'Boss' }, zed.id)).output).toMatch(/^Only Max, the team's primary bot, can change/);
+  // Its own workspace's bots only, and not itself.
+  expect((await run('update_bot', { bot_name: 'Kai', label: 'X' }, max.id)).output).toMatch(/^No agent named "Kai"/);
+  expect((await run('update_bot', { bot_name: 'Max', label: 'X' }, max.id)).output).toBe('That is you.');
+
+  const r = await run('update_bot', { bot_name: 'zed', label: 'Ops', about: ' Runs the servers ', instructions: 'Page me at night.' }, max.id);
+  expect(r.output).toBe("Changed Zed's About and instructions. They follow it from their next turn.");
+  expect(store.requireBot(zed.id)).toMatchObject({ label: 'Ops', description: 'Runs the servers', instructions: 'Page me at night.' });
+  // A line in Zed's chat for the user. Zed's agent reads the new ones in its instructions at its next turn.
+  expect(store.listRows(zed.id).map((row) => row.body)).toContainEqual({ type: 'event', event: 'bot-message', text: "Max changed Zed's About and instructions" });
+  expect(await instructionsFor(userId, zed.id)).toContain('Page me at night.');
+  expect((await run('update_bot', { bot_name: 'Zed', label: 'Ops' }, max.id)).output).toBe("Nothing changed: Zed's are already that.");
+});
+
+test("the primary bot sets up and changes a teammate's routines; other bots only their own", async () => {
+  const { ava, max, zed } = twoTeams();
+  const { listRoutines } = store;
+  expect((await run('create_routine', { name: 'Digest', prompt: 'p', schedule: '0 8 * * *', bot_name: 'Max' }, zed.id)).output).toMatch(/^Only Max, the team's primary bot, can manage/);
+  expect((await run('list_routines', { bot_name: 'Max' }, zed.id)).output).toMatch(/^Only Max/);
+
+  const made = await run('create_routine', { name: 'Digest', prompt: 'Send the AI news.', schedule: '0 8 * * *', bot_name: 'Zed' }, max.id);
+  expect(made.summary).toBe('Created routine Digest for Zed');
+  const [rt] = listRoutines(zed.id);
+  expect(rt).toMatchObject({ name: 'Digest', prompt: 'Send the AI news.' });
+  expect(listRoutines(max.id)).toEqual([]);
+  expect(store.listRows(zed.id).map((row) => row.body)).toContainEqual({ type: 'event', event: 'routine-created', text: 'Max set up a routine: Digest · Every day at 8:00 AM', ref: rt.id });
+  expect(await instructionsFor(userId, zed.id)).toContain('Digest');
+  expect(JSON.parse((await run('list_routines', { bot_name: 'Zed' }, max.id)).output)).toHaveLength(1);
+
+  // Zed may change its own; Max may change Zed's; neither reaches another workspace's.
+  expect((await run('update_routine', { routine_id: rt.id, enabled: false }, max.id)).output).toContain('"enabled":false');
+  expect((await run('update_routine', { routine_id: rt.id, enabled: true }, zed.id)).output).toContain('"enabled":true');
+  expect((await run('delete_routine', { routine_id: rt.id }, ava.id)).output).toBe('No such routine.');
+  expect((await run('delete_routine', { routine_id: rt.id }, max.id)).output).toBe('Deleted.');
+  expect(listRoutines(zed.id)).toEqual([]);
+  expect(store.listRows(zed.id).map((row) => (row.body.type === 'event' ? row.body.text : ''))).toEqual(expect.arrayContaining(['Max updated a routine: Digest · Paused', 'Max removed a routine: Digest']));
 });
 
 test('making a bot primary changes only its own workspace', async () => {

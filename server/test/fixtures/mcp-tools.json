@@ -22,7 +22,7 @@
   },
   {
     "name": "create_routine",
-    "description": "Create a recurring routine you will run on a schedule. `schedule` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. \"0 8 * * 1-5\" for weekdays at 8:00. `prompt` is the instruction you will follow each time it runs.",
+    "description": "Create a recurring routine run on a schedule. `schedule` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. \"0 8 * * 1-5\" for weekdays at 8:00. `prompt` is the instruction followed each time it runs. It is yours unless you name a teammate in bot_name, which only the primary bot can.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -38,6 +38,10 @@
         "timezone": {
           "type": "string",
           "description": "IANA timezone, e.g. America/Los_Angeles. Default: UTC"
+        },
+        "bot_name": {
+          "description": "The teammate whose routine it is (primary bot only). Default: you",
+          "type": "string"
         }
       },
       "required": [
@@ -99,17 +103,21 @@
   },
   {
     "name": "list_routines",
-    "description": "List your routines.",
+    "description": "List your routines, or a teammate's (bot_name; primary bot only).",
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "bot_name": {
+          "type": "string"
+        }
+      },
       "additionalProperties": false,
       "required": []
     }
   },
   {
     "name": "update_routine",
-    "description": "Change or pause one of your routines.",
+    "description": "Change or pause one of your routines; the primary bot may also change a teammate's.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -140,7 +148,7 @@
   },
   {
     "name": "delete_routine",
-    "description": "Delete one of your routines.",
+    "description": "Delete one of your routines; the primary bot may also delete a teammate's.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -300,7 +308,7 @@
   },
   {
     "name": "create_bot",
-    "description": "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model. Only when the user asks for a new agent or agrees to one (ask_user first if unsure), never to get a one-off job done: give that to yourself or a teammate. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
+    "description": "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -323,6 +331,34 @@
       },
       "required": [
         "name"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "update_bot",
+    "description": "Change a teammate's label (their role), About or instructions. Only the primary bot can. Each one you give replaces the old one whole, so read their instructions with check_on_bot first and keep what should stay. The teammate and the user see what changed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "bot_name": {
+          "type": "string"
+        },
+        "label": {
+          "description": "Their role in a few words",
+          "type": "string"
+        },
+        "about": {
+          "description": "A sentence or two on what they do, shown to the user and the team",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "All of their instructions, as they should read from now on",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bot_name"
       ],
       "additionalProperties": false
     }

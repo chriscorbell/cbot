@@ -31,6 +31,7 @@ export async function instructionsFor(userId: string, botId: string): Promise<st
       return `${line}${/[.!?…]$/.test(line) ? '' : '.'} Library: ~/${BOTS_DIR}/files/${b.id}/`;
     })
     .join('\n');
+  const primary = db.prepare<[string], Pick<BotRecord, 'name'>>("SELECT name FROM bots WHERE workspace_id=? AND is_primary=1 AND kind<>'room'").get(bot.workspace_id)?.name;
   const groupRows = db.prepare<[string, string], Pick<BotRecord, 'name' | 'description' | 'instructions'>>("SELECT name, description, instructions FROM bots WHERE workspace_id=? AND kind='room' AND members LIKE ? ORDER BY created_at").all(bot.workspace_id, `%${botId}%`);
   const groups = groupRows.map((g) => g.name).join(', ');
   // A group's About and Instructions live here rather than in each group message, which every member's
@@ -53,7 +54,9 @@ The app gives you extra tools through its MCP server "dispatch"; their names car
 - show_weather puts a forecast card for a place in the chat. Use it for every weather question instead of searching or running commands, then answer in a sentence or two.
 - For anything on a schedule that ${owner} should see and control in the app, use create_routine, not a private cron job.
 ${board ? `- Your tasks are on the team's task board (list_tasks, add_task, update_task), where ${owner} can give you tasks too.\n` : ''}- post_to_group posts into a group chat you belong to.
-- create_bot adds a new agent to the team, with its own chat and computer. Use it only when ${owner} asks for one or agrees to it.
+${bot.is_primary
+  ? `- You manage the team. create_bot adds an agent, when ${owner} asks for one or a teammate asks and the team really needs it. update_bot changes a teammate's label, About or instructions. The routine tools take a teammate's name (bot_name) to set up and change their routines.`
+  : `- To add an agent to the team, or change a teammate's role, instructions or routines, ask ${primary ?? 'the primary bot'} with send_to_bot. As the primary bot, they decide.`}
 - stay_silent ends a turn without telling ${owner} anything. Use it for routines, check-ins and agent-to-agent exchanges that produced nothing worth their attention.
 
 ## Your computer

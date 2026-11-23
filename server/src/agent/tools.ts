@@ -11,7 +11,7 @@ import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
 import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, type Actor } from './team.js';
 import { listMemories } from '../engine-memory.js';
-import { TASK_STATUSES, type ActivityKind } from '../types.js';
+import { TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
 import { BOTS_DIR, libraryDir } from '../machine.js';
@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
 import { boardOn } from '../workspaces.js';
 import { notify } from '../notifications.js';
-import type { addTeammate } from '../bots.js';
+import type { addTeammate, updatePersona } from '../bots.js';
 
 export interface ToolCtx {
   userId: string;
@@ -33,8 +33,12 @@ export interface ToolCtx {
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   /** Queue a turn for a bot that was given a task (turns.ts wake). */
   wake: (botId: string, depth: number) => void;
-  /** Add an agent to the calling bot's workspace (bots.ts addTeammate). Passed in like wake: bots.ts loads turns.ts, which loads this module. */
+  /**
+   * Add an agent to the calling bot's workspace, and change a teammate's label, About or instructions
+   * (bots.ts). Passed in like wake: bots.ts loads turns.ts, which loads this module.
+   */
   addTeammate: typeof addTeammate;
+  updatePersona: typeof updatePersona;
   /** Bot-to-bot hops behind the turn that called the tool (team.ts MAX_HOPS). */
   depth: number;
   /** How deep in a chain of ask_bot questions the call is: 0 from a chat turn, 1 while answering a question asked from one. */
@@ -119,6 +123,45 @@ const nameOf = (botId: string) => db.prepare<[string], Pick<BotRecord, 'name'>>(
 
 const actorOf = (ctx: ToolCtx): Actor => ({ kind: 'bot', id: ctx.botId, name: nameOf(ctx.botId) ?? 'A teammate' });
 
+/** The calling bot's own row, or undefined once it is deleted. */
+const selfOf = (ctx: ToolCtx) => db.prepare<[string], BotRecord>('SELECT * FROM bots WHERE id=?').get(ctx.botId);
+
+/**
+ * The workspace's primary bot manages its team: it adds agents, changes their roles and instructions,
+ * and sets up their routines. Any other bot is told to ask it, and it decides.
+ */
+function onlyPrimary(ctx: ToolCtx, what: string): { output: string } {
+  const primary = db.prepare<[string], Pick<BotRecord, 'name'>>("SELECT name FROM bots WHERE workspace_id=? AND is_primary=1 AND kind<>'room'").get(ctx.workspaceId)?.name;
+  return { output: `Only ${primary ?? 'the primary bot'}, the team's primary bot, can ${what}. If it's needed, ask ${primary ? 'them' : 'it'} with send_to_bot; they decide.` };
+}
+
+/** Whose routines a routine tool works on: the caller's own, or, for the primary bot, the teammate named. */
+function routineOwner(ctx: ToolCtx, name: string | undefined): { me: BotRecord; bot: BotRecord } | { output: string } {
+  const me = selfOf(ctx);
+  if (!me) return { output: 'You are no longer on the team.' };
+  const n = name?.trim().toLowerCase();
+  if (!n || n === 'me' || n === 'myself' || n === me.name.toLowerCase()) return { me, bot: me };
+  if (!me.is_primary) return onlyPrimary(ctx, "manage a teammate's routines");
+  const t = teammate(ctx, name!);
+  return 'output' in t ? t : { me, bot: t.bot };
+}
+
+/** A routine the calling bot may change: its own, or, for the workspace's primary bot, a teammate's. */
+function routineFor(ctx: ToolCtx, id: string): RoutineRecord | undefined {
+  const r = db.prepare<[string, string], RoutineRecord>('SELECT r.* FROM routines r JOIN bots b ON b.id=r.bot_id WHERE r.id=? AND b.workspace_id=?').get(id, ctx.workspaceId);
+  return r && (r.bot_id === ctx.botId || selfOf(ctx)?.is_primary) ? r : undefined;
+}
+
+/**
+ * Something changed in a bot's routines or role: a line in its chat, so the user sees it there. Its
+ * agent needs no word of it, since its app instructions list its routines and role afresh every turn.
+ * A change to the caller's own goes in the calling turn's chat.
+ */
+function noteChange(ctx: ToolCtx, botId: string, row: EventBody) {
+  if (botId === ctx.botId) ctx.convo.append('event', row);
+  else appendRow(botId, 'event', row);
+}
+
 /** Wake the bot a task was given to, unless the chain of hops behind this turn is long enough already. */
 function wakeGiven(ctx: ToolCtx, botId: string | null): string {
   if (!botId) return '';
@@ -149,19 +192,25 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'create_routine',
-    description: 'Create a recurring routine you will run on a schedule. `schedule` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. "0 8 * * 1-5" for weekdays at 8:00. `prompt` is the instruction you will follow each time it runs.',
-    params: z.object({ name: z.string(), prompt: z.string(), schedule: z.string(), timezone: z.string().describe(`IANA timezone, e.g. America/Los_Angeles. Default: ${env.timeZone}`).optional() }),
+    description: 'Create a recurring routine run on a schedule. `schedule` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. "0 8 * * 1-5" for weekdays at 8:00. `prompt` is the instruction followed each time it runs. It is yours unless you name a teammate in bot_name, which only the primary bot can.',
+    params: z.object({
+      name: z.string(), prompt: z.string(), schedule: z.string(), timezone: z.string().describe(`IANA timezone, e.g. America/Los_Angeles. Default: ${env.timeZone}`).optional(),
+      bot_name: z.string().optional().describe("The teammate whose routine it is (primary bot only). Default: you"),
+    }),
     activity: 'working',
     label: 'Setting up a routine',
     impl: async (a, ctx) => {
+      const o = routineOwner(ctx, a.bot_name);
+      if ('output' in o) return o;
       try { new Cron(a.schedule, { paused: true, timezone: a.timezone || env.timeZone }); } catch (e) { return { output: `Invalid schedule: ${errorText(e)}` }; }
       const id = newId('rt');
-      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, ctx.botId, a.name, a.prompt, a.schedule, a.timezone || env.timeZone, now());
+      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, o.bot.id, a.name, a.prompt, a.schedule, a.timezone || env.timeZone, now());
       const r = getRoutine(id)!;
       scheduleRoutine(r);
-      ctx.convo.append('event', { type: 'event', event: 'routine-created', text: `Routine created: ${a.name} · ${describeCron(a.schedule)}`, ref: id });
-      hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
-      return { output: JSON.stringify({ ok: true, routine: r }), summary: `Created routine ${a.name}` };
+      const when = describeCron(a.schedule);
+      noteChange(ctx, o.bot.id, { type: 'event', event: 'routine-created', text: o.bot.id === ctx.botId ? `Routine created: ${a.name} · ${when}` : `${o.me.name} set up a routine: ${a.name} · ${when}`, ref: id });
+      hub.emit(ctx.userId, { type: 'routines', botId: o.bot.id });
+      return { output: JSON.stringify({ ok: true, routine: r }), summary: o.bot.id === ctx.botId ? `Created routine ${a.name}` : `Created routine ${a.name} for ${o.bot.name}` };
     },
   }),
   tool({
@@ -198,42 +247,52 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'list_routines',
-    description: 'List your routines.',
-    params: z.object({}),
+    description: "List your routines, or a teammate's (bot_name; primary bot only).",
+    params: z.object({ bot_name: z.string().optional() }),
     activity: 'working',
     label: 'Checking routines',
-    impl: async (_a, ctx) => ({ output: JSON.stringify(listRoutines(ctx.botId)) }),
+    impl: async (a, ctx) => {
+      const o = routineOwner(ctx, a.bot_name);
+      return 'output' in o ? o : { output: JSON.stringify(listRoutines(o.bot.id)) };
+    },
   }),
   tool({
     name: 'update_routine',
-    description: 'Change or pause one of your routines.',
+    description: "Change or pause one of your routines; the primary bot may also change a teammate's.",
     params: z.object({ routine_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), schedule: z.string().optional(), timezone: z.string().optional(), enabled: z.boolean().optional() }),
     activity: 'working',
     label: 'Updating a routine',
     impl: async (a, ctx) => {
-      const cur = db.prepare<[string, string], RoutineRecord>('SELECT * FROM routines WHERE id=? AND bot_id=?').get(a.routine_id, ctx.botId);
+      const cur = routineFor(ctx, a.routine_id);
       if (!cur) return { output: 'No such routine.' };
       const next = { ...cur, name: a.name ?? cur.name, prompt: a.prompt ?? cur.prompt, schedule: a.schedule ?? cur.schedule, timezone: a.timezone ?? cur.timezone, enabled: a.enabled === undefined ? cur.enabled : a.enabled ? 1 : 0 };
       try { new Cron(next.schedule, { paused: true, timezone: next.timezone }); } catch (e) { return { output: `Invalid schedule: ${errorText(e)}` }; }
       db.prepare('UPDATE routines SET name=?,prompt=?,schedule=?,timezone=?,enabled=? WHERE id=?').run(next.name, next.prompt, next.schedule, next.timezone, next.enabled, cur.id);
       const r = getRoutine(cur.id)!;
       applySchedule(r);
-      ctx.convo.append('event', { type: 'event', event: 'routine-updated', text: `Routine updated: ${r.name} · ${r.enabled ? r.description : 'Paused'}`, ref: r.id });
-      hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
+      const state = r.enabled ? r.description : 'Paused';
+      const by = nameOf(ctx.botId) ?? 'A teammate';
+      noteChange(ctx, r.botId, { type: 'event', event: 'routine-updated', text: r.botId === ctx.botId ? `Routine updated: ${r.name} · ${state}` : `${by} updated a routine: ${r.name} · ${state}`, ref: r.id });
+      hub.emit(ctx.userId, { type: 'routines', botId: r.botId });
       return { output: JSON.stringify({ ok: true, routine: r }) };
     },
   }),
   tool({
     name: 'delete_routine',
-    description: 'Delete one of your routines.',
+    description: "Delete one of your routines; the primary bot may also delete a teammate's.",
     params: z.object({ routine_id: z.string() }),
     activity: 'working',
     label: 'Removing a routine',
     impl: async (a, ctx) => {
-      // Only its own routines: another bot's id must not even unschedule anything.
-      if (!db.prepare('DELETE FROM routines WHERE id=? AND bot_id=?').run(a.routine_id, ctx.botId).changes) return { output: 'No such routine.' };
-      unscheduleRoutine(a.routine_id);
-      hub.emit(ctx.userId, { type: 'routines', botId: ctx.botId });
+      // Only one it may change: another bot's id must not even unschedule anything.
+      const cur = routineFor(ctx, a.routine_id);
+      if (!cur || !db.prepare('DELETE FROM routines WHERE id=?').run(cur.id).changes) return { output: 'No such routine.' };
+      unscheduleRoutine(cur.id);
+      if (cur.bot_id !== ctx.botId) {
+        const by = nameOf(ctx.botId) ?? 'A teammate';
+        noteChange(ctx, cur.bot_id, { type: 'event', event: 'routine-updated', text: `${by} removed a routine: ${cur.name}` });
+      }
+      hub.emit(ctx.userId, { type: 'routines', botId: cur.bot_id });
       return { output: 'Deleted.' };
     },
   }),
@@ -286,7 +345,8 @@ export const TOOLS: ToolDef[] = [
       const user = ownerName(ctx.userId);
       const out: string[] = [`# ${b.name}${b.label ? `, ${b.label}` : ''}${b.is_primary ? ` (${user}'s main point of contact)` : ''}`];
       if (b.description.trim()) out.push(`About: ${b.description.trim()}`);
-      if (b.instructions.trim()) out.push(`## Instructions from ${user}\n${clip(b.instructions.trim(), 2000)}`);
+      // Whole, as long as they are kept (bots.ts): the primary bot rewrites them from here with update_bot.
+      if (b.instructions.trim()) out.push(`## Instructions from ${user}\n${clip(b.instructions.trim(), 8000)}`);
       const skills = db.prepare<[string], { name: string }>('SELECT name FROM skills WHERE bot_id=? ORDER BY created_at').all(b.id).map((s) => s.name);
       if (skills.length) out.push(`## Skills\n${skills.join(', ')}`);
       const routines = listRoutines(b.id).map((r) => `- ${r.name}: ${r.enabled ? r.description : 'paused'}; ${clip(r.prompt.replace(/\s+/g, ' '), 160)}`);
@@ -366,7 +426,7 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'create_bot',
-    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model. Only when the user asks for a new agent or agrees to one (ask_user first if unsure), never to get a one-off job done: give that to yourself or a teammate. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
+    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model. Only the primary bot can. Use it when the user asks for a new agent, or when a teammate asks for one and the team really needs it; never to get a one-off job done, which you or a teammate can do. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
     params: z.object({
       name: z.string().describe('Its name, one or two words, not already on the team'),
       label: z.string().optional().describe('Its role in a few words, e.g. "Researcher"'),
@@ -376,19 +436,41 @@ export const TOOLS: ToolDef[] = [
     activity: 'working',
     label: 'Adding a teammate',
     impl: async (a, ctx) => {
-      // Only for the user: an agent answering another agent can't grow the team, so no chain of bots
-      // keeps adding bots until the computer is full.
-      if (ctx.depth > 0 || ctx.asking > 0) return { output: 'Only the user can have an agent added. Tell them what you need instead.' };
+      const by = selfOf(ctx);
+      if (!by) return { output: 'You are no longer on the team.' };
+      if (!by.is_primary) return onlyPrimary(ctx, 'add an agent to the team');
       const name = a.name.trim();
       if (!name) return { output: 'The new agent needs a name.' };
       // Teammates are found by name, so two of the same name would leave one out of reach.
       const taken = botByName(ctx.workspaceId, name);
       if (taken) return { output: `"${taken.name}" is already on the team${taken.kind === 'room' ? ' as a group chat' : ''}. Pick another name.` };
-      const by = db.prepare<[string], BotRecord>('SELECT * FROM bots WHERE id=?').get(ctx.botId);
-      if (!by) return { output: 'You are no longer on the team.' };
       const r = ctx.addTeammate(by, { name, label: a.label, description: a.about, instructions: a.instructions });
       if ('error' in r) return { output: r.error, summary: 'No room for another bot' };
       return { output: `${r.bot.name} joined the team and is greeting ${ownerName(ctx.userId)} in their own chat. Give them work with add_task or send_to_bot.`, summary: `Added ${r.bot.name}` };
+    },
+  }),
+  tool({
+    name: 'update_bot',
+    description: "Change a teammate's label (their role), About or instructions. Only the primary bot can. Each one you give replaces the old one whole, so read their instructions with check_on_bot first and keep what should stay. The teammate and the user see what changed.",
+    params: z.object({
+      bot_name: z.string(),
+      label: z.string().optional().describe('Their role in a few words'),
+      about: z.string().optional().describe('A sentence or two on what they do, shown to the user and the team'),
+      instructions: z.string().optional().describe('All of their instructions, as they should read from now on'),
+    }),
+    activity: 'working',
+    label: 'Updating a teammate',
+    impl: async (a, ctx) => {
+      const by = selfOf(ctx);
+      if (!by) return { output: 'You are no longer on the team.' };
+      if (!by.is_primary) return onlyPrimary(ctx, "change a teammate's role, About or instructions");
+      const t = teammate(ctx, a.bot_name);
+      if ('output' in t) return t;
+      const changed = ctx.updatePersona(t.bot, { label: a.label, description: a.about, instructions: a.instructions });
+      if (!changed.length) return { output: `Nothing changed: ${t.bot.name}'s are already that.` };
+      const what = changed.map((k) => (k === 'description' ? 'About' : k)).join(' and ').replace(/ and (?=.* and )/, ', ');
+      noteChange(ctx, t.bot.id, { type: 'event', event: 'bot-message', text: `${by.name} changed ${t.bot.name}'s ${what}` });
+      return { output: `Changed ${t.bot.name}'s ${what}. They follow it from their next turn.`, summary: `Updated ${t.bot.name}` };
     },
   }),
   tool({

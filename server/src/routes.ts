@@ -9,14 +9,14 @@ import { appendRow, clearConversation, currentRow, emitBot, getBot, getBotRow, g
 import { clear, enqueue, interrupt } from './agent/turns.js';
 import { answerApproval, ApprovalGone } from './agent/approvals.js';
 import { allLive } from './agent/live.js';
-import { computerState, readyScreen } from './computer.js';
+import { computerState } from './computer.js';
 import { displayNumber, libraryDir, LIBRARY_ROOT } from './machine.js';
 import { displayRunning, screenshot } from './displays.js';
-import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncApprovals, syncPersona } from './engine.js';
+import { allowedActions, approvalSettings, endpointModels, forgetAllowed, syncApprovals } from './engine.js';
 import { saveProviderSettings } from './providers.js';
 import { cleanSecret, cleanUrl, getSetting, SECRET_IDS, secretState, type SettingKey } from './settings.js';
 import { deleteMemory, memoryBot } from './engine-memory.js';
-import { createBot, deleteBot, finishSetup, moveBot, primaryBot, setupPending, UserError, welcome } from './bots.js';
+import { createBot, deleteBot, finishSetup, moveBot, primaryBot, setupPending, showPersona, UserError, welcome } from './bots.js';
 import { defaultWorkspace, ownWorkspace } from './workspaces.js';
 import { applySchedule, runRoutine, unscheduleRoutine } from './routines.js';
 import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
@@ -164,14 +164,10 @@ api.patch('/bots/:id', async (c) => {
     const v = p[k];
     if (v !== undefined) db.prepare(`UPDATE bots SET ${col}=?, updated_at=? WHERE id=?`).run(typeof v === 'boolean' ? (v ? 1 : 0) : v, now(), b.id);
   }
-  if (b.kind !== 'room') {
-    if (p.name !== undefined || p.label !== undefined || p.description !== undefined) syncPersona(b.id);
-    // Its desktop carries its name and colour: dress the screen again, if it has one.
-    const looks = p.name !== undefined || p.label !== undefined || p.avatarShape !== undefined || p.avatarColor !== undefined;
-    if (looks && db.prepare('SELECT 1 FROM screens WHERE bot_id=?').get(b.id)) {
-      readyScreen(b.user_id, b.id, { redress: true }).catch((e) => console.warn('[computer] redress failed', e?.message ?? e));
-    }
-  }
+  showPersona(b, {
+    persona: p.name !== undefined || p.label !== undefined || p.description !== undefined,
+    looks: p.name !== undefined || p.label !== undefined || p.avatarShape !== undefined || p.avatarColor !== undefined,
+  });
   emitBot(b.id);
   return c.json({ bot: getBot(b.id)! } satisfies BotResponse);
 });
