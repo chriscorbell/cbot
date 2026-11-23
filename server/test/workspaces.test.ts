@@ -1,7 +1,8 @@
 // Workspaces: separate teams of bots, each with its own primary bot, task board and check-ins. A bot
 // knows of and reaches only the bots of its own workspace.
-import { afterEach, beforeAll, expect, test, vi } from 'vitest';
+import { afterEach, beforeAll, expect, onTestFinished, test, vi } from 'vitest';
 import type { WorkspaceCreated, WorkspaceResponse, WorkspacesResponse, TasksResponse } from '../src/contract.js';
+import type { BotRecord } from '../src/db.js';
 
 // A greeting, a check-in or a task given is a turn: record it. Nothing starts a gateway, a screen or a unit.
 const enqueued: { botId: string; trigger: { type: string; text?: string } }[] = [];
@@ -23,6 +24,7 @@ vi.mock('../src/units.js', async (orig) => ({ ...(await orig<typeof import('../s
 const { createApp } = await import('../src/app.js');
 const { db } = await import('../src/db.js');
 const { createWorkspace, defaultWorkspace } = await import('../src/workspaces.js');
+const { addTeammate } = await import('../src/bots.js');
 const { runTool, toolMap, toolsFor } = await import('../src/agent/tools.js');
 const { instructionsFor } = await import('../src/agent/prompt.js');
 const team = await import('../src/agent/team.js');
@@ -49,7 +51,7 @@ afterEach(() => {
 
 const ctx = (botId: string) => ({
   userId, botId, workspaceId: store.requireBot(botId).workspace_id, convo: store.conversation(botId), depth: 0, asking: 0,
-  enqueueBotMessage: () => {}, wake: () => {},
+  enqueueBotMessage: () => {}, wake: () => {}, addTeammate,
 });
 const run = (name: string, args: unknown, botId: string) => runTool(toolMap.get(name)!, args, ctx(botId));
 const patch = (path: string, body: unknown) => app.request(path, { ...json(body), method: 'PATCH' });
@@ -172,6 +174,36 @@ test('a bot moved to another workspace leaves its old team and group chats, and 
   expect(await instructionsFor(userId, zed.id)).toMatch(/- Ava \(tess's main point of contact\)\..*\n- Kai\./);
   // Both boards were on: its tools stay the same, so nothing restarts.
   expect(retooled).toEqual([]);
+});
+
+test("create_bot adds an agent to the caller's own workspace, which says hello; only for the user, under a free name, while there is room", async () => {
+  const { acme, kai, max, zed } = twoTeams();
+  const { env } = await import('../src/env.js');
+  const limit = env.maxBots;
+  env.maxBots = 5;
+  onTestFinished(() => { env.maxBots = limit; });
+  const r = await run('create_bot', { name: ' Scout ', label: 'Researcher', about: 'Tracks AI news', instructions: 'Daily digest at 8.' }, max.id);
+  expect(r.summary).toBe('Added Scout');
+  const scout = db.prepare<[], BotRecord>("SELECT * FROM bots WHERE name='Scout'").get()!;
+  expect([scout.workspace_id, scout.label, scout.description, scout.instructions, scout.is_primary]).toEqual([acme, 'Researcher', 'Tracks AI news', 'Daily digest at 8.', 0]);
+  // It greets the user, saying who added it, and asks nothing: Max hands it its work.
+  expect(enqueued.map((e) => e.botId)).toEqual([scout.id]);
+  expect(enqueued[0].trigger.text).toContain('Max just added you');
+  expect(enqueued[0].trigger.text).not.toContain('ask_user');
+  // Acme's team hears it joined; Personal's doesn't.
+  expect(team.teamNews(zed.id)?.note).toMatch(/Scout.*joined the team\./);
+  expect(team.teamNews(kai.id)?.note).toBeNull();
+
+  // A name already on the team, a group chat's included, is refused, whatever its case.
+  seedBot(userId, { name: 'Ops', kind: 'room', workspaceId: acme });
+  expect((await run('create_bot', { name: 'scout' }, max.id)).output).toContain('already on the team');
+  expect((await run('create_bot', { name: 'ops' }, max.id)).output).toContain('as a group chat');
+  // An agent answering another agent can't add one.
+  expect((await runTool(toolMap.get('create_bot')!, { name: 'Echo' }, { ...ctx(max.id), depth: 1 })).output).toContain('Only the user');
+  expect((await runTool(toolMap.get('create_bot')!, { name: 'Echo' }, { ...ctx(max.id), asking: 1 })).output).toContain('Only the user');
+  // The computer has room for so many bots (5 here); the next one is refused with the reason.
+  expect((await run('create_bot', { name: 'Echo' }, max.id)).summary).toBe('No room for another bot');
+  expect(db.prepare("SELECT COUNT(*) n FROM bots WHERE kind<>'room'").get()).toEqual({ n: 5 });
 });
 
 test('making a bot primary changes only its own workspace', async () => {

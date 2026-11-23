@@ -7,6 +7,7 @@ import { claimToolRow, enqueueBotMessage, turnDepth, wake } from './agent/turns.
 import { askDepth } from './agent/asks.js';
 import { inputSchema, runTool, toolMap, toolsFor, type ToolCtx } from './agent/tools.js';
 import { liveCallOf } from './voice.js';
+import { addTeammate } from './bots.js';
 import { errorText } from './lib/errors.js';
 
 /**
@@ -54,7 +55,7 @@ async function callTool(botId: string, rawName: string, rawArgs: unknown, signal
   // deep in a chain of questions it is. Tools that write into the chat mark their rows with the call.
   const callId = claim ? undefined : liveCallOf(botId) ?? undefined;
   const ctx: ToolCtx = {
-    userId, botId, workspaceId: bot.workspace_id, convo: claim?.transcript.convo ?? current, callId, enqueueBotMessage, wake,
+    userId, botId, workspaceId: bot.workspace_id, convo: claim?.transcript.convo ?? current, callId, enqueueBotMessage, wake, addTeammate,
     depth: turnDepth(botId), asking: claim ? 0 : askDepth(botId),
     // Hermes dropping the call, or the chat turn it belongs to being stopped.
     signal: AbortSignal.any([...(signal ? [signal] : []), ...(claim ? [claim.signal] : [])]),

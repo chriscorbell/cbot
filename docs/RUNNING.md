@@ -66,7 +66,7 @@ The installer writes `/etc/dispatch/env`. After changing it, run `systemctl rest
 
 | Variable | Default | Effect |
 |---|---|---|
-| `MAX_BOTS` | 4 | Most bots the app will create. Each one runs a screen, a Chrome and an agent, about 1 GB of memory |
+| `MAX_BOTS` | 4 | Most bots the app will create, whether you add them or a bot does. Each one runs a screen, a Chrome and an agent, about 1 GB of memory |
 | `TZ` | UTC | The bots' time zone: their clocks, and routines and check-ins without a zone of their own |
 | `HOST` | every address | The address the server listens on. `127.0.0.1` keeps Dispatch to the machine itself and to Tailscale Serve |
 | `HTTPS` | unset | `1` serves HTTPS with Dispatch's own certificate, and plain HTTP only to the machine itself. The installer sets it |

@@ -10,13 +10,13 @@ import { unscheduleRoutine } from './routines.js';
 import { forgetBotFiles, releaseScreen } from './computer.js';
 import { dropCalls } from './voice.js';
 import { dropAsks } from './agent/asks.js';
-import { teamJoined, teamLeft } from './agent/team.js';
+import { ownerName, teamJoined, teamLeft } from './agent/team.js';
 import { leaveRooms } from './agent/rooms.js';
 import { createWorkspace, defaultWorkspace, requireWorkspace, workspacesOf } from './workspaces.js';
 import { cancelBotSignIns } from './signin.js';
 import { NEW_BOT_VOICES } from './speech.js';
 import { removeBotUnits } from './units.js';
-import { AVATAR_COLORS, AVATAR_SHAPES, type AvatarColor, type AvatarShape, type User } from './types.js';
+import { AVATAR_COLORS, AVATAR_SHAPES, type AvatarColor, type AvatarShape, type Bot, type User } from './types.js';
 
 const SHAPES: readonly AvatarShape[] = AVATAR_SHAPES;
 const COLORS: readonly AvatarColor[] = AVATAR_COLORS;
@@ -62,11 +62,32 @@ export function createBot(userId: string, b: NewBot, workspaceId = defaultWorksp
 
 /**
  * A new bot's first turn: it says hello and asks what it should help with. A primary bot also mentions
- * check-ins once, since nothing else in a chat tells the user it can write first.
+ * check-ins once, since nothing else in a chat tells the user it can write first. A bot another bot made
+ * (`by`, create_bot) only says hello: it was made for a job, which that bot hands it next.
  */
-export function welcome(bot: Pick<BotRecord, 'id' | 'name' | 'is_primary'>, username: string) {
+export function welcome(bot: Pick<BotRecord, 'id' | 'name' | 'is_primary'>, username: string, by?: string) {
+  if (by) {
+    enqueue(bot.id, { type: 'system', text: `${by} just added you to the team at ${username}'s request. Greet ${username} by name and introduce yourself as ${bot.name} in one or two short sentences, saying what you are here to do. Nothing else.` });
+    return;
+  }
   const checkins = bot.is_primary ? ` Add one short sentence saying you can also check in with ${username} at set times each day if they'd like, and that they can ask you or turn it on in the workspace's settings.` : '';
   enqueue(bot.id, { type: 'system', text: `You were just created. Greet ${username} by name and introduce yourself as ${bot.name} in one or two short sentences, using what you already know about them if anything.${checkins} Then call ask_user once with multiple set to true, asking what they would most like your help with, with up to four short options suited to them. Nothing else.` });
+}
+
+/**
+ * An agent another agent added to its own workspace (create_bot). It greets the user like any new bot,
+ * saying which bot added it. A reason instead of a bot when the computer has no room for another.
+ */
+export function addTeammate(by: BotRecord, b: NewBot): { bot: Bot } | { error: string } {
+  let bot: Bot;
+  try {
+    bot = createBot(by.user_id, b, by.workspace_id);
+  } catch (e) {
+    if (e instanceof UserError) return { error: e.message };
+    throw e;
+  }
+  if (!setupPending(by.user_id)) welcome(requireBot(bot.id), ownerName(by.user_id), by.name);
+  return { bot };
 }
 
 /** A new workspace and its primary bot, together, so no workspace is ever without one. The bot greets the user. */

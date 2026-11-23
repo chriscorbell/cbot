@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
 import { boardOn } from '../workspaces.js';
 import { notify } from '../notifications.js';
+import type { addTeammate } from '../bots.js';
 
 export interface ToolCtx {
   userId: string;
@@ -32,6 +33,8 @@ export interface ToolCtx {
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
   /** Queue a turn for a bot that was given a task (turns.ts wake). */
   wake: (botId: string, depth: number) => void;
+  /** Add an agent to the calling bot's workspace (bots.ts addTeammate). Passed in like wake: bots.ts loads turns.ts, which loads this module. */
+  addTeammate: typeof addTeammate;
   /** Bot-to-bot hops behind the turn that called the tool (team.ts MAX_HOPS). */
   depth: number;
   /** How deep in a chain of ask_bot questions the call is: 0 from a chat turn, 1 while answering a question asked from one. */
@@ -359,6 +362,33 @@ export const TOOLS: ToolDef[] = [
       const r = changeTask(ctx.workspaceId, actorOf(ctx), a.task_id, { status: a.status, note: a.note, title: a.title ? clip(a.title.trim(), 200) : undefined, ownerId: o.id });
       if (!r) return { output: `No task ${a.task_id}.` };
       return { output: `Updated: ${taskLine(r.task, ownerName(ctx.userId), { owner: true })}.${wakeGiven(ctx, r.given)}`, summary: `Updated "${clip(r.task.title, 60)}"` };
+    },
+  }),
+  tool({
+    name: 'create_bot',
+    description: "Add a new agent to the team: a bot with its own chat, computer and browser, starting on the primary bot's model. Only when the user asks for a new agent or agrees to one (ask_user first if unsure), never to get a one-off job done: give that to yourself or a teammate. It greets the user in its own chat; give it work afterwards with add_task or send_to_bot.",
+    params: z.object({
+      name: z.string().describe('Its name, one or two words, not already on the team'),
+      label: z.string().optional().describe('Its role in a few words, e.g. "Researcher"'),
+      about: z.string().optional().describe('A sentence or two on what it does, shown to the user and the team'),
+      instructions: z.string().optional().describe('How it should work: its job, what to focus on, standing preferences of the user'),
+    }),
+    activity: 'working',
+    label: 'Adding a teammate',
+    impl: async (a, ctx) => {
+      // Only for the user: an agent answering another agent can't grow the team, so no chain of bots
+      // keeps adding bots until the computer is full.
+      if (ctx.depth > 0 || ctx.asking > 0) return { output: 'Only the user can have an agent added. Tell them what you need instead.' };
+      const name = a.name.trim();
+      if (!name) return { output: 'The new agent needs a name.' };
+      // Teammates are found by name, so two of the same name would leave one out of reach.
+      const taken = botByName(ctx.workspaceId, name);
+      if (taken) return { output: `"${taken.name}" is already on the team${taken.kind === 'room' ? ' as a group chat' : ''}. Pick another name.` };
+      const by = db.prepare<[string], BotRecord>('SELECT * FROM bots WHERE id=?').get(ctx.botId);
+      if (!by) return { output: 'You are no longer on the team.' };
+      const r = ctx.addTeammate(by, { name, label: a.label, description: a.about, instructions: a.instructions });
+      if ('error' in r) return { output: r.error, summary: 'No room for another bot' };
+      return { output: `${r.bot.name} joined the team and is greeting ${ownerName(ctx.userId)} in their own chat. Give them work with add_task or send_to_bot.`, summary: `Added ${r.bot.name}` };
     },
   }),
   tool({

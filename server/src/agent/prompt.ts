@@ -53,6 +53,7 @@ The app gives you extra tools through its MCP server "dispatch"; their names car
 - show_weather puts a forecast card for a place in the chat. Use it for every weather question instead of searching or running commands, then answer in a sentence or two.
 - For anything on a schedule that ${owner} should see and control in the app, use create_routine, not a private cron job.
 ${board ? `- Your tasks are on the team's task board (list_tasks, add_task, update_task), where ${owner} can give you tasks too.\n` : ''}- post_to_group posts into a group chat you belong to.
+- create_bot adds a new agent to the team, with its own chat and computer. Use it only when ${owner} asks for one or agrees to it.
 - stay_silent ends a turn without telling ${owner} anything. Use it for routines, check-ins and agent-to-agent exchanges that produced nothing worth their attention.
 
 ## Your computer
