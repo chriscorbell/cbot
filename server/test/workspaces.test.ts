@@ -200,10 +200,10 @@ test("only the primary bot adds an agent, to its own workspace; the new one says
 
   // A name already on the team, a group chat's included, is refused, whatever its case.
   seedBot(userId, { name: 'Ops', kind: 'room', workspaceId: acme });
-  expect((await run('create_bot', { name: 'scout' }, max.id)).output).toContain('already on the team');
-  expect((await run('create_bot', { name: 'ops' }, max.id)).output).toContain('as a group chat');
+  expect((await run('create_bot', { name: 'scout' }, max.id)).output).toBe('This workspace already has a bot called Scout. Pick another name.');
+  expect((await run('create_bot', { name: 'ops' }, max.id)).output).toBe('This workspace already has a group chat called Ops. Pick another name.');
   // The computer has room for so many bots (5 here); the next one is refused with the reason.
-  expect((await run('create_bot', { name: 'Echo' }, max.id)).summary).toBe('No room for another bot');
+  expect((await run('create_bot', { name: 'Echo' }, max.id))).toMatchObject({ output: expect.stringMatching(/^The team is full/), summary: 'Not added' });
   expect(db.prepare("SELECT COUNT(*) n FROM bots WHERE kind<>'room'").get()).toEqual({ n: 5 });
 });
 
@@ -246,6 +246,28 @@ test("the primary bot sets up and changes a teammate's routines; other bots only
   expect((await run('delete_routine', { routine_id: rt.id }, max.id)).output).toBe('Deleted.');
   expect(listRoutines(zed.id)).toEqual([]);
   expect(store.listRows(zed.id).map((row) => (row.body.type === 'event' ? row.body.text : ''))).toEqual(expect.arrayContaining(['Max updated a routine: Digest · Paused', 'Max removed a routine: Digest']));
+});
+
+test('a name is used once in a workspace, by a bot or a group chat, whatever its case: bots find each other by name', async () => {
+  const { acme, ava, kai } = twoTeams();
+  const taken = { error: 'This workspace already has a bot called Kai.' };
+  // Renaming to a teammate's name, making a bot or a group chat under it.
+  let res = await patch(`/api/bots/${ava.id}`, { name: 'KAI' });
+  expect([res.status, await res.json()]).toEqual([409, taken]);
+  res = await app.request('/api/bots', json({ name: 'Kai' }));
+  expect([res.status, await res.json()]).toEqual([409, taken]);
+  res = await app.request('/api/rooms', json({ name: ' kai ', botIds: [ava.id, kai.id] }));
+  expect([res.status, await res.json()]).toEqual([409, taken]);
+  expect((await app.request('/api/rooms', json({ name: 'Crew', botIds: [ava.id, kai.id] }))).status).toBe(200);
+  expect((await run('create_group', { name: 'crew', bot_names: ['Ava', 'Kai'] }, kai.id)).output).toBe('This workspace already has a group chat called Crew. Pick another name.');
+
+  // A name only another workspace uses is free, and a bot keeps its own in another case; but it can't
+  // move into the workspace that has it (Acme has a Zed).
+  expect((await patch(`/api/bots/${kai.id}`, { name: 'Zed' })).status).toBe(200);
+  expect((await patch(`/api/bots/${kai.id}`, { name: 'zed' })).status).toBe(200);
+  res = await app.request(`/api/bots/${kai.id}/move`, json({ workspaceId: acme }));
+  expect([res.status, await res.json()]).toEqual([409, { error: 'This workspace already has a bot called Zed. Rename one of them first.' }]);
+  expect(store.requireBot(kai.id).workspace_id).not.toBe(acme);
 });
 
 test('making a bot primary changes only its own workspace', async () => {

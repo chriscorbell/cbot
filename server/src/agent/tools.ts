@@ -17,7 +17,7 @@ import { Cron } from 'croner';
 import { BOTS_DIR, libraryDir } from '../machine.js';
 import { z } from 'zod';
 import { errorText } from '../lib/errors.js';
-import { boardOn } from '../workspaces.js';
+import { boardOn, nameInUse } from '../workspaces.js';
 import { notify } from '../notifications.js';
 import type { addTeammate, updatePersona } from '../bots.js';
 
@@ -441,11 +441,10 @@ export const TOOLS: ToolDef[] = [
       if (!by.is_primary) return onlyPrimary(ctx, 'add an agent to the team');
       const name = a.name.trim();
       if (!name) return { output: 'The new agent needs a name.' };
-      // Teammates are found by name, so two of the same name would leave one out of reach.
-      const taken = botByName(ctx.workspaceId, name);
-      if (taken) return { output: `"${taken.name}" is already on the team${taken.kind === 'room' ? ' as a group chat' : ''}. Pick another name.` };
+      const taken = nameInUse(ctx.workspaceId, name);
+      if (taken) return { output: `${taken} Pick another name.` };
       const r = ctx.addTeammate(by, { name, label: a.label, description: a.about, instructions: a.instructions });
-      if ('error' in r) return { output: r.error, summary: 'No room for another bot' };
+      if ('error' in r) return { output: r.error, summary: 'Not added' };
       return { output: `${r.bot.name} joined the team and is greeting ${ownerName(ctx.userId)} in their own chat. Give them work with add_task or send_to_bot.`, summary: `Added ${r.bot.name}` };
     },
   }),
@@ -487,6 +486,8 @@ export const TOOLS: ToolDef[] = [
         if (b && b.kind !== 'room') ids.push(b.id); else missing.push(n);
       }
       if (ids.length < 2) return { output: `A group needs at least 2 Bots. Not found: ${missing.join(', ') || 'none'}.` };
+      const taken = nameInUse(ctx.workspaceId, a.name);
+      if (taken) return { output: `${taken} Pick another name.` };
       const id = createRoom(ctx.userId, ctx.workspaceId, String(a.name), [...new Set(ids)]);
       appendRow(id, 'event', { type: 'event', event: 'bot-message', text: `Group created with ${(a.bot_names as string[]).filter((n) => !missing.includes(n)).join(', ')}` });
       return { output: JSON.stringify({ ok: true, group_id: id, missing }), summary: `Created group ${a.name}` };

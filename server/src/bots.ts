@@ -12,7 +12,7 @@ import { dropCalls } from './voice.js';
 import { dropAsks } from './agent/asks.js';
 import { ownerName, teamJoined, teamLeft } from './agent/team.js';
 import { leaveRooms } from './agent/rooms.js';
-import { createWorkspace, defaultWorkspace, requireWorkspace, workspacesOf } from './workspaces.js';
+import { createWorkspace, defaultWorkspace, nameInUse, requireWorkspace, workspacesOf } from './workspaces.js';
 import { cancelBotSignIns } from './signin.js';
 import { NEW_BOT_VOICES } from './speech.js';
 import { removeBotUnits } from './units.js';
@@ -46,6 +46,9 @@ const clipPersona = (k: keyof Persona, v: string | undefined) => v?.trim().slice
 /** A new bot in the workspace (the user's first one when none is named). The first bot of a workspace is its primary bot. */
 export function createBot(userId: string, b: NewBot, workspaceId = defaultWorkspace(userId).id) {
   // Every bot runs a screen, a Chrome and an agent of its own on the one computer.
+  const name = b.name.trim().slice(0, 60) || 'New Bot';
+  const taken = nameInUse(workspaceId, name);
+  if (taken) throw new UserError(taken);
   if (agentCount() >= env.maxBots) throw new UserError(`The team is full: the computer has room for ${env.maxBots} bots. Remove one to add another.`);
   const id = newId('bot');
   const shape = SHAPES.includes(b.avatarShape as AvatarShape) ? b.avatarShape : hashPick(id, SHAPES);
@@ -56,7 +59,7 @@ export function createBot(userId: string, b: NewBot, workspaceId = defaultWorksp
   const primary = !primaryBot(workspaceId);
   db.prepare(
     'INSERT INTO bots(id,user_id,workspace_id,name,label,description,instructions,avatar_shape,avatar_color,is_primary,voice,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-  ).run(id, userId, workspaceId, b.name.trim().slice(0, 60) || 'New Bot', clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, now(), now());
+  ).run(id, userId, workspaceId, name, clipPersona('label', b.label) ?? '', clipPersona('description', b.description) ?? '', clipPersona('instructions', b.instructions) ?? '', shape, color, primary ? 1 : 0, voice, now(), now());
   assignEngine(id);
   provisionEngine(id);
   // The rest of the team hears about it at their next turn; its own instructions list them already.
@@ -146,6 +149,8 @@ export function moveBot(b: BotRecord, to: WorkspaceRecord) {
   if (b.is_primary) throw new UserError('Make another bot primary first.');
   if (to.user_id !== b.user_id) throw new Error('not the same user');
   if (to.id === b.workspace_id) return;
+  const taken = nameInUse(to.id, b.name);
+  if (taken) throw new UserError(`${taken} Rename one of them first.`);
   const from = requireWorkspace(b.workspace_id);
   dropAsks(b.id);
   db.transaction(() => {

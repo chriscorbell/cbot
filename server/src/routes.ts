@@ -17,7 +17,7 @@ import { saveProviderSettings } from './providers.js';
 import { cleanSecret, cleanUrl, getSetting, SECRET_IDS, secretState, type SettingKey } from './settings.js';
 import { deleteMemory, memoryBot } from './engine-memory.js';
 import { createBot, deleteBot, finishSetup, moveBot, primaryBot, setupPending, showPersona, UserError, welcome } from './bots.js';
-import { defaultWorkspace, ownWorkspace } from './workspaces.js';
+import { defaultWorkspace, nameInUse, ownWorkspace } from './workspaces.js';
 import { applySchedule, runRoutine, unscheduleRoutine } from './routines.js';
 import { copyToMembers, dispatchRoomMessage } from './agent/rooms.js';
 import { filesNote } from './library.js';
@@ -159,6 +159,11 @@ api.patch('/bots/:id', async (c) => {
     const catalog = await voiceCatalog().catch(() => null);
     if (p.voice !== undefined) p.voice = mapVoice(p.voice, catalog);
     if (p.voiceSpeed !== undefined) p.voiceSpeed = mapSpeed(p.voiceSpeed, catalog);
+  }
+  // Checked after the wait above, so two renames at once can't both take a free name.
+  if (p.name !== undefined) {
+    const taken = nameInUse(b.workspace_id, p.name, b.id);
+    if (taken) return c.json({ error: taken }, 409);
   }
   for (const [k, col] of Object.entries(BOT_COLUMNS) as [keyof typeof BOT_COLUMNS, string][]) {
     const v = p[k];

@@ -6,7 +6,7 @@ import { hub } from './lib/hub.js';
 import { requireUser, type AuthVars } from './lib/auth.js';
 import { appendRow } from './store.js';
 import { createRoom, roomMembers, workspaceMembers } from './agent/rooms.js';
-import { defaultWorkspace, ownWorkspace } from './workspaces.js';
+import { defaultWorkspace, nameInUse, ownWorkspace } from './workspaces.js';
 import type { RoomCreated, RoomMembersResponse, RoomMembersSet } from './contract.js';
 
 /** /api/rooms: group chat membership. A room is a bot row with kind='room'; its members are agents of its workspace. */
@@ -34,6 +34,8 @@ roomsApi.post('/', async (c) => {
   if (!ws) return c.json({ error: 'not found' }, 404);
   const valid = workspaceMembers(ws.id, p.botIds);
   if (!p.name.trim() || valid.length < 2) return c.json({ error: 'A group needs a name and at least 2 Bots.' }, 400);
+  const taken = nameInUse(ws.id, p.name);
+  if (taken) return c.json({ error: taken }, 409);
   const id = createRoom(user.id, ws.id, p.name.trim(), valid);
   return c.json({ id } satisfies RoomCreated);
 });

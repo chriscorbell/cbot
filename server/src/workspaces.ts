@@ -1,4 +1,4 @@
-import { db, now, type WorkspaceRecord } from './db.js';
+import { db, now, type BotRecord, type WorkspaceRecord } from './db.js';
 import { newId } from './lib/ids.js';
 import type { Workspace } from './types.js';
 import { getCheckins } from './proactive.js';
@@ -68,3 +68,14 @@ export const boardOn = (workspaceId: string) => !!byId.get(workspaceId)?.task_bo
 /** The agents in the workspace, oldest first. */
 export const workspaceAgents = (workspaceId: string) =>
   db.prepare<[string], { id: string }>("SELECT id FROM bots WHERE workspace_id=? AND kind<>'room' ORDER BY created_at").all(workspaceId).map((b) => b.id);
+
+/**
+ * Why a bot or group chat can't be called `name` in the workspace: another one there has that name,
+ * whatever its case. Bots find each other by name (agent/tools.ts), so a second one would be out of
+ * their reach. Null when the name is free; `exceptId` is the bot being renamed.
+ */
+export function nameInUse(workspaceId: string, name: string, exceptId = ''): string | null {
+  const other = db.prepare<[string, string, string], Pick<BotRecord, 'name' | 'kind'>>('SELECT name, kind FROM bots WHERE workspace_id=? AND lower(name)=lower(?) AND id<>?')
+    .get(workspaceId, name.trim(), exceptId);
+  return other ? `This workspace already has a ${other.kind === 'room' ? 'group chat' : 'bot'} called ${other.name}.` : null;
+}
