@@ -11,7 +11,7 @@ import { initSpeech } from './speech.js';
 import { initVoice } from './voice.js';
 import { initRoutines } from './routines.js';
 import { initProactive } from './proactive.js';
-import { enqueue, resumeTurns } from './agent/turns.js';
+import { enqueue, resumeTurns, routineQueued } from './agent/turns.js';
 import { expireStaleApprovals } from './agent/approvals.js';
 import { initEngines } from './engine.js';
 import { initMemoryWatch } from './engine-memory.js';
@@ -78,7 +78,7 @@ attachVncRelay(server);
 attachVoiceRelay(server);
 // DISPATCH_NO_SCHEDULER=1 for extra dev/test servers sharing a database copy, so routines don't fire twice.
 if (process.env.DISPATCH_NO_SCHEDULER !== '1') {
-  initRoutines(enqueue);
+  initRoutines(enqueue, routineQueued);
   initProactive(enqueue);
 } else console.log('[dispatch] scheduler disabled (DISPATCH_NO_SCHEDULER=1)');
 // After a server restart the displays and gateways still run as their systemd units and are used as

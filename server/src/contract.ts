@@ -24,6 +24,8 @@ export interface RowsResponse { generation: number; rows: Row[] }
 export interface RowResponse { row: Row }
 export interface RoutinesResponse { routines: Routine[] }
 export interface RoutineResponse { routine: Routine }
+/** "Run now": queued, or skipped by the routine's precheck, with why (null when it found nothing to do). */
+export type RunRoutineResponse = { queued: true } | { queued: false; reason: string | null };
 export interface ComputerResponse { computer: ComputerState }
 /**
  * Settings > Permissions, for every bot: how Hermes asks (`mode`), the actions an "Always allow"

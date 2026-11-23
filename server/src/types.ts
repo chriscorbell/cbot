@@ -291,9 +291,18 @@ export type LiveState =
       caption: string | null;
     };
 
+/** The longest precheck command a routine takes. */
+export const PRECHECK_MAX = 2000;
+
 export interface Routine {
   id: string; botId: string; name: string; prompt: string; schedule: string; timezone: string;
   enabled: boolean; nextRunAt: number | null; lastRunAt: number | null; description: string;
+  /** A shell command run before each run; a run happens only when it exits 0 and prints something. '' for none. */
+  precheck: string;
+  /** When the precheck last skipped a run. The routine last ran or was last skipped, whichever of this and lastRunAt is later. */
+  lastSkippedAt: number | null;
+  /** Why it skipped that run: null when the precheck found nothing to do, else what went wrong (its exit code and errors, a timeout). */
+  lastSkipReason: string | null;
 }
 
 /** Where a task is on the team's board, in the board's column order. */

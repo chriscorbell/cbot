@@ -30,7 +30,7 @@ Dispatch is a Node server (`server/`) and a React app (`web/`) that run a small 
 | `server/src/agent/live.ts` | What each bot is doing right now |
 | `server/src/agent/tools.ts` | The app's MCP tools (zod parameters, implementation, activity label) |
 | `server/src/agent/catchup.ts` | What a voice call and the text chat are told of each other before each run |
-| `server/src/agent/rooms.ts`, `routines.ts`, `proactive.ts` | Group chats, routines, check-ins |
+| `server/src/agent/rooms.ts`, `routines.ts`, `precheck.ts`, `proactive.ts` | Group chats, routines and the prechecks that let a routine skip a run, check-ins |
 | `server/src/workspaces.ts`, `server/src/routes-workspaces.ts` | Workspaces: separate teams of bots, each with its own primary bot, task board and check-ins. A bot sees and reaches only its own workspace's bots |
 | `server/src/agent/team.ts`, `asks.ts`, `server/src/routes-tasks.ts` | The team: its task board, the news each agent hears when the team changes, and one bot asking another a question |
 | `server/src/agent/approvals.ts` | Hermes' approval prompts as chat cards, and the answers sent back to the run |

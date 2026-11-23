@@ -28,8 +28,8 @@ import { makeSetupCode } from './lib/auth.js';
 import { runningCommit } from './updates.js';
 import { searchLibraries, searchMessages } from './search.js';
 import { mapSpeed, mapVoice, voiceCatalog } from './speech.js';
-import { AVATAR_COLORS, AVATAR_SHAPES, EFFORTS, type ServerEvent } from './types.js';
-import type { BotResponse, BotsResponse, ComputerResponse, Ok, PermissionsResponse, ResetResponse, ProvidersResponse, RoutineResponse, RoutinesResponse, RowResponse, RowsResponse, SearchResponse, SecretId, SecretState } from './contract.js';
+import { AVATAR_COLORS, AVATAR_SHAPES, EFFORTS, PRECHECK_MAX, type ServerEvent } from './types.js';
+import type { BotResponse, BotsResponse, ComputerResponse, Ok, PermissionsResponse, ResetResponse, ProvidersResponse, RoutineResponse, RoutinesResponse, RunRoutineResponse, RowResponse, RowsResponse, SearchResponse, SecretId, SecretState } from './contract.js';
 import { errorText } from './lib/errors.js';
 
 export const api = new Hono<AuthVars>();
@@ -361,22 +361,30 @@ api.get('/bots/:id/routines', (c) => {
   return b ? c.json({ routines: listRoutines(b.id) } satisfies RoutinesResponse) : c.json({ error: 'not found' }, 404);
 });
 
+// Pause or resume a routine, or set its precheck ('' removes it). Each field given is written on its own,
+// so two changes at once can't undo each other.
 api.patch('/routines/:id', async (c) => {
   const r = ownRoutine(c.get('user').id, c.req.param('id'));
   if (!r) return c.json({ error: 'not found' }, 404);
-  const { enabled } = await body(c, z.object({ enabled: z.boolean() }));
-  db.prepare('UPDATE routines SET enabled=? WHERE id=?').run(enabled ? 1 : 0, r.id);
-  const next = getRoutine(r.id)!;
+  const p = await body(c, z.object({ enabled: z.boolean().optional(), precheck: z.string().trim().max(PRECHECK_MAX).optional() }));
+  if (p.enabled !== undefined) db.prepare('UPDATE routines SET enabled=? WHERE id=?').run(p.enabled ? 1 : 0, r.id);
+  if (p.precheck !== undefined) db.prepare('UPDATE routines SET precheck=? WHERE id=?').run(p.precheck, r.id);
+  const next = getRoutine(r.id);
+  if (!next) return c.json({ error: 'not found' }, 404);
   applySchedule(next);
   hub.emit(c.get('user').id, { type: 'routines', botId: r.bot_id });
   return c.json({ routine: next } satisfies RoutineResponse);
 });
 
-api.post('/routines/:id/run', (c) => {
+// "Run now" runs the routine's precheck too, so the user sees what its schedule would do, and answers once
+// the precheck has (it has 30 seconds).
+api.post('/routines/:id/run', async (c) => {
   const r = ownRoutine(c.get('user').id, c.req.param('id'));
   if (!r) return c.json({ error: 'not found' }, 404);
-  switch (runRoutine(r.id)) {
-    case 'queued': return c.json({ ok: true } satisfies Ok);
+  const o = await runRoutine(r.id);
+  if (typeof o === 'object') return c.json({ queued: false, reason: o.skipped } satisfies RunRoutineResponse);
+  switch (o) {
+    case 'queued': return c.json({ queued: true } satisfies RunRoutineResponse);
     case 'busy': return c.json({ error: 'It’s already running.' }, 409);
     case 'off': return c.json({ error: 'Routines are turned off on this server.' }, 409);
   }

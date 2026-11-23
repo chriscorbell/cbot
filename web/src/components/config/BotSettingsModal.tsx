@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BookOpen, Brain, Clock, Cpu, SlidersHorizontal } from 'lucide-react';
-import { AVATAR_SHAPES, type AvatarColor, type AvatarShape, type Bot, type Memory, type Routine, type Skill } from '@shared/types';
+import { AVATAR_SHAPES, PRECHECK_MAX, type AvatarColor, type AvatarShape, type Bot, type Memory, type Routine, type Skill } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../../avatar/BotAvatar';
 import { COLOR_ORDER, botVars, palette } from '../../lib/colors';
 import { configApi, type BotSettingsBundle } from '../../lib/configApi';
@@ -15,7 +15,7 @@ import { onRovingKeyDown, rovingTab } from '../../lib/roving';
 import { EngineSettings } from '../EngineSettings';
 import { VoiceSettings } from '../VoiceSettings';
 import { Glyph } from './glyphs';
-import { ConfirmButton, Field, Segmented, Switch, nextRunLabel } from './ui';
+import { ConfirmButton, Field, Segmented, Switch, nextRunLabel, routineTimeLabel } from './ui';
 import { Select } from '../Select';
 import { api } from '../../lib/api';
 
@@ -497,7 +497,7 @@ function RoutinesTab({ bot, routines }: { bot: Bot; routines: Routine[] | undefi
       <div className="cfg-page__head">
         <div>
           <div className="cfg-page__title">Routines</div>
-          <div className="cfg-page__sub">Recurring jobs {bot.name} runs on a schedule. To add or change one, ask in chat.</div>
+          <div className="cfg-page__sub">Recurring jobs {bot.name} runs on a schedule. To add one or change what it does, ask in chat.</div>
         </div>
         {flash && <span className={`cfg-savebar__note${flash.tone === 'error' ? ' is-error' : ''}`} role="status">{flash.text}</span>}
       </div>
@@ -512,8 +512,49 @@ function RoutinesTab({ bot, routines }: { bot: Bot; routines: Routine[] | undefi
   );
 }
 
+/**
+ * The run the routine's precheck skipped last, if that is more recent than its last run: as a quiet line
+ * when it found nothing to do, and as an error when it failed, so a broken precheck doesn't go unseen.
+ */
+function SkippedRun({ r }: { r: Routine }) {
+  if (!r.precheck || !r.lastSkippedAt || (r.lastRunAt ?? 0) > r.lastSkippedAt) return null;
+  const when = routineTimeLabel(r.lastSkippedAt, r.timezone);
+  return r.lastSkipReason
+    ? <div className="cfg-error cfg-error--small cfg-fade" role="status">Precheck failed {when}: {r.lastSkipReason}</div>
+    : <div className="cfg-item__sub cfg-fade">Skipped {when}: nothing to do</div>;
+}
+
+/** The routine's precheck, edited in place like a skill. Saving an empty one removes it. */
+function PrecheckEditor({ r, onDone }: { r: Routine; onDone: (saved: boolean) => void }) {
+  const [command, setCommand] = useState(r.precheck);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const id = `cfg-precheck-${r.id}`;
+  /** Never rejects: a failure shows in `error`. */
+  const save = async () => {
+    setBusy(true); setError(null);
+    try {
+      await configApi.setPrecheck(r.id, command);
+      onDone(true);
+    } catch (e) { setError((e as Error).message); setBusy(false); }
+  };
+  return (
+    <form className="cfg-editor cfg-fade" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+      <Field label={`Precheck for ${r.name}`} htmlFor={id} hint="A shell command run before each run, in the bot’s Library. The routine runs only when it prints something, and is told what it printed. When it prints nothing, the run is skipped. Leave it empty to run every time.">
+        <input id={id} className="text-input" placeholder="e.g. ./new-orders.sh" value={command} maxLength={PRECHECK_MAX} spellCheck={false} autoComplete="off" autoFocus onChange={(e) => setCommand(e.target.value)} aria-describedby={`${id}-hint`} />
+      </Field>
+      {error && <div className="cfg-error">{error}</div>}
+      <div className="cfg-editor__actions">
+        <button type="button" className="cfg-btn cfg-btn--secondary" onClick={() => onDone(false)}>Cancel</button>
+        <button type="submit" className="cfg-btn cfg-btn--primary" disabled={busy || command.trim() === r.precheck}>{busy ? 'Saving…' : 'Save precheck'}</button>
+      </div>
+    </form>
+  );
+}
+
 function RoutineItem({ r, onFlash }: { r: Routine; onFlash: Say }) {
   const [enabled, setEnabled] = useState(r.enabled);
+  const [editing, setEditing] = useState(false);
   useEffect(() => setEnabled(r.enabled), [r.enabled]);
   const toggle = async (v: boolean) => {
     setEnabled(v);
@@ -525,6 +566,17 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: Say }) {
       onFlash(`Couldn’t ${v ? 'resume' : 'pause'} it: ${(e as Error).message}`, 'error');
     }
   };
+  const runNow = async () => {
+    try {
+      const o = await configApi.runRoutine(r.id);
+      if (o.queued) onFlash('Running now');
+      else if (o.reason) onFlash('Its precheck failed, so it didn’t run', 'error');
+      else onFlash('Its precheck found nothing to do');
+    } catch (e) {
+      onFlash((e as Error).message, 'error');
+    }
+  };
+  if (editing) return <PrecheckEditor r={r} onDone={(saved) => { setEditing(false); if (saved) onFlash('Saved'); }} />;
   return (
     <div className="cfg-item cfg-item--routine">
       <span className="cfg-item__icon"><Icon name="clock" size={14} /></span>
@@ -532,11 +584,14 @@ function RoutineItem({ r, onFlash }: { r: Routine; onFlash: Say }) {
         <div className="cfg-item__title">{r.name}</div>
         <div className="cfg-item__sub">{enabled ? [r.description || r.schedule, nextRunLabel(r.nextRunAt, r.timezone)].filter(Boolean).join(' · ') : 'Paused'}</div>
         <div className="cfg-item__prompt">{r.prompt}</div>
+        {r.precheck && <div className="cfg-item__meta"><span className="cfg-chip cfg-chip--muted">Precheck</span><code className="cfg-code">{r.precheck}</code></div>}
+        <SkippedRun r={r} />
       </div>
       <div className="cfg-item__actions">
-        <button type="button" className="cfg-icon-btn" title="Run now" aria-label={`Run ${r.name} now`} onClick={() => configApi.runRoutine(r.id).then(() => onFlash('Running now')).catch((e) => onFlash(e.message, 'error'))}>
+        <button type="button" className="cfg-icon-btn" title="Run now" aria-label={`Run ${r.name} now`} onClick={() => void runNow()}>
           <Glyph name="play" size={13} />
         </button>
+        <button type="button" className="cfg-icon-btn" title="Precheck" aria-label={`Edit the precheck of ${r.name}`} onClick={() => setEditing(true)}><Icon name="edit" size={14} /></button>
         <ConfirmButton className="cfg-icon-btn" title="Delete" onConfirm={() => configApi.deleteRoutine(r.id).then(() => onFlash('Deleted'), (e: Error) => onFlash(`Couldn’t delete it: ${e.message}`, 'error'))}><Glyph name="trash" size={14} /></ConfirmButton>
         <Switch on={enabled} onChange={toggle} label={`${r.name} ${enabled ? 'on' : 'paused'}`} />
       </div>

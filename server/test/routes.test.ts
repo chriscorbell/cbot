@@ -11,6 +11,12 @@ vi.mock('../src/agent/turns.js', async (orig) => ({
 // Forgetting a memory holds Hermes' lock through util-linux flock, a child process tests can't start.
 vi.mock('../src/lib/flock.js', () => ({ withFileLock: async (_lock: string, _wait: number, fn: () => unknown) => fn() }));
 
+// A routine's precheck is a shell command, which tests can't run: this one never finds anything to do.
+vi.mock('../src/precheck.js', async (orig) => ({
+  ...(await orig<typeof import('../src/precheck.js')>()),
+  runPrecheck: async () => ({ code: 0, signal: null, stdout: '', stderr: '', timedOut: false, error: null }),
+}));
+
 // Libraries go in the test's data folder, not under /root.
 vi.mock('../src/machine.js', async (orig) => {
   const real = await orig<typeof import('../src/machine.js')>();
@@ -332,6 +338,38 @@ test('Run now on a server with routines turned off says so', async () => {
   const res = await app.request('/api/routines/rt_run/run', { method: 'POST', headers: auth() });
   expect(res.status).toBe(409);
   expect(await errorOf(res)).toMatch(/turned off/);
+});
+
+test("a routine's precheck is set and cleared in its settings, and Run now says when the precheck skipped the run", async () => {
+  const { db, now } = await import('../src/db.js');
+  const { initRoutines, unscheduleRoutine } = await import('../src/routines.js');
+  const bot = seedBot(user.id, { name: 'Watch' });
+  db.prepare("INSERT INTO routines(id,bot_id,name,prompt,schedule,enabled,created_at) VALUES ('rt_pre',?,'Sales','Tell me about new orders','0 8 * * *',0,?)").run(bot.id, now());
+  const patch = (b: unknown) => app.request('/api/routines/rt_pre', { method: 'PATCH', headers: { ...auth(), 'content-type': 'application/json' }, body: JSON.stringify(b) });
+
+  const set = await patch({ precheck: '  ./new-orders.sh  ' });
+  expect(set.status).toBe(200);
+  expect(await set.json()).toMatchObject({ routine: { precheck: './new-orders.sh', enabled: false } });
+  // Resuming it leaves the precheck as it is.
+  expect(await (await patch({ enabled: true })).json()).toMatchObject({ routine: { precheck: './new-orders.sh', enabled: true } });
+  expect((await patch({ precheck: 'x'.repeat(2001) })).status).toBe(400);
+  expect((await app.request('/api/routines/rt_nope', { method: 'PATCH', headers: { ...auth(), 'content-type': 'application/json' }, body: '{"precheck":""}' })).status).toBe(404);
+
+  // This server runs routines from here on; the turns they'd start are only recorded.
+  const queued: unknown[] = [];
+  initRoutines((_, t) => { queued.push(t); return true; }, () => false);
+  try {
+    const run = (id: string) => app.request(`/api/routines/${id}/run`, { method: 'POST', headers: auth() });
+    const skipped = await run('rt_pre');
+    expect(skipped.status).toBe(200);
+    expect(await skipped.json()).toEqual({ queued: false, reason: null });
+    expect(queued).toEqual([]);
+    expect(await (await patch({ precheck: '' })).json()).toMatchObject({ routine: { precheck: '', lastSkippedAt: expect.any(Number), lastSkipReason: null } });
+    expect(await (await run('rt_pre')).json()).toEqual({ queued: true });
+    expect(queued).toEqual([{ type: 'routine', routineId: 'rt_pre', name: 'Sales', prompt: 'Tell me about new orders' }]);
+  } finally {
+    for (const id of db.prepare<[], { id: string }>('SELECT id FROM routines').all()) unscheduleRoutine(id.id);
+  }
 });
 
 test('a bot signs in with a code only to ChatGPT, Grok or Copilot, and only its owner can ask after a sign-in', async () => {

@@ -1,6 +1,6 @@
 import type { ApprovalMode, Bot, Skill } from '@shared/types';
 import type {
-  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, ResetResponse, RoutineResponse, SecretId, SignInResponse, SkillResponse, UpdateResponse, UrlResponse,
+  BotResponse, BotSettingsBundle, ComputerDetails, EngineResponse, HttpsResponse, LibraryListing, Ok, PermissionsResponse, ProvidersResponse, ResetResponse, RoutineResponse, RunRoutineResponse, SecretId, SignInResponse, SkillResponse, UpdateResponse, UrlResponse,
 } from '@shared/contract';
 import { fileStart, request as req } from './http';
 
@@ -23,7 +23,10 @@ export const configApi = {
   deleteSkill: (id: string) => req<Ok>('DELETE', `/skills/${id}`),
 
   setRoutine: (id: string, enabled: boolean) => req<RoutineResponse>('PATCH', `/routines/${id}`, { enabled }),
-  runRoutine: (id: string) => req<Ok>('POST', `/routines/${id}/run`),
+  /** '' removes it. */
+  setPrecheck: (id: string, precheck: string) => req<RoutineResponse>('PATCH', `/routines/${id}`, { precheck }),
+  /** Answers once the routine's precheck, if it has one, has run (up to 30 seconds). */
+  runRoutine: (id: string) => req<RunRoutineResponse>('POST', `/routines/${id}/run`),
   deleteRoutine: (id: string) => req<Ok>('DELETE', `/routines/${id}`),
 
 

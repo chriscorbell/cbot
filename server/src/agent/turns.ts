@@ -82,13 +82,19 @@ const runners = new Map<string, Runner>();
 export function enqueue(botId: string, trigger: Trigger): boolean {
   const bot = getBotRow(botId);
   if (!bot) return false;
+  if (trigger.type === 'routine' && routineQueued(botId, trigger.routineId)) return false;
   let r = runners.get(botId);
-  if (trigger.type === 'routine' && r && [r.current?.job, ...r.queued].some((j) => j?.trigger.type === 'routine' && j.trigger.routineId === trigger.routineId)) return false;
   if (!r) runners.set(botId, (r = { current: null, queued: [], idle: [] }));
   const id = Number(insertTurn.run(botId, bot.generation, JSON.stringify(trigger), now()).lastInsertRowid);
   r.queued.push({ id, trigger, generation: bot.generation });
   pump(botId, r);
   return true;
+}
+
+/** Whether a run of the routine is running or waiting in its bot's queue. */
+export function routineQueued(botId: string, routineId: string): boolean {
+  const r = runners.get(botId);
+  return !!r && [r.current?.job, ...r.queued].some((j) => j?.trigger.type === 'routine' && j.trigger.routineId === routineId);
 }
 
 /** Wake-ups held back by the hop limit, by bot: one each, until it fires. */

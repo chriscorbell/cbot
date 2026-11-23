@@ -234,6 +234,7 @@ export function toRoutine(r: RoutineRecord): Routine {
   return {
     id: r.id, botId: r.bot_id, name: r.name, prompt: r.prompt, schedule: r.schedule, timezone,
     enabled: !!r.enabled, nextRunAt, lastRunAt: r.last_run_at, description: describeCron(r.schedule),
+    precheck: r.precheck, lastSkippedAt: r.last_skipped_at, lastSkipReason: r.last_skip_reason,
   };
 }
 

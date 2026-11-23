@@ -101,6 +101,10 @@ export interface ApprovalRecord {
 export interface RoutineRecord {
   id: string; bot_id: string; name: string; prompt: string; schedule: string; timezone: string;
   enabled: number; last_run_at: number | null; created_at: number;
+  /** A shell command run before each run (routines.ts, precheck.ts); '' when the routine has none. */
+  precheck: string;
+  /** When its precheck last skipped a run, and why: null when it simply found nothing to do. */
+  last_skipped_at: number | null; last_skip_reason: string | null;
 }
 
 
@@ -452,6 +456,15 @@ const MIGRATIONS: ((d: Database.Database) => void)[] = [
         created_at INTEGER NOT NULL
       );
       CREATE INDEX pages_bot ON pages(bot_id);
+    `);
+  },
+  // 8. A routine's precheck (routines.ts): a command run before each run, which skips the run when it
+  // prints nothing, and the last run it skipped, so a precheck that keeps failing shows in the app.
+  (d) => {
+    d.exec(`
+      ALTER TABLE routines ADD COLUMN precheck TEXT NOT NULL DEFAULT '';
+      ALTER TABLE routines ADD COLUMN last_skipped_at INTEGER;
+      ALTER TABLE routines ADD COLUMN last_skip_reason TEXT;
     `);
   },
 ];

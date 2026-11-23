@@ -5,13 +5,14 @@ import { box } from '../box.js';
 import { env } from '../env.js';
 import { appendRow, emitBot, getRoutine, listRoutines, describeCron, markUnread, type Conversation } from '../store.js';
 import { applySchedule, scheduleRoutine, unscheduleRoutine } from '../routines.js';
+import { OUTPUT_LIMIT, PRECHECK_TIMEOUT_MS } from '../precheck.js';
 import { setCheckins } from '../proactive.js';
 import { createRoom, postToRoom } from './rooms.js';
 import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
 import { addTask, changeTask, getTask, HOP_PAUSE_MS, listTasks, MAX_HOPS, ownerName, taskLine, toTask, withNote, type Actor, type TaskChange } from './team.js';
 import { listMemories } from '../engine-memory.js';
-import { EFFORTS, MAX_TASK_NOTES, PAGE_VARS, TASK_STATUSES, type ActivityKind, type EngineProvider, type EventBody } from '../types.js';
+import { EFFORTS, MAX_TASK_NOTES, PAGE_VARS, PRECHECK_MAX, TASK_STATUSES, type ActivityKind, type EngineProvider, type EventBody } from '../types.js';
 import { DEFAULT_HEIGHT, deletePage, MAX_HEIGHT, MIN_HEIGHT, preparePage, savePage } from '../pages.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
@@ -230,6 +231,9 @@ const PAGE_GUIDE = [
   'Scripts run sandboxed, away from the app: no cookies, localStorage or sign-ins. Links open in a new tab.',
 ].join(' ');
 
+/** What a routine's precheck is for and how its output reaches the run (precheck.ts, routines.ts). */
+const PRECHECK_GUIDE = `For a routine that watches something (a log, a mailbox, a feed) and usually has nothing to do, give it a \`precheck\`, so most runs cost no turn: a shell command run before each run, in the Library of the bot whose routine it is, for up to ${PRECHECK_TIMEOUT_MS / 1000} seconds. When it exits 0 and prints something, the routine runs with what it printed added to the prompt under "[Its precheck printed this:]" (the first ${OUTPUT_LIMIT} characters). When it exits 0 and prints nothing, the run is skipped without waking the bot, so print only what is new. A non-zero exit or a timeout also skips the run, and shows in the app as the precheck failing. Try the command in your terminal first.`;
+
 /** The tools that use the task board: a bot in a workspace that has turned the board off isn't offered them. */
 const BOARD_TOOLS = new Set(['list_tasks', 'add_task', 'update_task']);
 const BOARD_OFF = { output: 'The task board is turned off in this workspace.' };
@@ -253,10 +257,11 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'create_routine',
-    description: 'Create a recurring routine run on a schedule. `schedule` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. "0 8 * * 1-5" for weekdays at 8:00. `prompt` is the instruction followed each time it runs. It is yours unless you name a teammate in bot_name, which only the primary bot can.',
+    description: `Create a recurring routine run on a schedule. \`schedule\` is a 5-field cron expression (minute hour day-of-month month day-of-week), e.g. "0 8 * * 1-5" for weekdays at 8:00. \`prompt\` is the instruction followed each time it runs. It is yours unless you name a teammate in bot_name, which only the primary bot can. ${PRECHECK_GUIDE}`,
     params: z.object({
       name: z.string(), prompt: z.string(), schedule: z.string(), timezone: z.string().describe(`IANA timezone, e.g. America/Los_Angeles. Default: ${env.timeZone}`).optional(),
       bot_name: z.string().optional().describe("The teammate whose routine it is (primary bot only). Default: you"),
+      precheck: z.string().max(PRECHECK_MAX).optional().describe('A shell command run before each run, as above. Leave it out to run every time'),
     }),
     activity: 'working',
     label: 'Setting up a routine',
@@ -265,7 +270,7 @@ export const TOOLS: ToolDef[] = [
       if ('output' in o) return o;
       try { new Cron(a.schedule, { paused: true, timezone: a.timezone || env.timeZone }); } catch (e) { return { output: `Invalid schedule: ${errorText(e)}` }; }
       const id = newId('rt');
-      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at) VALUES (?,?,?,?,?,?,1,?)').run(id, o.bot.id, a.name, a.prompt, a.schedule, a.timezone || env.timeZone, now());
+      db.prepare('INSERT INTO routines(id,bot_id,name,prompt,schedule,timezone,enabled,created_at,precheck) VALUES (?,?,?,?,?,?,1,?,?)').run(id, o.bot.id, a.name, a.prompt, a.schedule, a.timezone || env.timeZone, now(), a.precheck?.trim() ?? '');
       const r = getRoutine(id)!;
       scheduleRoutine(r);
       const when = describeCron(a.schedule);
@@ -319,16 +324,19 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'update_routine',
-    description: "Change or pause one of your routines; the primary bot may also change a teammate's.",
-    params: z.object({ routine_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), schedule: z.string().optional(), timezone: z.string().optional(), enabled: z.boolean().optional() }),
+    description: "Change or pause one of your routines; the primary bot may also change a teammate's. `precheck` works as in create_routine, and \"\" removes it. list_routines shows when a routine's precheck last skipped a run and why (lastSkippedAt, lastSkipReason: null when it found nothing to do).",
+    params: z.object({
+      routine_id: z.string(), name: z.string().optional(), prompt: z.string().optional(), schedule: z.string().optional(), timezone: z.string().optional(), enabled: z.boolean().optional(),
+      precheck: z.string().max(PRECHECK_MAX).optional().describe('A new precheck command; "" removes it, so the routine runs every time'),
+    }),
     activity: 'working',
     label: 'Updating a routine',
     impl: async (a, ctx) => {
       const cur = routineFor(ctx, a.routine_id);
       if (!cur) return { output: 'No such routine.' };
-      const next = { ...cur, name: a.name ?? cur.name, prompt: a.prompt ?? cur.prompt, schedule: a.schedule ?? cur.schedule, timezone: a.timezone ?? cur.timezone, enabled: a.enabled === undefined ? cur.enabled : a.enabled ? 1 : 0 };
+      const next = { ...cur, name: a.name ?? cur.name, prompt: a.prompt ?? cur.prompt, schedule: a.schedule ?? cur.schedule, timezone: a.timezone ?? cur.timezone, enabled: a.enabled === undefined ? cur.enabled : a.enabled ? 1 : 0, precheck: a.precheck?.trim() ?? cur.precheck };
       try { new Cron(next.schedule, { paused: true, timezone: next.timezone }); } catch (e) { return { output: `Invalid schedule: ${errorText(e)}` }; }
-      db.prepare('UPDATE routines SET name=?,prompt=?,schedule=?,timezone=?,enabled=? WHERE id=?').run(next.name, next.prompt, next.schedule, next.timezone, next.enabled, cur.id);
+      db.prepare('UPDATE routines SET name=?,prompt=?,schedule=?,timezone=?,enabled=?,precheck=? WHERE id=?').run(next.name, next.prompt, next.schedule, next.timezone, next.enabled, next.precheck, cur.id);
       const r = getRoutine(cur.id)!;
       applySchedule(r);
       const state = r.enabled ? r.description : 'Paused';

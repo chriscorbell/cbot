@@ -48,6 +48,25 @@ test("a bot cannot delete or unschedule another bot's routine", async () => {
   expect(db.prepare("SELECT 1 FROM routines WHERE id='rt_a'").get()).toBeTruthy();
 });
 
+test("a routine's precheck is set with it, changed, and cleared by an empty one; the primary bot sets a teammate's", async () => {
+  const lead = seedBot(userId, { name: 'Pia', isPrimary: true });
+  const sol = seedBot(userId, { name: 'Sol' });
+  const made = await runTool(toolMap.get('create_routine')!, { name: 'Sales', prompt: 'Tell me about new orders', schedule: '*/5 * * * *', precheck: '  ./new-orders.sh ', bot_name: 'Sol' }, ctx(lead.id));
+  const { routine } = JSON.parse(made.output) as { routine: { id: string; botId: string; precheck: string } };
+  expect(routine).toMatchObject({ botId: sol.id, precheck: './new-orders.sh', lastSkippedAt: null, lastSkipReason: null });
+
+  const changed = await runTool(toolMap.get('update_routine')!, { routine_id: routine.id, precheck: 'tail -n 5 sales.log' }, ctx(lead.id));
+  expect(JSON.parse(changed.output)).toMatchObject({ ok: true, routine: { precheck: 'tail -n 5 sales.log', prompt: 'Tell me about new orders' } });
+  // Changing something else leaves it.
+  await runTool(toolMap.get('update_routine')!, { routine_id: routine.id, name: 'Orders' }, ctx(sol.id));
+  expect(db.prepare<[string], { precheck: string }>('SELECT precheck FROM routines WHERE id=?').get(routine.id)!.precheck).toBe('tail -n 5 sales.log');
+  await runTool(toolMap.get('update_routine')!, { routine_id: routine.id, precheck: '' }, ctx(sol.id));
+  expect(db.prepare<[string], { precheck: string }>('SELECT precheck FROM routines WHERE id=?').get(routine.id)!.precheck).toBe('');
+
+  const mine = await runTool(toolMap.get('create_routine')!, { name: 'Digest', prompt: 'Recap', schedule: '0 8 * * *' }, ctx(sol.id));
+  expect(JSON.parse(mine.output)).toMatchObject({ routine: { precheck: '' } });
+});
+
 test("a tool's rows go to the conversation of the turn that called it", async () => {
   const bot = seedBot(userId);
   const { clearConversation, listRows } = await import('../src/store.js');

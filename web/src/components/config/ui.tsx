@@ -67,16 +67,22 @@ export function ConfirmButton({ children, confirmLabel = 'Delete', onConfirm, cl
   );
 }
 
-/** "Next today 8:00 AM", shown in the routine's own time zone so it matches its schedule text. */
-export function nextRunLabel(ts: number | null, timeZone?: string): string {
-  if (!ts) return '';
+/** "today 8:00 AM", "yesterday 9:05 PM", "Mon 8:00 AM": in the routine's own time zone, so it matches its schedule text. */
+export function routineTimeLabel(ts: number, timeZone?: string): string {
   let tz = timeZone || undefined;
   try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { tz = undefined; }
   const dayKey = (t: number) => new Date(t).toLocaleDateString('en-US', { timeZone: tz });
   const day = new Date(ts).toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
   const time = new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
-  const rel = dayKey(ts) === dayKey(Date.now()) ? 'today' : dayKey(ts) === dayKey(Date.now() + 86_400_000) ? 'tomorrow' : day;
-  return `Next ${rel} ${time}`;
+  const rel = dayKey(ts) === dayKey(Date.now()) ? 'today'
+    : dayKey(ts) === dayKey(Date.now() + 86_400_000) ? 'tomorrow'
+      : dayKey(ts) === dayKey(Date.now() - 86_400_000) ? 'yesterday' : day;
+  return `${rel} ${time}`;
+}
+
+/** "Next today 8:00 AM". */
+export function nextRunLabel(ts: number | null, timeZone?: string): string {
+  return ts ? `Next ${routineTimeLabel(ts, timeZone)}` : '';
 }
 
 export function formatBytes(n: number): string {

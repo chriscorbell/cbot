@@ -129,6 +129,7 @@
 .cfg-item__prompt { margin-top: 4px; font-size: 12px; line-height: 17px; color: var(--color-text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cfg-item__actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .cfg-item--routine .toggle { margin-left: 6px; }
+.cfg-item--routine .cfg-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cfg-editor { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--border); }
 .cfg-editor__actions { display: flex; justify-content: flex-end; gap: 6px; }
 
