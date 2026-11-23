@@ -9,9 +9,9 @@ import { setCheckins } from '../proactive.js';
 import { createRoom, postToRoom } from './rooms.js';
 import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
-import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, type Actor, type TaskChange } from './team.js';
+import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, toTask, withNote, type Actor, type TaskChange } from './team.js';
 import { listMemories } from '../engine-memory.js';
-import { PAGE_VARS, TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
+import { MAX_TASK_NOTES, PAGE_VARS, TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
 import { DEFAULT_HEIGHT, deletePage, MAX_HEIGHT, MIN_HEIGHT, preparePage, savePage } from '../pages.js';
 import { fetchWeather } from '../weather.js';
 import { Cron } from 'croner';
@@ -190,6 +190,8 @@ const PAGE_GUIDE = [
 /** The tools that use the task board: a bot in a workspace that has turned the board off isn't offered them. */
 const BOARD_TOOLS = new Set(['list_tasks', 'add_task', 'update_task']);
 const BOARD_OFF = { output: 'The task board is turned off in this workspace.' };
+/** Notes past MAX_TASK_NOTES: the brief belongs in a file, which the notes name. */
+const NOTES_TOO_LONG = { output: `A task's notes can be at most ${MAX_TASK_NOTES} characters. Put a longer brief in a file in your Library and give its path in the notes.` };
 
 
 export const TOOLS: ToolDef[] = [
@@ -382,7 +384,7 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'list_tasks',
-    description: "The team's task board: open tasks with their status, owner and notes, and the ones finished in the last two weeks. Filter by owner: an agent's name, \"me\" or \"nobody\".",
+    description: "The team's task board: open tasks with their status, owner and notes (cut short; get_task gives one whole), and the ones finished in the last two weeks. Filter by owner: an agent's name, \"me\" or \"nobody\".",
     params: z.object({ owner: z.string().optional(), include_done: z.boolean().optional().describe('Also list finished tasks') }),
     activity: 'working',
     label: 'Checking the task board',
@@ -395,6 +397,23 @@ export const TOOLS: ToolDef[] = [
       if (!tasks.length) return { output: 'No tasks.' };
       const order = (s: string) => TASK_STATUSES.indexOf(s as (typeof TASK_STATUSES)[number]);
       return { output: tasks.sort((x, y) => order(x.status) - order(y.status)).map((t) => `- ${taskLine(t, user, { owner: true })}`).join('\n') };
+    },
+  }),
+  tool({
+    name: 'get_task',
+    description: "One task on the team's board in full: its status, owner, who created it, when it last changed, and its whole notes, which list_tasks and the team news cut short. Read it before you start on a task whose notes were cut short.",
+    params: z.object({ task_id: z.string() }),
+    activity: 'working',
+    label: 'Reading a task',
+    impl: async (a, ctx) => {
+      if (!boardOn(ctx.workspaceId)) return BOARD_OFF;
+      const r = getTask(ctx.workspaceId, a.task_id);
+      if (!r) return { output: `No task ${a.task_id}. list_tasks shows the board.` };
+      const t = toTask(r);
+      return {
+        output: `${taskLine(t, ownerName(ctx.userId), { owner: true, notes: false })} · added ${ago(t.createdAt)} · changed ${ago(t.updatedAt)}\n\nNotes:\n${t.notes || '(none)'}`,
+        summary: `Read "${clip(t.title, 60)}"`,
+      };
     },
   }),
   tool({
@@ -412,6 +431,7 @@ export const TOOLS: ToolDef[] = [
       if (!boardOn(ctx.workspaceId)) return BOARD_OFF;
       const title = a.title.trim();
       if (!title) return { output: 'A task needs a title.' };
+      if ((a.notes ?? '').trim().length > MAX_TASK_NOTES) return NOTES_TOO_LONG;
       const o = ownerByName(ctx, a.owner ?? 'me');
       if ('output' in o) return o;
       const r = addTask(ctx.workspaceId, actorOf(ctx), { title: clip(title, 200), notes: a.notes, ownerId: o.id === undefined ? ctx.botId : o.id, status: a.status });
@@ -432,7 +452,9 @@ export const TOOLS: ToolDef[] = [
     label: 'Updating a task',
     impl: async (a, ctx) => {
       if (!boardOn(ctx.workspaceId)) return BOARD_OFF;
-      if (!getTask(ctx.workspaceId, a.task_id)) return { output: `No task ${a.task_id}. list_tasks shows the board.` };
+      const cur = getTask(ctx.workspaceId, a.task_id);
+      if (!cur) return { output: `No task ${a.task_id}. list_tasks shows the board.` };
+      if (a.note?.trim() && withNote(cur.notes, nameOf(ctx.botId) ?? 'A teammate', a.note).length > MAX_TASK_NOTES) return NOTES_TOO_LONG;
       const o = ownerByName(ctx, a.owner);
       if ('output' in o) return o;
       const r = changeTask(ctx.workspaceId, actorOf(ctx), a.task_id, { status: a.status, note: a.note, title: a.title ? clip(a.title.trim(), 200) : undefined, ownerId: o.id });

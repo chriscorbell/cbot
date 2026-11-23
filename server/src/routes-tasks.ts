@@ -5,7 +5,7 @@ import { requireUser, type AuthVars } from './lib/auth.js';
 import { addTask, changeTask, removeTask, taskOwner, userTask, userTasks } from './agent/team.js';
 import { wake } from './agent/turns.js';
 import { defaultWorkspace, ownWorkspace } from './workspaces.js';
-import { TASK_STATUSES } from './types.js';
+import { MAX_TASK_NOTES, TASK_STATUSES } from './types.js';
 import type { Ok, TaskResponse, TasksResponse } from './contract.js';
 
 /**
@@ -20,7 +20,7 @@ export const tasksApi = new Hono<AuthVars>();
 tasksApi.use('*', requireUser);
 
 const Title = z.string().trim().min(1, 'a task needs a title').max(200);
-const Notes = z.string().max(8000);
+const Notes = z.string().max(MAX_TASK_NOTES);
 /** An owner: one of the workspace's agents (checked in the route), or null for nobody. */
 const Owner = z.string().nullable();
 const BOARD_OFF = 'The task board is turned off in this workspace.';

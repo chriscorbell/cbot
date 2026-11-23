@@ -40,6 +40,18 @@ const MAX_NEWS = 15;
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
+/**
+ * Text from a task's notes on one line, for news and lists that keep them short: cut at `n`, and then
+ * pointing at get_task, which gives the notes whole, so a long brief is never only half read.
+ */
+export function notesPreview(text: string, n: number, taskId: string): string {
+  const flat = text.trim().replace(/\s+/g, ' ');
+  return flat.length > n ? `${flat.slice(0, n - 1)}… (cut short; get_task ${taskId} has it all)` : flat;
+}
+
+/** A task's notes once `who` adds `note` to the end, on a line of its own (changeTask). */
+export const withNote = (notes: string, who: string, note: string) => `${notes ? `${notes}\n` : ''}${who}: ${note.trim()}`;
+
 /** Who did something: the user in the app, or a bot with one of its tools. */
 export type Actor = { kind: 'user' } | { kind: 'bot'; id: string; name: string };
 
@@ -178,7 +190,7 @@ export function addTask(workspaceId: string, actor: Actor, p: { title: string; n
 
 function giveTo(workspaceId: string, actor: Actor, botId: string, task: Task) {
   const who = actorName(userOf(workspaceId), actor);
-  logTeam(workspaceId, `${who} gave you a task: "${clip(task.title, 120)}" (${task.id}).${task.notes ? ` Notes: ${clip(task.notes.replace(/\s+/g, ' '), 600)}` : ''}`, { audience: botId });
+  logTeam(workspaceId, `${who} gave you a task: "${clip(task.title, 120)}" (${task.id}).${task.notes ? ` Notes: ${notesPreview(task.notes, 600, task.id)}` : ''}`, { audience: botId });
   chatLine(botId, `${who} gave ${botName(botId)} a task: ${clip(task.title, 120)}`, task.id);
 }
 
@@ -197,7 +209,7 @@ export function changeTask(workspaceId: string, actor: Actor, id: string, p: { t
   const me = actorId(actor);
   const title = p.title?.trim() || cur.title;
   let notes = p.notes !== undefined ? p.notes.trim() : cur.notes;
-  if (p.note?.trim()) notes = `${notes ? `${notes}\n` : ''}${who}: ${p.note.trim()}`;
+  if (p.note?.trim()) notes = withNote(notes, who, p.note);
   const status = p.status ?? cur.status;
   const owner = p.ownerId !== undefined ? p.ownerId : cur.owner_id;
   const moved = owner !== cur.owner_id;
@@ -219,7 +231,7 @@ export function changeTask(workspaceId: string, actor: Actor, id: string, p: { t
     const what: string[] = [];
     if (status !== cur.status) what.push(`marked it ${STATUS_WORDS[status]}`);
     if (title !== cur.title) what.push('renamed it');
-    if (p.note?.trim()) what.push(`noted: ${clip(p.note.trim().replace(/\s+/g, ' '), 400)}`);
+    if (p.note?.trim()) what.push(`noted: ${notesPreview(p.note, 400, cur.id)}`);
     else if (notes !== cur.notes) what.push('changed its notes');
     if (what.length) logTeam(workspaceId, `${who} changed your task ${name}: ${what.join('; ')}.`, { audience: owner });
   }
@@ -230,7 +242,7 @@ export function changeTask(workspaceId: string, actor: Actor, id: string, p: { t
   const settled = status !== cur.status && (status === 'done' || status === 'blocked');
   if (settled && cur.created_by && cur.created_by !== me && cur.created_by !== owner && taskOwner(workspaceId, cur.created_by)) {
     creator = cur.created_by;
-    const note = p.note?.trim() ? ` Note: ${clip(p.note.trim().replace(/\s+/g, ' '), 600)}` : '';
+    const note = p.note?.trim() ? ` Note: ${notesPreview(p.note, 600, cur.id)}` : '';
     logTeam(workspaceId, status === 'done'
       ? `${owner === me ? who : botName(owner) ?? who} finished ${name}, a task you created.${note}`
       : `${who} marked ${name}, a task you created, blocked.${note}`, { audience: creator });
@@ -252,11 +264,14 @@ export function removeTask(workspaceId: string, actor: Actor, id: string): boole
   return true;
 }
 
-/** A task as a line for an agent: "[doing] Login API (task_x) · owner: Kai · from Ava · notes: …". `user` is the user's name. */
-export function taskLine(t: Task, user: string, o: { owner?: boolean } = {}): string {
+/**
+ * A task as a line for an agent: "[doing] Login API (task_x) · owner: Kai · from Ava · notes: …". `user`
+ * is the user's name. The notes are cut short, or left out with `notes: false` (get_task gives them whole).
+ */
+export function taskLine(t: Task, user: string, o: { owner?: boolean; notes?: boolean } = {}): string {
   const parts = [`[${STATUS_WORDS[t.status]}] ${t.title} (${t.id})`];
   if (o.owner) parts.push(t.ownerId ? `owner: ${botName(t.ownerId) ?? 'unknown'}` : `owner: nobody${t.previousOwner ? ` (was ${t.previousOwner})` : ''}`);
   parts.push(`from ${t.createdBy ? t.createdBy.name : user}`);
-  if (t.notes) parts.push(`notes: ${clip(t.notes.replace(/\s+/g, ' '), 300)}`);
+  if (t.notes && o.notes !== false) parts.push(`notes: ${notesPreview(t.notes, 300, t.id)}`);
   return parts.join(' · ');
 }

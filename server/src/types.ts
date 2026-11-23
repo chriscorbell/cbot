@@ -298,6 +298,8 @@ export interface Routine {
 
 /** Where a task is on the team's board, in the board's column order. */
 export const TASK_STATUSES = ['todo', 'doing', 'blocked', 'done'] as const;
+/** The longest a task's notes may be. A longer brief goes in a file in a Library, named in the notes. */
+export const MAX_TASK_NOTES = 8000;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /** A task on the team's shared board (server/src/agent/team.ts owns it). */

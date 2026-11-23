@@ -149,6 +149,27 @@ describe('the task board', () => {
     expect(news(eng.id)).toMatch(/Pam moved your task "Icons" \(task_.+\) to Dee\./);
   });
 
+  test("a task's notes are cut short in lists and news, and get_task gives them whole", async () => {
+    const [pm, eng] = crew('Pam', 'Eli');
+    const brief = `Scope: ${'the login flow, '.repeat(60)}and the end.`;
+    const r = await run('add_task', { title: 'Login', notes: brief, owner: 'Eli' }, ctx(pm.id));
+    const id = r.output.match(/task_[\w-]+/)![0];
+    expect(news(eng.id)).toMatch(new RegExp(`Notes: Scope: the login flow, [^]*… \\(cut short; get_task ${id} has it all\\)`));
+    expect((await run('list_tasks', {}, ctx(eng.id))).output).toMatch(/notes: Scope: [^]*… \(cut short; get_task task_[\w-]+ has it all\)$/);
+    const whole = await run('get_task', { task_id: id }, ctx(eng.id));
+    expect(whole.output).toMatch(/^\[to do\] Login \(task_[\w-]+\) · owner: Eli · from Pam · added just now · changed just now\n\nNotes:\n/);
+    expect(whole.output.endsWith(brief)).toBe(true);
+    expect((await run('get_task', { task_id: 'task_nope' }, ctx(eng.id))).output).toMatch(/No task task_nope/);
+  });
+
+  test("a task's notes stop at 8000 characters, with a note added too", async () => {
+    const [pm] = crew('Pam');
+    expect((await run('add_task', { title: 'Huge', notes: 'x'.repeat(8001) }, ctx(pm.id))).output).toMatch(/at most 8000 characters/);
+    const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Big', notes: 'x'.repeat(7990) });
+    expect((await run('update_task', { task_id: task.id, note: 'one more thing' }, ctx(pm.id))).output).toMatch(/at most 8000 characters/);
+    expect(team.listTasks(ws())[0].notes).toHaveLength(7990);
+  });
+
   test('list_tasks shows the board by owner, open tasks first', async () => {
     const [pm, eng] = crew('Pam', 'Eli');
     team.addTask(ws(), { kind: 'user' }, { title: 'Ship it', ownerId: eng.id, status: 'doing' });

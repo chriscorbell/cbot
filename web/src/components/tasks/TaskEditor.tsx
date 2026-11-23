@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { TASK_STATUSES, type TaskStatus } from '@shared/types';
+import { MAX_TASK_NOTES, TASK_STATUSES, type TaskStatus } from '@shared/types';
 import { api, type TaskPatch } from '../../lib/api';
 import { guarded } from '../../lib/guarded';
 import { STATUS_LABEL, changedAgo, creatorText } from '../../lib/tasks';
@@ -112,6 +112,7 @@ function TaskForm({ target }: { target: TaskEditorTarget }) {
             onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
             aria-label="Notes"
             rows={5}
+            maxLength={MAX_TASK_NOTES}
           />
           <div className="task-editor__fields">
             <div className="task-editor__field">
