@@ -10,13 +10,19 @@ import { Cron } from 'croner';
 
 /**
  * The newest row of the bot's current chat worth a preview (the sidebar's, a notification's): its text,
- * the other bot that wrote it (in a group chat), and when. The bot's notes to itself and the routine-run
- * lines older chats still have don't count. Null when the chat has no such row.
+ * the other bot that wrote it (in a group chat), and when. The bot's notes to itself, its teammates'
+ * messages to it (isTeammateMessage) and the routine-run lines older chats still have don't count, as
+ * the chat doesn't show them. Null when the chat has no such row.
  */
+const previewRow = db.prepare<[string, number], Pick<RowRecord, 'body' | 'created_at'>>(`
+  SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event')
+    AND json_extract(body, '$.event') IS NOT 'routine-run'
+    AND COALESCE(json_extract(body, '$.note'), 0) = 0
+    AND NOT (json_extract(body, '$.role') IS 'user' AND json_extract(body, '$.from.kind') IS 'bot')
+  ORDER BY seq DESC LIMIT 1`);
+
 export function chatPreview(r: BotRecord): { text: string; from: string | null; at: number } | null {
-  const last = db
-    .prepare<[string, number], Pick<RowRecord, 'body' | 'created_at'>>("SELECT body, created_at FROM rows WHERE bot_id=? AND generation=? AND kind IN ('message','card','event') AND json_extract(body, '$.event') IS NOT 'routine-run' ORDER BY seq DESC LIMIT 8")
-    .all(r.id, r.generation).find((x) => !JSON.parse(x.body).note);
+  const last = previewRow.get(r.id, r.generation);
   if (!last) return null;
   const b = JSON.parse(last.body) as RowBody;
   const text =

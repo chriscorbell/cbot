@@ -45,3 +45,13 @@ test('an open chat is copied from what is loaded, and plain text is the fallback
   expect(copied[0]).toContain('**You**');
   expect(copied[0]).toContain('Loaded already');
 });
+
+test("a teammate's message to the bot is left out, as the chat leaves it out", async () => {
+  const fromTheo: Row = { ...msg(2, 'user', 'Site done, see BUILD-NOTES.md'), body: { type: 'message', role: 'user', text: 'Site done, see BUILD-NOTES.md', from: { kind: 'bot', id: 'bot_2', name: 'Theo' } } };
+  useStore.setState({ transcripts: { bot_1: { generation: 1, loaded: true, bySeq: { 1: msg(1, 'user', 'Ship it'), 2: fromTheo, 3: msg(3, 'assistant', 'The site is ready for you.') } } } });
+  clipboard(false);
+  await copyConversation(bot);
+  expect(copied[0]).toContain('Ship it');
+  expect(copied[0]).toContain('The site is ready for you.');
+  expect(copied[0]).not.toContain('BUILD-NOTES');
+});

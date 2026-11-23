@@ -31,13 +31,17 @@ export function excerpt(text: string, q: string, before = 48, after = 110): stri
   return `${start > 0 ? '…' : ''}${t.slice(start, end)}${end < t.length ? '…' : ''}`;
 }
 
-/** Messages that mention `q`, newest first, in chats the person can open. Notes (the bot thinking aloud) aren't shown in the chat, so they aren't found. */
+/**
+ * Messages that mention `q`, newest first, in chats the person can open. Notes (the bot thinking aloud)
+ * and teammates' messages to a bot (isTeammateMessage) aren't shown in the chat, so they aren't found.
+ */
 export function searchMessages(userId: string, q: string): SearchMessageHit[] {
   const rows = db.prepare<[string, string], RowRecord>(`
     SELECT r.* FROM rows r JOIN bots b ON b.id = r.bot_id
     WHERE b.user_id = ? AND r.generation = b.generation AND r.kind = 'message'
       AND json_extract(r.body, '$.text') LIKE ? ESCAPE '\\'
       AND COALESCE(json_extract(r.body, '$.note'), 0) = 0
+      AND NOT (json_extract(r.body, '$.role') IS 'user' AND json_extract(r.body, '$.from.kind') IS 'bot')
     ORDER BY r.created_at DESC LIMIT ${MAX_HITS}`).all(userId, likePattern(q));
   return rows.map((r) => {
     const b = JSON.parse(r.body) as MessageBody;

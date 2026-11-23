@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Ellipsis, FileText, MessagesSquare, Reply, SmilePlus } from 'lucide-react';
-import type { Attachment, Bot, BotQuestion, LiveState, MessageBody, Row } from '@shared/types';
+import { isTeammateMessage, type Attachment, type Bot, type BotQuestion, type LiveState, type MessageBody, type Row } from '@shared/types';
 import { BotAvatar, BotAvatarFor } from '../avatar/BotAvatar';
 import { isWaitingForYou } from '../lib/phrases';
 import { dividerLabel } from '../lib/time';
@@ -49,7 +49,8 @@ function buildItems(rows: Row[]): Item[] {
     }
     if (last?.kind === 'steps' && last.endTs === null) last.endTs = row.createdAt;
     if (b.type === 'message') {
-      if ((!b.text && !b.streaming && !b.attachments?.length) || b.note) continue; // notes are the bot thinking aloud
+      // Notes are the bot thinking aloud; a teammate's message is for the bot, which tells the user what matters in it.
+      if ((!b.text && !b.streaming && !b.attachments?.length) || b.note || isTeammateMessage(b)) continue;
       const side = b.role === 'user' && (!b.from || b.from.kind === 'voice') ? 'right' : 'left';
       const sender = b.from ? `${b.from.kind}:${b.from.id}` : b.role;
       const lastRow = last?.kind === 'group' ? last.rows[last.rows.length - 1] : null;

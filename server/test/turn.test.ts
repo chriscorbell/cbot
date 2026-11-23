@@ -2,7 +2,7 @@
 // what shows as a message, what stays a note, what a tool row says, what the status line shows, and
 // how Hermes' approval prompts become cards.
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
-import type { MessageBody, Row, ToolCallBody } from '../src/types.js';
+import { isTeammateMessage, type MessageBody, type Row, type ToolCallBody } from '../src/types.js';
 import { ev, fakeHermes, gate } from './hermes.js';
 
 vi.mock('../src/computer.js', async (orig) => ({
@@ -311,6 +311,22 @@ describe('endings', () => {
     fakeHermes([ev.completed('again')]);
     expect(loop.enqueue(bot.id, daily)).toBe(true);
     await loop.whenIdle(bot.id);
+  });
+
+  test("a teammate's message is the bot's input, kept in its chat but out of the user's sight", async () => {
+    const theo = seedBot(userId, { name: 'Theo' });
+    const bot = seedBot(userId);
+    const requests = fakeHermes([ev.completed('Theo finished the site. It needs your legal name before it goes live.')]);
+    loop.enqueueBotMessage(theo.id, bot.id, 'Site done, see BUILD-NOTES.md', 1);
+    await loop.whenIdle(bot.id);
+    const input = String(requests[0].input);
+    expect(input).toMatch(/^\[Message from Theo, another Bot on the team\. The user doesn't see it\./);
+    expect(input.endsWith(']\nSite done, see BUILD-NOTES.md')).toBe(true);
+    const [sent, reply] = rows(bot.id);
+    expect(msg(sent)).toEqual({ type: 'message', role: 'user', text: 'Site done, see BUILD-NOTES.md', from: { kind: 'bot', id: theo.id, name: 'Theo' } });
+    expect(isTeammateMessage(sent.body)).toBe(true);
+    expect(isTeammateMessage(reply.body)).toBe(false);
+    expect(store.toBot(store.requireBot(bot.id)).lastPreview).toBe('Theo finished the site. It needs your legal name before it goes live.');
   });
 
   test("the run carries the conversation's session, model choice and effort", async () => {

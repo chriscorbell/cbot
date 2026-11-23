@@ -1,15 +1,15 @@
-import type { Bot, Row } from '@shared/types';
+import { isTeammateMessage, type Bot, type Row } from '@shared/types';
 import { api } from './api';
 import { clock } from './time';
 import { sortedRows, useStore } from '../store';
 
-/** The conversation as Markdown: who said what, oldest first, with the day and time of each message. */
+/** The conversation as Markdown: who said what, oldest first, with the day and time of each message. Teammates' messages to the bot aren't part of it. */
 export function conversationMarkdown(bot: Bot, rows: Row[]): string {
   const out: string[] = [`# ${bot.name}`];
   let day = '';
   for (const r of rows) {
     const b = r.body;
-    if (b.type !== 'message' || !b.text?.trim()) continue;
+    if (b.type !== 'message' || !b.text?.trim() || isTeammateMessage(b)) continue;
     const d = new Date(r.createdAt).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     if (d !== day) { out.push(`## ${d}`); day = d; }
     const who = b.role === 'user' ? (b.from && b.from.kind !== 'voice' ? b.from.name : 'You') : b.from?.name ?? bot.name;

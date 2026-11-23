@@ -238,7 +238,7 @@ Work that outlives a request, such as a turn, its app tools or the sweep of aban
 
 Row kinds:
 
-- `message`: from the user, the bot, another bot or a voice call; a `note` is the bot thinking aloud, kept but hidden.
+- `message`: from the user, the bot, another bot or a voice call; a `note` is the bot thinking aloud, kept but hidden. A teammate's message to the bot (`send_to_bot`) is kept but hidden too (`isTeammateMessage` in `types.ts`): the chat, its preview, search and a copied conversation leave it out.
 - `tool-call`: an activity line and a step in the collapsible list.
 - `card`: approval, question, weather, page. A question card goes from pending to answered once.
 
@@ -314,7 +314,7 @@ The bots are a team, each with a role, and work together like colleagues at a sm
   - The owner hears what someone else changed, the old owner hears a task moved away, and the bot that created a task hears when it's done.
 - The team log (`team_log`) is what each bot hears about the team: those task changes, and a teammate joining or leaving. A bot hears the entries it hasn't heard yet as a `[Team news]` note at the start of its next turn; a new bot starts caught up.
 - Deleting a bot hands its open tasks back to nobody, saying whose they were (a task it was doing is to do again), and the rest of the team hears it left and which tasks wait for someone.
-- `send_to_bot` puts a message from one bot into another bot's queue, and the reply comes back the same way.
+- `send_to_bot` puts a message from one bot into another bot's queue, and the reply comes back the same way. The user doesn't see these messages, so a primary bot running a team doesn't bury its chat under reports: the recipient is told so, and tells the user only what they need, or stays silent. Its voice calls and teammates' questions still hear them.
 - Each workspace's primary bot manages its team. Any other bot that tries is told to ask the primary bot with `send_to_bot`, and the primary bot decides.
   - `create_bot` adds an agent to the workspace when the user asks for one, or a teammate asks and the team needs it (`addTeammate`, `bots.ts`), as the create-bot form does. The computer's limit on bots holds, and the name must be free in the workspace. The new bot greets the user, saying which bot added it, without asking what to help with; the primary bot gives it work.
   - `update_bot` changes a teammate's label, About or instructions (`updatePersona`, `bots.ts`), each replaced whole, so `check_on_bot` shows the instructions whole. Its persona file and desktop follow, as after an edit in its settings.

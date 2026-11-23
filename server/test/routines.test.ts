@@ -32,3 +32,14 @@ test("a chat's preview skips the routine-run lines older chats have", () => {
   for (let i = 0; i < 10; i++) appendRow(bot.id, 'event', { type: 'event', event: 'routine-run', text: 'Running routine: Paper trading', ref: 'rt_1' });
   expect(toBot(getBotRow(bot.id)!).lastPreview).toBe('Bought 10 shares');
 });
+
+test("a chat's preview skips the bot's notes and its teammates' messages to it, which the chat doesn't show", () => {
+  const bot = seedBot(userId);
+  const theo = seedBot(userId, { name: 'Theo' });
+  appendRow(bot.id, 'message', { type: 'message', role: 'assistant', text: 'Stripe is the one thing left for you' });
+  for (let i = 0; i < 10; i++) {
+    appendRow(bot.id, 'message', { type: 'message', role: 'user', text: `Task ${i} done`, from: { kind: 'bot', id: theo.id, name: 'Theo' } });
+    appendRow(bot.id, 'message', { type: 'message', role: 'assistant', text: 'Noted.', note: true });
+  }
+  expect(toBot(getBotRow(bot.id)!).lastPreview).toBe('Stripe is the one thing left for you');
+});

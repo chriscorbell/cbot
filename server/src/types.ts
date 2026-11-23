@@ -70,6 +70,15 @@ export interface Row {
 
 export type RowKind = 'message' | 'tool-call' | 'card' | 'event' | 'notice';
 
+/**
+ * A message a teammate sent this bot with send_to_bot. It is the bot's input, not part of the user's
+ * conversation with it: a primary bot running a team would bury that conversation under its teammates'
+ * reports. So the chat, its preview, search and a copied conversation leave it out, while the bot's
+ * turn, its voice calls and its teammates' questions still hear it (catchup.ts). The SQL in store.ts
+ * chatPreview and search.ts says the same.
+ */
+export const isTeammateMessage = (b: RowBody): boolean => b.type === 'message' && b.role === 'user' && b.from?.kind === 'bot';
+
 export type RowBody =
   | MessageBody
   | ToolCallBody
@@ -82,7 +91,11 @@ export interface MessageBody {
   role: 'user' | 'assistant';
   text: string;
   streaming?: boolean;
-  /** Set when a message came from another bot, a routine or a voice call rather than the user typing. */
+  /**
+   * Set when a message came from another bot, a routine or a voice call rather than the user typing.
+   * From a bot it is either the bot's post in a group chat (role 'assistant') or a teammate's message
+   * to this bot with send_to_bot (role 'user', see isTeammateMessage).
+   */
   from?: { kind: 'bot' | 'routine' | 'voice'; id: string; name: string };
   citations?: { url: string; title?: string }[];
   /** An emoji the user reacted with. */

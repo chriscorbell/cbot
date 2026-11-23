@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { FileText, Image as ImageIcon, MicOff, Plus, X } from 'lucide-react';
-import type { Attachment, Bot, Row } from '@shared/types';
+import { isTeammateMessage, type Attachment, type Bot, type Row } from '@shared/types';
 import { api } from '../lib/api';
 import { useConfigUI } from '../configStore';
 import { Icon } from './Icon';
@@ -50,7 +50,8 @@ function hasOpenQuestion(rows: Row[]) {
   for (let i = rows.length - 1; i >= 0; i--) {
     const b = rows[i].body;
     if (b.type === 'card' && b.card === 'question') return b.status === 'pending';
-    if (b.type === 'message' && b.role === 'user') return false;
+    // The user answering moves past it; a teammate's message to the bot, which the chat doesn't show, doesn't.
+    if (b.type === 'message' && b.role === 'user' && !isTeammateMessage(b)) return false;
   }
   return false;
 }

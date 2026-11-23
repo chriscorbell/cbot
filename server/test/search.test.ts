@@ -24,17 +24,19 @@ beforeAll(() => {
   row(ada.id, { type: 'message', role: 'assistant', text: 'Done: the kalshi demo works with 50% fees.' }, 1, 2000);
   row(ada.id, { type: 'message', role: 'assistant', text: 'Kalshi thinking aloud', note: true }, 1, 3000);
   row(bo.id, { type: 'message', role: 'assistant', text: 'Kalshi from a chat that was cleared' }, 1, 4000);
-  row(bo.id, { type: 'message', role: 'user', text: 'Kalshi again, after New chat', from: { kind: 'bot', id: ada.id, name: 'Ada' } }, 2, 5000);
+  row(bo.id, { type: 'message', role: 'assistant', text: 'Kalshi again, after New chat', from: { kind: 'bot', id: ada.id, name: 'Ada' } }, 2, 5000);
+  row(bo.id, { type: 'message', role: 'user', text: 'Kalshi report from a teammate', from: { kind: 'bot', id: ada.id, name: 'Ada' } }, 2, 5500);
   const other = 'usr_other';
   db.prepare("INSERT INTO users(id,username,created_at) VALUES (?,?,?)").run(other, 'other', now());
   const theirs = seedBot(other, { name: 'Theirs' });
   row(theirs.id, { type: 'message', role: 'user', text: 'Kalshi for someone else' }, 1, 6000);
 });
 
-test('messages match case-insensitively, newest first, only in chats the person can open', () => {
+test('messages match case-insensitively, newest first, only in chats the person can open and as the chat shows them', () => {
   const hits = searchMessages(user.id, 'KALSHI');
+  // Not the note, the cleared chat, the teammate's message to Bo or someone else's chat.
   expect(hits.map((h) => h.text)).toEqual(['Kalshi again, after New chat', 'Done: the kalshi demo works with 50% fees.', 'Find the Kalshi paper-trading docs']);
-  expect(hits[0]).toMatchObject({ botId: bo.id, generation: 2, role: 'user', from: 'Ada' });
+  expect(hits[0]).toMatchObject({ botId: bo.id, generation: 2, role: 'assistant', from: 'Ada' });
   expect(hits[2]).toMatchObject({ botId: ada.id, generation: 1, role: 'user' });
 });
 

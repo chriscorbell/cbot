@@ -213,7 +213,11 @@ export async function claimToolRow(botId: string, name: string): Promise<(ToolCl
   }
 }
 
-/** A message from another bot: it shows in the recipient's chat and becomes the recipient's turn. */
+/**
+ * A message from another bot: it becomes the recipient's turn. Its row keeps it in the recipient's
+ * record, for its voice calls and teammates' questions (catchup.ts), but the user isn't shown it
+ * (isTeammateMessage): only what the recipient makes of it.
+ */
 export function enqueueBotMessage(fromBotId: string, toBotId: string, text: string, depth: number) {
   const from = requireBot(fromBotId);
   appendRow(toBotId, 'message', { type: 'message', role: 'user', text, from: { kind: 'bot', id: fromBotId, name: from.name } });
@@ -226,7 +230,7 @@ function triggerText(t: Trigger): string {
   switch (t.type) {
     case 'user': return t.text;
     case 'routine': return `[Routine "${t.name}" is running now. Do this:]\n${t.prompt}`;
-    case 'bot': return `[Message from ${t.fromName}, another Bot on the team. Reply to them with send_to_bot if they asked you something.]\n${t.text}`;
+    case 'bot': return `[Message from ${t.fromName}, another Bot on the team. The user doesn't see it. Reply to them with send_to_bot if they asked you something. Tell the user only what they need to know or act on, briefly and in your own words; if nothing, use stay_silent.]\n${t.text}`;
     case 'system': return `[System notice] ${t.text}`;
     case 'team': return '[The team news above is why you are running now. Act on what needs you: start on a task you were given (mark it doing with update_task, and done when it is finished), or follow up with a teammate. If nothing needs you, use stay_silent.]';
   }
