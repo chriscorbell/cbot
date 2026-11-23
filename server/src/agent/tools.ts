@@ -9,7 +9,7 @@ import { setCheckins } from '../proactive.js';
 import { createRoom, postToRoom } from './rooms.js';
 import { askBot } from './asks.js';
 import { activitySnapshot, ago, recentMessages } from './catchup.js';
-import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, type Actor } from './team.js';
+import { addTask, changeTask, getTask, listTasks, MAX_HOPS, ownerName, taskLine, type Actor, type TaskChange } from './team.js';
 import { listMemories } from '../engine-memory.js';
 import { PAGE_VARS, TASK_STATUSES, type ActivityKind, type EventBody } from '../types.js';
 import { DEFAULT_HEIGHT, deletePage, MAX_HEIGHT, MIN_HEIGHT, preparePage, savePage } from '../pages.js';
@@ -32,7 +32,7 @@ export interface ToolCtx {
   /** The voice call the tool was used on: set by mcp.ts when no chat turn claimed the call and the bot is on one. */
   callId?: string;
   enqueueBotMessage: (fromBotId: string, toBotId: string, text: string, depth: number) => void;
-  /** Queue a turn for a bot that was given a task (turns.ts wake). */
+  /** Queue a turn for a bot a task change concerns: it was given the task, or created it and it got done or blocked (turns.ts wake). */
   wake: (botId: string, depth: number) => void;
   /**
    * Add an agent to the calling bot's workspace, and change a teammate's label, About or instructions
@@ -163,13 +163,19 @@ function noteChange(ctx: ToolCtx, botId: string, row: EventBody) {
   else appendRow(botId, 'event', row);
 }
 
-/** Wake the bot a task was given to, unless the chain of hops behind this turn is long enough already. */
-function wakeGiven(ctx: ToolCtx, botId: string | null): string {
-  if (!botId) return '';
-  const name = nameOf(botId) ?? 'They';
-  if (ctx.depth >= MAX_HOPS) return ` ${name} will see it at their next turn (too many hops between bots to wake them now).`;
-  ctx.wake(botId, ctx.depth + 1);
-  return ` ${name} was told and starts on it.`;
+/**
+ * Wake the bots a task change concerns (team.ts TaskChange): the one it was given to, and the one that
+ * created it when it got done or blocked. Not when the chain of hops behind this turn is long enough already.
+ */
+function wakeFor(ctx: ToolCtx, r: TaskChange): string {
+  const one = (botId: string | null, who: (name: string) => string, now: string) => {
+    if (!botId) return '';
+    const name = who(nameOf(botId) ?? 'They');
+    if (ctx.depth >= MAX_HOPS) return ` ${name} will see it at their next turn (too many hops between bots to wake them now).`;
+    ctx.wake(botId, ctx.depth + 1);
+    return ` ${name} ${now}.`;
+  };
+  return one(r.given, (n) => n, 'was told and starts on it') + one(r.creator, (n) => `${n}, who created it,`, 'was told');
 }
 
 /** How a page for show_visual is made so it sits well in the chat: the layout, the theme, what it can load. */
@@ -393,7 +399,7 @@ export const TOOLS: ToolDef[] = [
   }),
   tool({
     name: 'add_task',
-    description: "Put a task on the team's board. owner is the agent who should do it (by name), \"me\" (the default) or \"nobody\". A teammate you give a task to is told at once and starts on it, and you hear when they finish it.",
+    description: "Put a task on the team's board. owner is the agent who should do it (by name), \"me\" (the default) or \"nobody\". A teammate you give a task to is told at once and starts on it. When they mark it done or blocked, you are told and woken, with their note on what they did or what is in the way, so they needn't message you as well.",
     params: z.object({
       title: z.string().describe('What to do, in a few words'),
       notes: z.string().optional().describe('What they need to know to do it: context, links, what done looks like'),
@@ -409,12 +415,12 @@ export const TOOLS: ToolDef[] = [
       const o = ownerByName(ctx, a.owner ?? 'me');
       if ('output' in o) return o;
       const r = addTask(ctx.workspaceId, actorOf(ctx), { title: clip(title, 200), notes: a.notes, ownerId: o.id === undefined ? ctx.botId : o.id, status: a.status });
-      return { output: `Added ${r.task.id}.${wakeGiven(ctx, r.given)}`, summary: `Added "${clip(title, 60)}"` };
+      return { output: `Added ${r.task.id}.${wakeFor(ctx, r)}`, summary: `Added "${clip(title, 60)}"` };
     },
   }),
   tool({
     name: 'update_task',
-    description: "Change a task on the team's board: its status (todo, doing, blocked, done), its title, its owner (an agent's name, \"me\" or \"nobody\"), or add a note (say why when you mark it blocked). Keep your own tasks current as you work. Its owner is told what you changed, and a new owner starts on it.",
+    description: "Change a task on the team's board: its status (todo, doing, blocked, done), its title, its owner (an agent's name, \"me\" or \"nobody\"), or add a note. Keep your own tasks current as you work. Its owner is told what you changed, and a new owner starts on it. Marking it done or blocked tells the teammate who created it and wakes them, with your note: say what you did and where the result is, or what is in the way, and don't message them as well.",
     params: z.object({
       task_id: z.string(),
       status: z.enum(TASK_STATUSES).optional(),
@@ -431,7 +437,7 @@ export const TOOLS: ToolDef[] = [
       if ('output' in o) return o;
       const r = changeTask(ctx.workspaceId, actorOf(ctx), a.task_id, { status: a.status, note: a.note, title: a.title ? clip(a.title.trim(), 200) : undefined, ownerId: o.id });
       if (!r) return { output: `No task ${a.task_id}.` };
-      return { output: `Updated: ${taskLine(r.task, ownerName(ctx.userId), { owner: true })}.${wakeGiven(ctx, r.given)}`, summary: `Updated "${clip(r.task.title, 60)}"` };
+      return { output: `Updated: ${taskLine(r.task, ownerName(ctx.userId), { owner: true })}.${wakeFor(ctx, r)}`, summary: `Updated "${clip(r.task.title, 60)}"` };
     },
   }),
   tool({

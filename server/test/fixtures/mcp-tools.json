@@ -239,7 +239,7 @@
   },
   {
     "name": "add_task",
-    "description": "Put a task on the team's board. owner is the agent who should do it (by name), \"me\" (the default) or \"nobody\". A teammate you give a task to is told at once and starts on it, and you hear when they finish it.",
+    "description": "Put a task on the team's board. owner is the agent who should do it (by name), \"me\" (the default) or \"nobody\". A teammate you give a task to is told at once and starts on it. When they mark it done or blocked, you are told and woken, with their note on what they did or what is in the way, so they needn't message you as well.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -273,7 +273,7 @@
   },
   {
     "name": "update_task",
-    "description": "Change a task on the team's board: its status (todo, doing, blocked, done), its title, its owner (an agent's name, \"me\" or \"nobody\"), or add a note (say why when you mark it blocked). Keep your own tasks current as you work. Its owner is told what you changed, and a new owner starts on it.",
+    "description": "Change a task on the team's board: its status (todo, doing, blocked, done), its title, its owner (an agent's name, \"me\" or \"nobody\"), or add a note. Keep your own tasks current as you work. Its owner is told what you changed, and a new owner starts on it. Marking it done or blocked tells the teammate who created it and wakes them, with your note: say what you did and where the result is, or what is in the way, and don't message them as well.",
     "inputSchema": {
       "type": "object",
       "properties": {

@@ -85,16 +85,57 @@ describe('the task board', () => {
     expect(woken).toEqual([]);
   });
 
-  test('the owner hears what a teammate changed, and whoever asked for it hears it got done', async () => {
+  test('the owner hears what a teammate changed, and whoever asked for it hears it got done and is woken', async () => {
+    woken.length = 0;
     const [pm, eng, des] = crew('Pam', 'Eli', 'Dee');
     const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Login page', ownerId: eng.id });
     team.markTeamSeen(eng.id, team.teamNews(eng.id)!.upTo);
     await run('update_task', { task_id: task.id, note: 'Use the new colours' }, ctx(des.id));
     expect(news(eng.id)).toMatch(/Dee changed your task "Login page" \(task_.+\): noted: Use the new colours\./);
     expect(team.listTasks(ws())[0].notes).toBe('Dee: Use the new colours');
-    await run('update_task', { task_id: task.id, status: 'done' }, ctx(eng.id));
-    expect(news(pm.id)).toMatch(/Eli finished "Login page" \(task_.+\), a task you created\./);
+    expect(woken).toEqual([]);
+    const r = await run('update_task', { task_id: task.id, status: 'done', note: 'Live at /login, screenshots in ~/shots' }, ctx(eng.id, { depth: 1 }));
+    expect(r.output).toMatch(/Pam, who created it, was told\.$/);
+    expect(woken).toEqual([[pm.id, 2]]);
+    expect(news(pm.id)).toMatch(/Eli finished "Login page" \(task_.+\), a task you created\. Note: Live at \/login, screenshots in ~\/shots/);
     expect(news(des.id)).toBeNull();
+    // Done is told once: another change to the finished task wakes nobody.
+    woken.length = 0;
+    await run('update_task', { task_id: task.id, note: 'Also on staging' }, ctx(eng.id));
+    expect(woken).toEqual([]);
+  });
+
+  test('a task getting stuck wakes whoever asked for it, with why', async () => {
+    woken.length = 0;
+    const [pm, eng] = crew('Pam', 'Eli');
+    const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Deploy', ownerId: eng.id });
+    const r = await run('update_task', { task_id: task.id, status: 'blocked', note: 'Need the API key' }, ctx(eng.id));
+    expect(r.output).toMatch(/Pam, who created it, was told\.$/);
+    expect(woken).toEqual([[pm.id, 1]]);
+    expect(news(pm.id)).toMatch(/Eli marked "Deploy" \(task_.+\), a task you created, blocked\. Note: Need the API key/);
+  });
+
+  test("finishing a task you created yourself, or your own, wakes nobody", async () => {
+    woken.length = 0;
+    const [pm, eng] = crew('Pam', 'Eli');
+    const mine = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Roadmap', ownerId: pm.id }).task;
+    const given = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Icons', ownerId: eng.id }).task;
+    await run('update_task', { task_id: mine.id, status: 'done' }, ctx(pm.id));
+    await run('update_task', { task_id: given.id, status: 'done' }, ctx(pm.id));
+    // Eli's own task, which Eli made, finished by Pam: Eli hears it as its owner, and isn't woken.
+    const theirs = team.addTask(ws(), { kind: 'bot', id: eng.id, name: 'Eli' }, { title: 'Tests', ownerId: eng.id }).task;
+    await run('update_task', { task_id: theirs.id, status: 'done' }, ctx(pm.id));
+    expect(woken).toEqual([]);
+  });
+
+  test('a long enough chain of hops tells the creator without waking it', async () => {
+    woken.length = 0;
+    const [pm, eng] = crew('Pam', 'Eli');
+    const { task } = team.addTask(ws(), { kind: 'bot', id: pm.id, name: 'Pam' }, { title: 'Later', ownerId: eng.id });
+    const r = await run('update_task', { task_id: task.id, status: 'done' }, ctx(eng.id, { depth: team.MAX_HOPS }));
+    expect(r.output).toMatch(/Pam, who created it, will see it at their next turn/);
+    expect(woken).toEqual([]);
+    expect(news(pm.id)).toMatch(/Eli finished "Later"/);
   });
 
   test('moving a task gives it to the new owner and tells the old one', async () => {

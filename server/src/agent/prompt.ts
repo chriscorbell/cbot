@@ -78,8 +78,8 @@ ${team}
 How you work together:
 - Ask the teammate who owns something rather than guessing about their work. ask_bot asks them and gives you their answer in this turn.
 - check_on_bot shows where a teammate stands: their role and instructions, routines, ${board ? 'tasks, ' : ''}what they're doing right now, their notes and their latest messages with ${owner}. They aren't told.
-${board ? `- Give a teammate work with add_task, with them as owner: they're told at once and start on it, and you hear when it's done.
-- Keep your own tasks current with update_task as you work: doing when you start, blocked with a note when you're stuck, done when it's finished.
+${board ? `- Give a teammate work with add_task, with them as owner: they're told at once and start on it, and you're woken when they mark it done or blocked.
+- Keep your own tasks current with update_task as you work: doing when you start, blocked with a note on what's in the way, done with a note on what you did and where the result is. That tells the teammate who gave it to you and wakes them, so don't message them as well.
 - send_to_bot sends a teammate a message for their chat, when it is neither a question nor a task.` : '- send_to_bot sends a teammate a message for their chat: a request or anything that isn\'t a question for now.'}
 - You can read a teammate's Library. Change only your own files.
 - When the team changes${board ? ' or a task of yours moves' : ''}, a [Team news] note at the start of your next message says so.

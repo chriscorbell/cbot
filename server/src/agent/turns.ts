@@ -37,8 +37,9 @@ import { markTeamSeen, teamNews } from './team.js';
  * and the run waits for the user's answer. The input starts with what the chat missed on voice calls
  * and in teammates' questions (catchup.ts), and with the team's news (team.ts).
  *
- * A 'team' turn is a wake-up: the bot was given a task (team.ts), and the turn is its news. Only one
- * waits in the queue at a time, and one whose news an earlier turn already told is skipped.
+ * A 'team' turn is a wake-up: the bot was given a task, or one it created got done or blocked (team.ts),
+ * and the turn is its news. Only one waits in the queue at a time, and one whose news an earlier turn
+ * already told is skipped.
  */
 
 /** What a turn answers. Kept in `turns` as JSON and read back after a restart. */
@@ -91,8 +92,9 @@ export function enqueue(botId: string, trigger: Trigger): boolean {
 }
 
 /**
- * Wake the bot for its team news (it was given a task): a 'team' turn, unless one is already waiting in
- * its queue, which will tell this news too. `depth`: the bot-to-bot hops that led here.
+ * Wake the bot for its team news (it was given a task, or one it created got done or blocked): a 'team'
+ * turn, unless one is already waiting in its queue, which will tell this news too. `depth`: the
+ * bot-to-bot hops that led here.
  */
 export function wake(botId: string, depth: number) {
   if (runners.get(botId)?.queued.some((j) => j.trigger.type === 'team')) return;
@@ -232,7 +234,7 @@ function triggerText(t: Trigger): string {
     case 'routine': return `[Routine "${t.name}" is running now. Do this:]\n${t.prompt}`;
     case 'bot': return `[Message from ${t.fromName}, another Bot on the team. The user doesn't see it. Reply to them with send_to_bot if they asked you something. Tell the user only what they need to know or act on, briefly and in your own words; if nothing, use stay_silent.]\n${t.text}`;
     case 'system': return `[System notice] ${t.text}`;
-    case 'team': return '[The team news above is why you are running now. Act on what needs you: start on a task you were given (mark it doing with update_task, and done when it is finished), or follow up with a teammate. If nothing needs you, use stay_silent.]';
+    case 'team': return '[The team news above is why you are running now. Act on what needs you: start on a task you were given (mark it doing with update_task, and done when it is finished), pick up from a task you created that a teammate finished or is blocked on, or follow up with a teammate. If nothing needs you, use stay_silent.]';
   }
 }
 

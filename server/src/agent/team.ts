@@ -24,7 +24,8 @@ import type { Task, TaskStatus } from '../types.js';
  * is about (`actor_id`). A bot's agent is told the entries it hasn't heard yet at the start of its next
  * turn, as a bracketed note at the start of the run's input (teamNews, read by agent/turns.ts), the way
  * catchup.ts tells it about voice calls, so the instructions and the prompt cache behind them stay the
- * same. Being given a task also wakes the bot (a 'team' turn, queued by the caller), so it starts now.
+ * same. Being given a task also wakes the bot (a 'team' turn, queued by the caller), so it starts now,
+ * and so does a task the bot created getting done or blocked, since the bot is waiting on that work.
  */
 
 /** Bot-to-bot hops in one chain of messages and tasks before the app stops waking bots for it. */
@@ -155,8 +156,11 @@ function chatLine(botId: string, text: string, taskId: string) {
   if (getBotRow(botId)) conversation(botId).append('event', { type: 'event', event: 'task', text, ref: taskId });
 }
 
-/** What changed hands: the bot the task was given to, which the caller wakes so it starts on it. */
-export interface TaskChange { task: Task; given: string | null }
+/**
+ * Who a change wakes, which the caller does (agent/turns.ts wake): the bot the task was given to, so it
+ * starts on it, and the bot that created it, when it got done or blocked, so it picks up from there.
+ */
+export interface TaskChange { task: Task; given: string | null; creator: string | null }
 
 export function addTask(workspaceId: string, actor: Actor, p: { title: string; notes?: string; ownerId?: string | null; status?: TaskStatus }): TaskChange {
   const id = newId('task');
@@ -169,7 +173,7 @@ export function addTask(workspaceId: string, actor: Actor, p: { title: string; n
   const given = task.ownerId && task.ownerId !== actorId(actor) && task.status !== 'done' ? task.ownerId : null;
   if (given) giveTo(workspaceId, actor, given, task);
   hub.emit(userId, { type: 'tasks' });
-  return { task, given };
+  return { task, given, creator: null };
 }
 
 function giveTo(workspaceId: string, actor: Actor, botId: string, task: Task) {
@@ -183,7 +187,7 @@ const STATUS_WORDS: Record<TaskStatus, string> = { todo: 'to do', doing: 'doing'
 /**
  * Change a task. `note` is added to the end of its notes, on a line of its own with who wrote it;
  * `notes` replaces them (the app's editor). The owner hears what someone else changed, a new owner is
- * given the task, the old one hears it moved, and the bot that created it hears it got done.
+ * given the task, the old one hears it moved, and the bot that created it hears it got done or blocked.
  */
 export function changeTask(workspaceId: string, actor: Actor, id: string, p: { title?: string; notes?: string; note?: string; status?: TaskStatus; ownerId?: string | null }): TaskChange | null {
   const cur = getTask(workspaceId, id);
@@ -219,12 +223,20 @@ export function changeTask(workspaceId: string, actor: Actor, id: string, p: { t
     else if (notes !== cur.notes) what.push('changed its notes');
     if (what.length) logTeam(workspaceId, `${who} changed your task ${name}: ${what.join('; ')}.`, { audience: owner });
   }
-  // The bot that asked for it hears it got done, unless it did it itself or is already told above.
-  if (status === 'done' && cur.status !== 'done' && cur.created_by && cur.created_by !== me && cur.created_by !== owner && getBotRow(cur.created_by)) {
-    logTeam(workspaceId, `${owner === me ? who : botName(owner) ?? who} finished ${name}, a task you created.`, { audience: cur.created_by });
+  // The bot that asked for it hears it got done or blocked, unless it did that itself or owns it (told
+  // above), and is woken: it is waiting on the work, and nothing else may start its next turn for hours.
+  // A note made with the change is what was done or what is in the way, so it comes along.
+  let creator: string | null = null;
+  const settled = status !== cur.status && (status === 'done' || status === 'blocked');
+  if (settled && cur.created_by && cur.created_by !== me && cur.created_by !== owner && taskOwner(workspaceId, cur.created_by)) {
+    creator = cur.created_by;
+    const note = p.note?.trim() ? ` Note: ${clip(p.note.trim().replace(/\s+/g, ' '), 600)}` : '';
+    logTeam(workspaceId, status === 'done'
+      ? `${owner === me ? who : botName(owner) ?? who} finished ${name}, a task you created.${note}`
+      : `${who} marked ${name}, a task you created, blocked.${note}`, { audience: creator });
   }
   hub.emit(userId, { type: 'tasks' });
-  return { task, given };
+  return { task, given, creator };
 }
 
 /** Take a task off the board. Its owner hears, unless it took it off itself. */

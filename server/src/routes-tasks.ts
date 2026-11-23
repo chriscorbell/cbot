@@ -12,7 +12,8 @@ import type { Ok, TaskResponse, TasksResponse } from './contract.js';
  * /api/tasks: the task boards, as the user sees and changes them in the app. Each workspace has its own
  * (a task's `workspaceId`), and the app shows the one of the workspace it is in. The bots change the
  * same boards with their tools; agent/team.ts tells each of them what concerns it either way. A task the
- * user gives a bot wakes it, so it starts on it. A workspace that has turned its board off takes no
+ * user gives a bot wakes it, so it starts on it, and one the user marks done or blocked wakes the bot that
+ * created it. A workspace that has turned its board off takes no
  * new tasks; the ones it has wait for it to come back on.
  */
 export const tasksApi = new Hono<AuthVars>();
@@ -48,6 +49,7 @@ tasksApi.patch('/:id', async (c) => {
   const r = changeTask(cur.workspace_id, { kind: 'user' }, cur.id, p);
   if (!r) return c.json({ error: 'not found' }, 404);
   if (r.given) wake(r.given, 0);
+  if (r.creator) wake(r.creator, 0);
   return c.json({ task: r.task } satisfies TaskResponse);
 });
 

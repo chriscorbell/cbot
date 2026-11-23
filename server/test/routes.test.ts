@@ -369,6 +369,23 @@ test('the user gives a bot a task on the board, and it is woken to start on it',
   expect((await patch(task.id, { status: 'todo' })).status).toBe(404);
 });
 
+test('the user marking a task done or blocked wakes the bot that created it', async () => {
+  const { addTask } = await import('../src/agent/team.js');
+  const pm = seedBot(user.id, { name: 'Pia' });
+  const eng = seedBot(user.id, { name: 'Ezra' });
+  const { task } = addTask(pm.workspace_id, { kind: 'bot', id: pm.id, name: 'Pia' }, { title: 'Draft the brief', ownerId: eng.id });
+  const patch = (body: unknown) => app.request(`/api/tasks/${task.id}`, { ...json(body), method: 'PATCH' });
+  enqueued.length = 0;
+  expect((await patch({ status: 'blocked' })).status).toBe(200);
+  expect(enqueued).toEqual([{ botId: pm.id, trigger: { type: 'team', depth: 0 } }]);
+  enqueued.length = 0;
+  expect((await patch({ title: 'Draft the short brief' })).status).toBe(200);
+  expect((await patch({ status: 'blocked' })).status).toBe(200);
+  expect(enqueued).toEqual([]);
+  expect((await patch({ status: 'done' })).status).toBe(200);
+  expect(enqueued).toEqual([{ botId: pm.id, trigger: { type: 'team', depth: 0 } }]);
+});
+
 test("a task needs a title, and can't go to a group or another user's bot", async () => {
   const room = seedBot(user.id, { name: 'Crew', kind: 'room' });
   expect((await app.request('/api/tasks', json({ title: ' ' }))).status).toBe(400);

@@ -83,6 +83,9 @@ function TaskForm({ target }: { target: TaskEditorTarget }) {
   const owner = draft.ownerId ? bots.find((b) => b.id === draft.ownerId) : undefined;
   // A bot given the task is told at once and starts on it (server/src/agent/team.ts).
   const wakes = !!owner && (isNew || draft.ownerId !== start.ownerId) && draft.status !== 'done';
+  // So is the bot that created it when it is marked done or blocked, unless that bot owns it.
+  const creator = task?.createdBy && task.createdBy.id !== draft.ownerId ? bots.find((b) => b.id === task.createdBy?.id) : undefined;
+  const tellsCreator = !!creator && draft.status !== start.status && (draft.status === 'done' || draft.status === 'blocked');
 
   return (
     <Modal onClose={close} className="task-editor" label={isNew ? 'New task' : 'Edit task'}>
@@ -121,6 +124,7 @@ function TaskForm({ target }: { target: TaskEditorTarget }) {
             </div>
           </div>
           {wakes && owner && <div className="task-editor__note">{owner.name} is told and starts on it.</div>}
+          {tellsCreator && creator && <div className="task-editor__note">{creator.name}, who added it, is told.</div>}
           {task && (
             <div className="task-editor__meta">
               Added {creatorText(task)} · changed {changedAgo(task.updatedAt)}
