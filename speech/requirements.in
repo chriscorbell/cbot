@@ -1,6 +1,6 @@
 # The service's direct dependencies, which requirements.txt locks with hashes (README.md: Dependencies).
 # sherpa-onnx comes from the wheel the Dockerfile builds.
-fastapi==0.164.0
+fastapi==0.165.0
 uvicorn==0.54.0
 websockets==17.4
 httptools==0.9.0
